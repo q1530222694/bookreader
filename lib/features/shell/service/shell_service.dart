@@ -1,0 +1,3 @@
+class ShellService {
+  const ShellService();
+}

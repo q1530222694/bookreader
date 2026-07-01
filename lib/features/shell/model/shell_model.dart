@@ -1,0 +1,3 @@
+class ShellModel {
+  const ShellModel();
+}
