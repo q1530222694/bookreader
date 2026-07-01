@@ -45,7 +45,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             CupertinoButton(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 14,
+                              ),
                               onPressed: () {
                                 Navigator.pop(context);
                                 _controller.importPdf();
@@ -55,9 +58,15 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                 child: Text('单本导入'),
                               ),
                             ),
-                            Container(height: 1, color: CupertinoColors.systemGrey4),
+                            Container(
+                              height: 1,
+                              color: CupertinoColors.systemGrey4,
+                            ),
                             CupertinoButton(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 14,
+                              ),
                               onPressed: () {
                                 Navigator.pop(context);
                                 _controller.importMultiplePdfs();
@@ -85,18 +94,27 @@ class _BookshelfPageState extends State<BookshelfPage> {
     Navigator.push(
       context,
       CupertinoPageRoute(
-        builder: (context) => BookViewerPage(
-          title: book.title,
-          filePath: book.path,
-        ),
+        builder: (context) =>
+            BookViewerPage(title: book.title, filePath: book.path),
       ),
     );
   }
 
   Widget _buildBookItem(BookModel book) {
+    const fallbackCover = Icon(
+      CupertinoIcons.book,
+      size: 64,
+      color: CupertinoColors.systemGrey,
+    );
     final cover = book.coverBytes != null
-        ? Image.memory(book.coverBytes!, width: 64, height: 96, fit: BoxFit.cover)
-        : const Icon(CupertinoIcons.book, size: 64, color: CupertinoColors.systemGrey);
+        ? Image.memory(
+            book.coverBytes!,
+            width: 64,
+            height: 96,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => fallbackCover,
+          )
+        : fallbackCover;
 
     return CupertinoButton(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -119,12 +137,24 @@ class _BookshelfPageState extends State<BookshelfPage> {
               children: [
                 Text(
                   book.title,
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 4),
-                Text('类型：${book.type.toUpperCase()}', style: const TextStyle(fontSize: 14)),
+                Text(
+                  '类型：${book.type.toUpperCase()}',
+                  style: const TextStyle(fontSize: 14),
+                ),
                 const SizedBox(height: 2),
-                Text(book.path, style: const TextStyle(fontSize: 12, color: CupertinoColors.systemGrey)),
+                Text(
+                  book.path,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: CupertinoColors.systemGrey,
+                  ),
+                ),
               ],
             ),
           ),
@@ -170,7 +200,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
                               SizedBox(height: 16),
                               Text(
                                 '当前书架中暂无书籍',
-                                style: TextStyle(fontSize: 16, color: CupertinoColors.inactiveGray),
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: CupertinoColors.inactiveGray,
+                                ),
                               ),
                             ],
                           ),
@@ -203,10 +236,15 @@ class _BookshelfPageState extends State<BookshelfPage> {
                   return const SizedBox.shrink();
                 }
                 return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   child: Text(
                     errorText,
-                    style: const TextStyle(color: Color.fromARGB(255, 163, 65, 60)),
+                    style: const TextStyle(
+                      color: Color.fromARGB(255, 163, 65, 60),
+                    ),
                   ),
                 );
               },

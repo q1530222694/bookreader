@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import '../model/book_model.dart';
 
@@ -9,17 +8,14 @@ class BookshelfService {
 
   /// Import a PDF file and return a book model for the local bookshelf.
   Future<BookModel> importPdf(File file) async {
+    if (!await file.exists()) {
+      throw FileSystemException('文件不存在', file.path);
+    }
+
     final id = DateTime.now().millisecondsSinceEpoch.toString();
     final title = file.uri.pathSegments.last;
-    final coverBytes = await _generateDummyCover(title);
 
-    final book = BookModel(
-      id: id,
-      title: title,
-      path: file.path,
-      type: 'pdf',
-      coverBytes: coverBytes,
-    );
+    final book = BookModel(id: id, title: title, path: file.path, type: 'pdf');
 
     _books.add(book);
     return book;
@@ -28,9 +24,5 @@ class BookshelfService {
   /// Get all imported books.
   List<BookModel> listBooks() {
     return List<BookModel>.unmodifiable(_books);
-  }
-
-  Future<Uint8List> _generateDummyCover(String title) async {
-    return Uint8List.fromList(title.codeUnits);
   }
 }

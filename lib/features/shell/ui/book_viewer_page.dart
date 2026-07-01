@@ -1,101 +1,110 @@
 import 'dart:async';
-import 'dart:math';
-import 'dart:ui' as ui;
 
 import 'package:flutter/cupertino.dart';
 import 'package:pdf_render/pdf_render.dart';
+import 'package:pdf_render/pdf_render_widgets.dart';
 
 /// BookViewerPage displays the first page of a PDF book.
 class BookViewerPage extends StatefulWidget {
   final String title;
   final String filePath;
 
-  const BookViewerPage({super.key, required this.title, required this.filePath});
+  const BookViewerPage({
+    super.key,
+    required this.title,
+    required this.filePath,
+  });
 
   @override
   State<BookViewerPage> createState() => _BookViewerPageState();
 }
 
 class _BookViewerPageState extends State<BookViewerPage> {
-  late final Future<ui.Image> _pageFuture;
+  String? _errorText;
 
-  @override
-  void initState() {
-    super.initState();
-    _pageFuture = _renderFirstPage();
-  }
+  Future<PdfDocument> _openDocument() =>
+      PdfDocument.openFile(widget.filePath).timeout(const Duration(seconds: 8));
 
-  Future<ui.Image> _renderFirstPage() async {
-    try {
-      final document = await PdfDocument.openFile(widget.filePath);
-      final page = await document.getPage(1);
-      final maxRenderDimension = 1000;
-      final pageWidth = page.width.toInt();
-      final pageHeight = page.height.toInt();
-      final safePageWidth = pageWidth > 0 ? pageWidth : 800;
-      final safePageHeight = pageHeight > 0 ? pageHeight : 1200;
-      final scale = min(maxRenderDimension / safePageWidth, maxRenderDimension / safePageHeight);
-      final renderWidth = max(1, (safePageWidth * scale).round());
-      final renderHeight = max(1, (safePageHeight * scale).round());
-      final pageImage = await page.render(
-        width: renderWidth,
-        height: renderHeight,
-      );
-      final ui.Image image = await pageImage.createImageIfNotAvailable();
-      pageImage.dispose();
-      await document.dispose();
-      return image;
-    } catch (e, stack) {
-      throw Exception('打开 PDF 失败：$e\n$stack');
-    }
+  void _handleError(dynamic error) {
+    if (!mounted) return;
+    setState(() {
+      _errorText = '打开 PDF 失败：$error';
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
-      navigationBar: CupertinoNavigationBar(
-        middle: Text(widget.title),
-      ),
+      navigationBar: CupertinoNavigationBar(middle: Text(widget.title)),
       child: SafeArea(
-        child: FutureBuilder<ui.Image>(
-          future: _pageFuture,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) {
-              return const Center(child: CupertinoActivityIndicator());
-            }
-            if (snapshot.hasError || snapshot.data == null) {
-              return Center(
+        child: Stack(
+          children: [
+            PdfViewer(
+              doc: _openDocument(),
+              onError: _handleError,
+              params: PdfViewerParams(
+                padding: 12,
+                minScale: 0.5,
+                maxScale: 4,
+                pageDecoration: BoxDecoration(
+                  color: CupertinoColors.white,
+                  border: Border.all(color: CupertinoColors.systemGrey4),
+                ),
+                buildPagePlaceholder: (context, pageNumber, pageRect) {
+                  return Container(
+                    color: CupertinoColors.systemGrey6,
+                    alignment: Alignment.center,
+                    child: const CupertinoActivityIndicator(),
+                  );
+                },
+              ),
+            ),
+            if (_errorText != null)
+              Center(
                 child: Padding(
                   padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(CupertinoIcons.exclamationmark_triangle, size: 48, color: CupertinoColors.systemRed),
-                      const SizedBox(height: 16),
-                      const Text('无法打开 PDF 文件', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 12),
-                      Text(
-                        snapshot.error?.toString() ?? '未知错误',
-                        style: const TextStyle(fontSize: 14, color: CupertinoColors.systemGrey),
-                        textAlign: TextAlign.center,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: CupertinoColors.systemBackground.resolveFrom(
+                        context,
                       ),
-                    ],
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: CupertinoColors.systemGrey4),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            CupertinoIcons.exclamationmark_triangle,
+                            size: 48,
+                            color: CupertinoColors.systemRed,
+                          ),
+                          const SizedBox(height: 16),
+                          const Text(
+                            '无法打开 PDF 文件',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            _errorText!,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: CupertinoColors.systemGrey,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-              );
-            }
-            return InteractiveViewer(
-              panEnabled: true,
-              minScale: 0.5,
-              maxScale: 4.0,
-              child: Center(
-                child: RawImage(
-                  image: snapshot.data,
-                  fit: BoxFit.contain,
-                ),
               ),
-            );
-          },
+          ],
         ),
       ),
     );

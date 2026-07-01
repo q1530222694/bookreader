@@ -9,7 +9,9 @@ import '../service/bookshelf_service.dart';
 class BookshelfController {
   final BookshelfService _service = BookshelfService();
 
-  final ValueNotifier<List<BookModel>> books = ValueNotifier<List<BookModel>>([]);
+  final ValueNotifier<List<BookModel>> books = ValueNotifier<List<BookModel>>(
+    [],
+  );
   final ValueNotifier<bool> isLoading = ValueNotifier<bool>(false);
   final ValueNotifier<String?> errorText = ValueNotifier<String?>(null);
 
@@ -18,7 +20,7 @@ class BookshelfController {
     errorText.value = null;
 
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf'],
         allowMultiple: false,
@@ -47,7 +49,7 @@ class BookshelfController {
     errorText.value = null;
 
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf'],
         allowMultiple: true,
