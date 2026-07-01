@@ -18,7 +18,7 @@ class BookshelfController {
     errorText.value = null;
 
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf'],
         allowMultiple: false,
@@ -47,7 +47,7 @@ class BookshelfController {
     errorText.value = null;
 
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf'],
         allowMultiple: true,
