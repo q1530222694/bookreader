@@ -182,24 +182,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
-        leading: Text(
-          '书架',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: CupertinoTheme.of(context).primaryColor),
-        ),
-        middle: const SizedBox.shrink(),
-        trailing: Row(
+        leading: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            CupertinoButton(
-              padding: EdgeInsets.zero,
-              onPressed: () {
-                setState(() {
-                  _searchText = '';
-                  _searchController.clear();
-                });
-              },
-              child: const Icon(CupertinoIcons.clear_circled),
+            Text(
+              '书架',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: CupertinoTheme.of(context).primaryColor),
             ),
+            const SizedBox(width: 8),
             CupertinoButton(
               padding: EdgeInsets.zero,
               onPressed: () {
@@ -250,12 +240,13 @@ class _BookshelfPageState extends State<BookshelfPage> {
               },
               child: const Icon(CupertinoIcons.search),
             ),
-            CupertinoButton(
-              padding: EdgeInsets.zero,
-              onPressed: () => _showMoreOptions(context),
-              child: const Icon(CupertinoIcons.ellipsis),
-            ),
           ],
+        ),
+        middle: const SizedBox.shrink(),
+        trailing: CupertinoButton(
+          padding: EdgeInsets.zero,
+          onPressed: () => _showMoreOptions(context),
+          child: const Icon(CupertinoIcons.ellipsis),
         ),
       ),
       child: SafeArea(
