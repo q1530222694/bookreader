@@ -13,8 +13,8 @@ class IOSScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
-      navigationBar: const CupertinoNavigationBar(
-        middle: Text("Reader App"),
+      navigationBar: CupertinoNavigationBar(
+        middle: Text("Reader App", style: TextStyle(color: CupertinoTheme.of(context).primaryColor)),
       ),
       child: body,
     );

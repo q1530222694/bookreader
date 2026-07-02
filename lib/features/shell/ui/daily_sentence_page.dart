@@ -60,7 +60,7 @@ class _DailySentencePageState extends State<DailySentencePage> {
     return CupertinoPageScaffold(
       backgroundColor: CupertinoColors.systemBackground.resolveFrom(context),
       navigationBar: CupertinoNavigationBar(
-        middle: Text(LocalizationEngine.text('daily_sentence')),
+        middle: Text(LocalizationEngine.text('daily_sentence'), style: TextStyle(color: CupertinoTheme.of(context).primaryColor)),
         trailing: CupertinoButton(
           padding: EdgeInsets.zero,
           onPressed: _showAddSentenceSheet,

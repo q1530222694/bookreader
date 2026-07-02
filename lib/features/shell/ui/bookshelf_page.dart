@@ -14,9 +14,12 @@ class BookshelfPage extends StatefulWidget {
 
 class _BookshelfPageState extends State<BookshelfPage> {
   final BookshelfController _controller = BookshelfController();
+  final TextEditingController _searchController = TextEditingController();
+  String _searchText = '';
 
   @override
   void dispose() {
+    _searchController.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -100,6 +103,18 @@ class _BookshelfPageState extends State<BookshelfPage> {
     );
   }
 
+  List<BookModel> _filterBooks(List<BookModel> books) {
+    final keyword = _searchText.trim().toLowerCase();
+    if (keyword.isEmpty) {
+      return books;
+    }
+    return books.where((book) {
+      final title = book.title.toLowerCase();
+      final path = book.path.toLowerCase();
+      return title.contains(keyword) || path.contains(keyword);
+    }).toList();
+  }
+
   Widget _buildBookItem(BookModel book) {
     const fallbackCover = Icon(
       CupertinoIcons.book,
@@ -167,15 +182,80 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
-        leading: const Text(
+        leading: Text(
           '书架',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: CupertinoTheme.of(context).primaryColor),
         ),
         middle: const SizedBox.shrink(),
-        trailing: CupertinoButton(
-          padding: EdgeInsets.zero,
-          onPressed: () => _showMoreOptions(context),
-          child: const Icon(CupertinoIcons.ellipsis),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              onPressed: () {
+                setState(() {
+                  _searchText = '';
+                  _searchController.clear();
+                });
+              },
+              child: const Icon(CupertinoIcons.clear_circled),
+            ),
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              onPressed: () {
+                showCupertinoModalPopup<void>(
+                  context: context,
+                  builder: (context) {
+                    return CupertinoPopupSurface(
+                      child: Container(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: CupertinoTextField(
+                                    controller: _searchController,
+                                    placeholder: '搜索已导入的书籍',
+                                    prefix: const Padding(
+                                      padding: EdgeInsets.only(left: 8),
+                                      child: Icon(CupertinoIcons.search),
+                                    ),
+                                    onChanged: (value) {
+                                      setState(() {
+                                        _searchText = value;
+                                      });
+                                    },
+                                    clearButtonMode: OverlayVisibilityMode.editing,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                CupertinoButton(
+                                  padding: EdgeInsets.zero,
+                                  onPressed: () {
+                                    Navigator.of(context).pop();
+                                  },
+                                  child: const Text('完成'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+              child: const Icon(CupertinoIcons.search),
+            ),
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              onPressed: () => _showMoreOptions(context),
+              child: const Icon(CupertinoIcons.ellipsis),
+            ),
+          ],
         ),
       ),
       child: SafeArea(
@@ -186,6 +266,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
             ValueListenableBuilder<List<BookModel>>(
               valueListenable: _controller.books,
               builder: (context, books, child) {
+                final filteredBooks = _filterBooks(books);
                 return Expanded(
                   child: books.isEmpty
                       ? Center(
@@ -208,12 +289,22 @@ class _BookshelfPageState extends State<BookshelfPage> {
                             ],
                           ),
                         )
-                      : ListView.builder(
-                          itemCount: books.length,
-                          itemBuilder: (context, index) {
-                            return _buildBookItem(books[index]);
-                          },
-                        ),
+                      : filteredBooks.isEmpty
+                          ? Center(
+                              child: Text(
+                                '没有找到匹配的书籍',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  color: CupertinoColors.inactiveGray,
+                                ),
+                              ),
+                            )
+                          : ListView.builder(
+                              itemCount: filteredBooks.length,
+                              itemBuilder: (context, index) {
+                                return _buildBookItem(filteredBooks[index]);
+                              },
+                            ),
                 );
               },
             ),

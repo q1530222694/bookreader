@@ -45,16 +45,16 @@ class _PaymentPageState extends State<PaymentPage> {
   @override
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
-      navigationBar: const CupertinoNavigationBar(middle: Text('支付中心')),
+      navigationBar: CupertinoNavigationBar(middle: Text('支付中心', style: TextStyle(color: CupertinoTheme.of(context).primaryColor))),
       child: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 '支付中心',
-                style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+                style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: CupertinoTheme.of(context).primaryColor),
               ),
               const SizedBox(height: 16),
               CupertinoButton.filled(

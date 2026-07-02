@@ -2,49 +2,18 @@ import 'package:flutter/cupertino.dart';
 
 import '../../../engine/localization_engine.dart';
 import '../../../engine/settings_engine.dart';
+import '../../../shared/ui/app_text_styles.dart';
 import '../controller/settings_controller.dart';
+import '../../membership/ui/membership_page.dart';
+import 'about_page.dart';
+import 'appearance_page.dart';
 import 'daily_sentence_page.dart';
+import 'language_page.dart';
 import 'settings_page.dart';
 
 /// ProfilePage displays the user's personal section for the shell module.
 class ProfilePage extends StatelessWidget {
   const ProfilePage({super.key});
-
-  void _showLanguageSheet(BuildContext context) {
-    final language = SettingsController.language.value;
-    showCupertinoModalPopup<void>(
-      context: context,
-      builder: (context) {
-        return CupertinoActionSheet(
-          title: Text(LocalizationEngine.text('language')),
-          actions: [
-            CupertinoActionSheetAction(
-              onPressed: () {
-                SettingsController.setLanguage(SettingsEngine.languageChinese);
-                Navigator.of(context).pop();
-              },
-              child: Text(
-                '${LocalizationEngine.text('chinese')}${language == SettingsEngine.languageChinese ? ' ✓' : ''}',
-              ),
-            ),
-            CupertinoActionSheetAction(
-              onPressed: () {
-                SettingsController.setLanguage(SettingsEngine.languageEnglish);
-                Navigator.of(context).pop();
-              },
-              child: Text(
-                '${LocalizationEngine.text('english')}${language == SettingsEngine.languageEnglish ? ' ✓' : ''}',
-              ),
-            ),
-          ],
-          cancelButton: CupertinoActionSheetAction(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(LocalizationEngine.text('cancel')),
-          ),
-        );
-      },
-    );
-  }
 
   void _showAppearanceSheet(BuildContext context) {
     final appearance = SettingsController.appearance.value;
@@ -59,8 +28,20 @@ class ProfilePage extends StatelessWidget {
                 SettingsController.setAppearance(SettingsEngine.appearanceSystem);
                 Navigator.of(context).pop();
               },
-              child: Text(
-                '${LocalizationEngine.text('follow_system')}${appearance == SettingsEngine.appearanceSystem ? ' ✓' : ''}',
+              child: SizedBox(
+                width: double.infinity,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Text(LocalizationEngine.text('follow_system')),
+                    if (appearance == SettingsEngine.appearanceSystem)
+                      Icon(
+                        CupertinoIcons.check_mark_circled_solid,
+                        color: CupertinoTheme.of(context).primaryColor,
+                      ),
+                  ],
+                ),
               ),
             ),
             CupertinoActionSheetAction(
@@ -68,8 +49,20 @@ class ProfilePage extends StatelessWidget {
                 SettingsController.setAppearance(SettingsEngine.appearanceLight);
                 Navigator.of(context).pop();
               },
-              child: Text(
-                '${LocalizationEngine.text('light_mode')}${appearance == SettingsEngine.appearanceLight ? ' ✓' : ''}',
+              child: SizedBox(
+                width: double.infinity,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Text(LocalizationEngine.text('light_mode')),
+                    if (appearance == SettingsEngine.appearanceLight)
+                      Icon(
+                        CupertinoIcons.check_mark_circled_solid,
+                        color: CupertinoTheme.of(context).primaryColor,
+                      ),
+                  ],
+                ),
               ),
             ),
             CupertinoActionSheetAction(
@@ -77,9 +70,201 @@ class ProfilePage extends StatelessWidget {
                 SettingsController.setAppearance(SettingsEngine.appearanceDark);
                 Navigator.of(context).pop();
               },
-              child: Text(
-                '${LocalizationEngine.text('dark_mode')}${appearance == SettingsEngine.appearanceDark ? ' ✓' : ''}',
+              child: SizedBox(
+                width: double.infinity,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Text(LocalizationEngine.text('dark_mode')),
+                    if (appearance == SettingsEngine.appearanceDark)
+                      Icon(
+                        CupertinoIcons.check_mark_circled_solid,
+                        color: CupertinoTheme.of(context).primaryColor,
+                      ),
+                  ],
+                ),
               ),
+            ),
+          ],
+          cancelButton: CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(LocalizationEngine.text('cancel')),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showFontSheet(BuildContext context) {
+    final fontFamily = SettingsController.fontFamily.value;
+    showCupertinoModalPopup<void>(
+      context: context,
+      builder: (context) {
+        return CupertinoActionSheet(
+          title: Text(LocalizationEngine.text('font_family')),
+          actions: [
+            CupertinoActionSheetAction(
+              onPressed: () {
+                SettingsController.setFontFamily(SettingsEngine.fontFamilySystem);
+                Navigator.of(context).pop();
+              },
+              child: SizedBox(
+                width: double.infinity,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(LocalizationEngine.text('system_font')),
+                    if (fontFamily == SettingsEngine.fontFamilySystem)
+                      Icon(CupertinoIcons.check_mark_circled_solid, color: CupertinoTheme.of(context).primaryColor),
+                  ],
+                ),
+              ),
+            ),
+            CupertinoActionSheetAction(
+              onPressed: () {
+                SettingsController.setFontFamily(SettingsEngine.fontFamilySansSerif);
+                Navigator.of(context).pop();
+              },
+              child: SizedBox(
+                width: double.infinity,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(LocalizationEngine.text('sans_serif')),
+                    if (fontFamily == SettingsEngine.fontFamilySansSerif)
+                      Icon(CupertinoIcons.check_mark_circled_solid, color: CupertinoTheme.of(context).primaryColor),
+                  ],
+                ),
+              ),
+            ),
+            CupertinoActionSheetAction(
+              onPressed: () {
+                SettingsController.setFontFamily(SettingsEngine.fontFamilySerif);
+                Navigator.of(context).pop();
+              },
+              child: SizedBox(
+                width: double.infinity,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(LocalizationEngine.text('serif')),
+                    if (fontFamily == SettingsEngine.fontFamilySerif)
+                      Icon(CupertinoIcons.check_mark_circled_solid, color: CupertinoTheme.of(context).primaryColor),
+                  ],
+                ),
+              ),
+            ),
+            CupertinoActionSheetAction(
+              onPressed: () {
+                SettingsController.setFontFamily(SettingsEngine.fontFamilyMonospace);
+                Navigator.of(context).pop();
+              },
+              child: SizedBox(
+                width: double.infinity,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(LocalizationEngine.text('monospace')),
+                    if (fontFamily == SettingsEngine.fontFamilyMonospace)
+                      Icon(CupertinoIcons.check_mark_circled_solid, color: CupertinoTheme.of(context).primaryColor),
+                  ],
+                ),
+              ),
+            ),
+          ],
+          cancelButton: CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(LocalizationEngine.text('cancel')),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showThemeSheet(BuildContext context) {
+    final themeColor = SettingsController.themeColor.value;
+    showCupertinoModalPopup<void>(
+      context: context,
+      builder: (context) {
+        return CupertinoActionSheet(
+          title: Text(LocalizationEngine.text('theme_color')),
+          actions: [
+            CupertinoActionSheetAction(
+              onPressed: () {
+                SettingsController.setThemeColor(SettingsEngine.themeColorBlue);
+                Navigator.of(context).pop();
+              },
+              child: SizedBox(
+                width: double.infinity,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(LocalizationEngine.text('theme_color_blue')),
+                    if (themeColor == SettingsEngine.themeColorBlue)
+                      Icon(CupertinoIcons.check_mark_circled_solid, color: CupertinoTheme.of(context).primaryColor),
+                  ],
+                ),
+              ),
+            ),
+            CupertinoActionSheetAction(
+              onPressed: () {
+                SettingsController.setThemeColor(SettingsEngine.themeColorGreen);
+                Navigator.of(context).pop();
+              },
+              child: SizedBox(
+                width: double.infinity,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(LocalizationEngine.text('theme_color_green')),
+                    if (themeColor == SettingsEngine.themeColorGreen)
+                      Icon(CupertinoIcons.check_mark_circled_solid, color: CupertinoTheme.of(context).primaryColor),
+                  ],
+                ),
+              ),
+            ),
+            CupertinoActionSheetAction(
+              onPressed: () {
+                SettingsController.setThemeColor(SettingsEngine.themeColorPink);
+                Navigator.of(context).pop();
+              },
+              child: SizedBox(
+                width: double.infinity,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(LocalizationEngine.text('theme_color_pink')),
+                    if (themeColor == SettingsEngine.themeColorPink)
+                      Icon(CupertinoIcons.check_mark_circled_solid, color: CupertinoTheme.of(context).primaryColor),
+                  ],
+                ),
+              ),
+            ),
+            CupertinoActionSheetAction(
+              onPressed: () {
+                SettingsController.setThemeColor(SettingsEngine.themeColorOrange);
+                Navigator.of(context).pop();
+              },
+              child: SizedBox(
+                width: double.infinity,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(LocalizationEngine.text('theme_color_orange')),
+                    if (themeColor == SettingsEngine.themeColorOrange)
+                      Icon(CupertinoIcons.check_mark_circled_solid, color: CupertinoTheme.of(context).primaryColor),
+                  ],
+                ),
+              ),
+            ),
+            CupertinoActionSheetAction(
+              onPressed: () {
+                Navigator.of(context).pop();
+                // open font sheet
+                Future.delayed(Duration(milliseconds: 200), () => _showFontSheet(context));
+              },
+              child: Text(LocalizationEngine.text('font_family')),
             ),
           ],
           cancelButton: CupertinoActionSheetAction(
@@ -102,7 +287,7 @@ class ProfilePage extends StatelessWidget {
       navigationBar: CupertinoNavigationBar(
         middle: Text(
           LocalizationEngine.text('profile'),
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: labelColor),
+          style: AppTextStyles.pageTitle(context),
         ),
       ),
       child: SafeArea(
@@ -116,11 +301,7 @@ class ProfilePage extends StatelessWidget {
                   children: [
                     Text(
                       LocalizationEngine.text('account_settings'),
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: labelColor,
-                      ),
+                      style: AppTextStyles.sectionTitle(context),
                     ),
                     const SizedBox(height: 16),
                     Container(
@@ -141,19 +322,12 @@ class ProfilePage extends StatelessWidget {
                         children: [
                           Text(
                             LocalizationEngine.text('welcome_back'),
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                              color: labelColor,
-                            ),
+                            style: AppTextStyles.body(context).copyWith(fontWeight: FontWeight.w600),
                           ),
                           const SizedBox(height: 8),
                           Text(
                             LocalizationEngine.text('placeholder_description'),
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: CupertinoColors.secondaryLabel.resolveFrom(context),
-                            ),
+                            style: AppTextStyles.secondary(context),
                           ),
                           const SizedBox(height: 18),
                           Row(
@@ -163,7 +337,11 @@ class ProfilePage extends StatelessWidget {
                                   padding: const EdgeInsets.symmetric(
                                     vertical: 14,
                                   ),
-                                  onPressed: () {},
+                                  onPressed: () {
+                                    Navigator.of(context).push(
+                                      CupertinoPageRoute(builder: (context) => const MembershipPage()),
+                                    );
+                                  },
                                   child: Text(LocalizationEngine.text('premium')),
                                 ),
                               ),
@@ -186,11 +364,7 @@ class ProfilePage extends StatelessWidget {
                     const SizedBox(height: 20),
                     Text(
                       LocalizationEngine.text('quick_access'),
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: labelColor,
-                      ),
+                      style: AppTextStyles.sectionTitle(context),
                     ),
                     const SizedBox(height: 12),
                   ],
@@ -217,17 +391,29 @@ class ProfilePage extends StatelessWidget {
                   _ProfileSettingItem(
                     label: LocalizationEngine.text('language'),
                     icon: CupertinoIcons.globe,
-                    onTap: () => _showLanguageSheet(context),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        CupertinoPageRoute(builder: (context) => const LanguagePage()),
+                      );
+                    },
                   ),
                   _ProfileSettingItem(
-                    label: LocalizationEngine.text('appearance'),
+                    label: LocalizationEngine.text('app_appearance'),
                     icon: CupertinoIcons.paintbrush_fill,
-                    onTap: () => _showAppearanceSheet(context),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        CupertinoPageRoute(builder: (context) => const AppearancePage()),
+                      );
+                    },
                   ),
                   _ProfileSettingItem(
                     label: LocalizationEngine.text('theme_color'),
                     icon: CupertinoIcons.circle_fill,
-                    onTap: () {},
+                    onTap: () {
+                      Navigator.of(context).push(
+                        CupertinoPageRoute(builder: (context) => const AppearancePage()),
+                      );
+                    },
                   ),
                   _ProfileSettingItem(
                     label: LocalizationEngine.text('more_settings'),
@@ -237,7 +423,11 @@ class ProfilePage extends StatelessWidget {
                   _ProfileSettingItem(
                     label: LocalizationEngine.text('about'),
                     icon: CupertinoIcons.info_circle_fill,
-                    onTap: () {},
+                    onTap: () {
+                      Navigator.of(context).push(
+                        CupertinoPageRoute(builder: (context) => const AboutPage()),
+                      );
+                    },
                   ),
                 ],
               ),
@@ -292,18 +482,14 @@ class _ProfileSettingItem extends StatelessWidget {
               child: Icon(
                 icon,
                 size: 20,
-                color: CupertinoColors.activeBlue,
+                color: CupertinoTheme.of(context).primaryColor,
               ),
             ),
             const SizedBox(width: 14),
             Expanded(
               child: Text(
                 label,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                  color: CupertinoColors.label.resolveFrom(context),
-                ),
+                style: AppTextStyles.menuItem(context),
               ),
             ),
             Icon(

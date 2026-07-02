@@ -2,13 +2,13 @@ import 'package:flutter/cupertino.dart';
 
 import '../../../engine/localization_engine.dart';
 import '../../../engine/settings_engine.dart';
+import '../../../engine/theme_engine.dart';
 import '../controller/settings_controller.dart';
 import '../controller/shell_controller.dart';
 import 'bookshelf_page.dart';
 import 'home_page.dart';
 import 'memory_page.dart';
 import 'profile_page.dart';
-import 'settings_page.dart';
 import 'tools_page.dart';
 
 class ShellPage extends StatefulWidget {
@@ -29,13 +29,16 @@ class _ShellPageState extends State<ShellPage> {
     CupertinoIcons.person,
   ];
 
-  static const _tabPages = <Widget>[
-    HomePage(),
-    BookshelfPage(),
-    MemoryPage(),
-    ToolsPage(),
-    ProfilePage(),
-  ];
+  Widget _buildTabPage(int tabIndex) {
+    final pages = <Widget>[
+      HomePage(),
+      BookshelfPage(),
+      MemoryPage(),
+      ToolsPage(),
+      ProfilePage(),
+    ];
+    return pages[tabIndex];
+  }
 
   @override
   void dispose() {
@@ -48,49 +51,73 @@ class _ShellPageState extends State<ShellPage> {
     return ValueListenableBuilder<String>(
       valueListenable: SettingsController.appearance,
       builder: (context, appearance, child) {
-        final brightness = appearance == SettingsEngine.appearanceLight
-            ? Brightness.light
-            : appearance == SettingsEngine.appearanceDark
-                ? Brightness.dark
-                : WidgetsBinding.instance.platformDispatcher.platformBrightness;
+        return ValueListenableBuilder<String>(
+          valueListenable: SettingsController.themeColor,
+          builder: (context, themeColor, child) {
+            final brightness = appearance == SettingsEngine.appearanceLight
+                ? Brightness.light
+                : appearance == SettingsEngine.appearanceDark
+                    ? Brightness.dark
+                    : WidgetsBinding.instance.platformDispatcher.platformBrightness;
 
-        return CupertinoApp(
-          title: 'Book Reader',
-          theme: CupertinoThemeData(brightness: brightness),
-          home: ValueListenableBuilder<String>(
-            valueListenable: SettingsController.language,
-            builder: (context, language, child) {
-              final tabTitles = <String>[
-                LocalizationEngine.text('home'),
-                LocalizationEngine.text('bookshelf'),
-                LocalizationEngine.text('memory'),
-                LocalizationEngine.text('tools'),
-                LocalizationEngine.text('profile'),
-              ];
+            final primaryColor = themeColor == SettingsEngine.themeColorGreen
+                ? CupertinoColors.activeGreen
+                : themeColor == SettingsEngine.themeColorPink
+                    ? CupertinoColors.systemPink
+                    : themeColor == SettingsEngine.themeColorOrange
+                        ? CupertinoColors.systemOrange
+                        : CupertinoColors.activeBlue;
 
-              return ValueListenableBuilder<int>(
-                valueListenable: _controller.selectedIndex,
-                builder: (context, index, child) {
-                  return CupertinoTabScaffold(
-                    tabBar: CupertinoTabBar(
-                      currentIndex: index,
-                      onTap: _controller.setIndex,
-                      items: List<BottomNavigationBarItem>.generate(
-                        tabTitles.length,
-                        (itemIndex) => BottomNavigationBarItem(
-                          icon: Icon(_tabIcons[itemIndex]),
-                          label: tabTitles[itemIndex],
-                        ),
-                      ),
-                    ),
-                    tabBuilder: (context, tabIndex) {
-                      return _tabPages[tabIndex];
+            return ValueListenableBuilder<String>(
+              valueListenable: SettingsController.fontFamily,
+              builder: (context, fontFamily, child) {
+                return CupertinoApp(
+                  title: 'Book Reader',
+                  theme: ThemeEngine.buildThemeData(
+                    brightness: brightness,
+                    primaryColor: primaryColor,
+                    scaffoldBackgroundColor:
+                        CupertinoColors.systemBackground.resolveFrom(context),
+                    fontFamilyKey: fontFamily,
+                  ),
+                  home: ValueListenableBuilder<String>(
+                    valueListenable: SettingsController.language,
+                    builder: (context, language, child) {
+                      final tabTitles = <String>[
+                        LocalizationEngine.text('home'),
+                        LocalizationEngine.text('bookshelf'),
+                        LocalizationEngine.text('memory'),
+                        LocalizationEngine.text('tools'),
+                        LocalizationEngine.text('profile'),
+                      ];
+
+                      return ValueListenableBuilder<int>(
+                        valueListenable: _controller.selectedIndex,
+                        builder: (context, index, child) {
+                          return CupertinoTabScaffold(
+                            tabBar: CupertinoTabBar(
+                              currentIndex: index,
+                              onTap: _controller.setIndex,
+                              items: List<BottomNavigationBarItem>.generate(
+                                tabTitles.length,
+                                (itemIndex) => BottomNavigationBarItem(
+                                  icon: Icon(_tabIcons[itemIndex]),
+                                  label: tabTitles[itemIndex],
+                                ),
+                              ),
+                            ),
+                            tabBuilder: (context, tabIndex) {
+                              return _buildTabPage(tabIndex);
+                            },
+                          );
+                        },
+                      );
                     },
-                  );
-                },
-              );
-            },
-          ),
+                  ),
+                );
+              },
+            );
+          },
         );
       },
     );

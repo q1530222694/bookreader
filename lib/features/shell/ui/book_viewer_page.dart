@@ -44,7 +44,7 @@ class _BookViewerPageState extends State<BookViewerPage> {
   @override
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
-      navigationBar: CupertinoNavigationBar(middle: Text(widget.title)),
+      navigationBar: CupertinoNavigationBar(middle: Text(widget.title, style: TextStyle(color: CupertinoTheme.of(context).primaryColor))),
       child: SafeArea(
         child: Column(
           children: [

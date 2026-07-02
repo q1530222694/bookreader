@@ -3,48 +3,57 @@ import 'package:flutter/cupertino.dart';
 import '../../../engine/localization_engine.dart';
 import '../../../engine/settings_engine.dart';
 import '../../../shared/ui/app_text_styles.dart';
-import 'appearance_page.dart';
-import 'language_page.dart';
 import '../controller/settings_controller.dart';
 
-/// SettingsPage provides language and appearance switching UI.
-class SettingsPage extends StatelessWidget {
-  const SettingsPage({super.key});
+/// LanguagePage provides a dedicated page for switching app language.
+class LanguagePage extends StatelessWidget {
+  const LanguagePage({super.key});
 
   @override
   Widget build(BuildContext context) {
     final backgroundColor = CupertinoColors.systemBackground.resolveFrom(context);
+
     return CupertinoPageScaffold(
       backgroundColor: backgroundColor,
       navigationBar: CupertinoNavigationBar(
-        middle: Text(LocalizationEngine.text('settings')),
+        middle: Text(
+          LocalizationEngine.text('language'),
+          style: AppTextStyles.pageTitle(context),
+        ),
       ),
       child: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            _SectionHeader(title: LocalizationEngine.text('language')),
-            _SettingOption(
-              label: LocalizationEngine.text('language_settings_title'),
-              selected: false,
-              onTap: () {
-                Navigator.of(context).push(
-                  CupertinoPageRoute(builder: (context) => const LanguagePage()),
+            Text(
+              LocalizationEngine.text('language_settings_title'),
+              style: AppTextStyles.sectionTitle(context),
+            ),
+            const SizedBox(height: 12),
+            ValueListenableBuilder<String>(
+              valueListenable: SettingsController.language,
+              builder: (context, language, child) {
+                return Column(
+                  children: [
+                    _LanguageOption(
+                      label: LocalizationEngine.text('chinese'),
+                      selected: language == SettingsEngine.languageChinese,
+                      onTap: () => SettingsController.setLanguage(SettingsEngine.languageChinese),
+                    ),
+                    _LanguageOption(
+                      label: LocalizationEngine.text('english'),
+                      selected: language == SettingsEngine.languageEnglish,
+                      onTap: () => SettingsController.setLanguage(SettingsEngine.languageEnglish),
+                    ),
+                    _LanguageOption(
+                      label: LocalizationEngine.text('traditional_chinese'),
+                      selected: language == SettingsEngine.languageTraditionalChinese,
+                      onTap: () => SettingsController.setLanguage(SettingsEngine.languageTraditionalChinese),
+                    ),
+                  ],
                 );
               },
             ),
-            const SizedBox(height: 24),
-            _SectionHeader(title: LocalizationEngine.text('appearance')),
-            _SettingOption(
-              label: LocalizationEngine.text('app_appearance'),
-              selected: false,
-              onTap: () {
-                Navigator.of(context).push(
-                  CupertinoPageRoute(builder: (context) => const AppearancePage()),
-                );
-              },
-            ),
-            // Theme color and font family settings moved to "My -> Theme Color".
           ],
         ),
       ),
@@ -52,29 +61,12 @@ class SettingsPage extends StatelessWidget {
   }
 }
 
-class _SectionHeader extends StatelessWidget {
-  final String title;
-
-  const _SectionHeader({required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(
-        title,
-        style: AppTextStyles.sectionTitle(context),
-      ),
-    );
-  }
-}
-
-class _SettingOption extends StatelessWidget {
+class _LanguageOption extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
 
-  const _SettingOption({
+  const _LanguageOption({
     required this.label,
     required this.selected,
     required this.onTap,
@@ -99,15 +91,11 @@ class _SettingOption extends StatelessWidget {
           ),
         ),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  label,
-                  style: AppTextStyles.menuItem(context, selected: selected),
-                ),
+              child: Text(
+                label,
+                style: AppTextStyles.menuItem(context, selected: selected),
               ),
             ),
             if (selected)
