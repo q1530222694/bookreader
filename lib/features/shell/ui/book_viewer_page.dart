@@ -1,8 +1,5 @@
-import 'dart:async';
-
 import 'package:flutter/cupertino.dart';
-import 'package:pdf_render/pdf_render.dart';
-import 'package:pdf_render/pdf_render_widgets.dart';
+import 'package:pdfx/pdfx.dart';
 
 /// BookViewerPage displays the first page of a PDF book.
 class BookViewerPage extends StatefulWidget {
@@ -21,11 +18,23 @@ class BookViewerPage extends StatefulWidget {
 
 class _BookViewerPageState extends State<BookViewerPage> {
   String? _errorText;
+  late final PdfController _pdfController;
 
-  Future<PdfDocument> _openDocument() =>
-      PdfDocument.openFile(widget.filePath).timeout(const Duration(seconds: 8));
+  @override
+  void initState() {
+    super.initState();
+    _pdfController = PdfController(
+      document: PdfDocument.openFile(widget.filePath),
+    );
+  }
 
-  void _handleError(dynamic error) {
+  @override
+  void dispose() {
+    _pdfController.dispose();
+    super.dispose();
+  }
+
+  void _handleError(Object error) {
     if (!mounted) return;
     setState(() {
       _errorText = '打开 PDF 失败：$error';
@@ -37,76 +46,144 @@ class _BookViewerPageState extends State<BookViewerPage> {
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(middle: Text(widget.title)),
       child: SafeArea(
-        child: Stack(
+        child: Column(
           children: [
-            PdfViewer(
-              doc: _openDocument(),
-              onError: _handleError,
-              params: PdfViewerParams(
-                padding: 12,
-                minScale: 0.5,
-                maxScale: 4,
-                pageDecoration: BoxDecoration(
-                  color: CupertinoColors.white,
-                  border: Border.all(color: CupertinoColors.systemGrey4),
-                ),
-                buildPagePlaceholder: (context, pageNumber, pageRect) {
-                  return Container(
-                    color: CupertinoColors.systemGrey6,
-                    alignment: Alignment.center,
-                    child: const CupertinoActivityIndicator(),
-                  );
+            Expanded(
+              child: PdfView(
+                controller: _pdfController,
+                onDocumentError: (error) => _handleError(error),
+                onDocumentLoaded: (_) {
+                  if (!mounted) return;
+                  setState(() {
+                    _errorText = null;
+                  });
                 },
+                builders: PdfViewBuilders<DefaultBuilderOptions>(
+                  options: const DefaultBuilderOptions(),
+                  documentLoaderBuilder: (_) => const Center(
+                    child: CupertinoActivityIndicator(),
+                  ),
+                  pageLoaderBuilder: (_) => const Center(
+                    child: CupertinoActivityIndicator(),
+                  ),
+                  pageBuilder: _pageBuilder,
+                ),
+                scrollDirection: Axis.vertical,
+                pageSnapping: true,
+                physics: const BouncingScrollPhysics(),
               ),
             ),
             if (_errorText != null)
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: CupertinoColors.systemBackground.resolveFrom(
-                        context,
-                      ),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: CupertinoColors.systemGrey4),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            CupertinoIcons.exclamationmark_triangle,
-                            size: 48,
-                            color: CupertinoColors.systemRed,
+              Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: CupertinoColors.systemBackground.resolveFrom(context),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: CupertinoColors.systemGrey4),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          CupertinoIcons.exclamationmark_triangle,
+                          size: 48,
+                          color: CupertinoColors.systemRed,
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          '无法打开 PDF 文件',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
                           ),
-                          const SizedBox(height: 16),
-                          const Text(
-                            '无法打开 PDF 文件',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          _errorText!,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: CupertinoColors.systemGrey,
                           ),
-                          const SizedBox(height: 12),
-                          Text(
-                            _errorText!,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              color: CupertinoColors.systemGrey,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
                     ),
                   ),
                 ),
               ),
+            Container(
+              height: 56,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: CupertinoColors.systemGrey6,
+                border: Border(top: BorderSide(color: CupertinoColors.systemGrey4)),
+              ),
+              child: Row(
+                children: [
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () {
+                      _pdfController.previousPage(
+                        duration: const Duration(milliseconds: 200),
+                        curve: Curves.ease,
+                      );
+                    },
+                    child: const Icon(CupertinoIcons.back),
+                  ),
+                  Expanded(
+                    child: Center(
+                      child: PdfPageNumber(
+                        controller: _pdfController,
+                        builder: (_, __, page, pagesCount) {
+                          return Text(
+                            '$page/${pagesCount ?? 0}',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () {
+                      _pdfController.nextPage(
+                        duration: const Duration(milliseconds: 200),
+                        curve: Curves.ease,
+                      );
+                    },
+                    child: const Icon(CupertinoIcons.forward),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  PhotoViewGalleryPageOptions _pageBuilder(
+    BuildContext context,
+    Future<PdfPageImage> pageImage,
+    int index,
+    PdfDocument document,
+  ) {
+    return PhotoViewGalleryPageOptions(
+      imageProvider: PdfPageImageProvider(
+        pageImage,
+        index,
+        document.id,
+      ),
+      minScale: PhotoViewComputedScale.contained * 1,
+      maxScale: PhotoViewComputedScale.contained * 3.0,
+      initialScale: PhotoViewComputedScale.contained * 1.0,
+      heroAttributes: PhotoViewHeroAttributes(tag: '${document.id}-$index'),
     );
   }
 }
