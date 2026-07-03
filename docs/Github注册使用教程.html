@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>开发者账号批量生成器</title>
+    <style>
+        :root {
+            --primary-color: #4F46E5;
+            --primary-hover: #4338CA;
+            --success-color: #10B981;
+            --success-hover: #059669;
+            --danger-color: #EF4444;
+            --danger-hover: #DC2626;
+            --bg-color: #F3F4F6;
+            --card-bg: #FFFFFF;
+            --text-main: #1F2937;
+            --text-muted: #6B7280;
+            --border-color: #E5E7EB;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #f6f8fd 0%, #f1f5f9 100%);
+            color: var(--text-main);
+            min-height: 100vh;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            position: relative;
+        }
+
+        /* ----- 右上角使用教程悬浮组件 ----- */
+        .tutorial-wrapper {
+            position: fixed;
+            top: 2rem;
+            right: 2rem;
+            z-index: 100;
+        }
+
+        .btn-tutorial {
+            background-color: var(--card-bg);
+            color: var(--primary-color);
+            border: 1px solid var(--border-color);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            border-radius: 99px;
+            padding: 0.6rem 1.2rem;
+            font-size: 0.95rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: default; /* 悬浮触发，不需要手型 */
+            transition: all 0.3s ease;
+        }
+
+        .tutorial-wrapper:hover .btn-tutorial {
+            border-color: rgba(79, 70, 229, 0.3);
+            box-shadow: 0 6px 16px rgba(79, 70, 229, 0.1);
+            background-color: #F8FAFC;
+        }
+
+        .tutorial-popover {
+            position: absolute;
+            top: 120%;
+            right: 0;
+            width: 320px;
+            background-color: var(--card-bg);
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            border: 1px solid var(--border-color);
+            padding: 1.5rem;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-10px);
+            transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            pointer-events: none;
+        }
+
+        .tutorial-wrapper:hover .tutorial-popover {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+            pointer-events: auto;
+        }
+
+        .tutorial-popover h4 {
+            margin-bottom: 1rem;
+            color: var(--text-main);
+            font-size: 1.05rem;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .tutorial-popover ol {
+            padding-left: 1rem;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            line-height: 1.6;
+            margin: 0;
+        }
+
+        .tutorial-popover li {
+            margin-bottom: 0.75rem;
+            padding-left: 0.25rem;
+        }
+        
+        .tutorial-popover li:last-child {
+            margin-bottom: 0;
+        }
+        /* ---------------------------------- */
+
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+            margin-top: 1rem;
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--text-main);
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        .quick-links {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-top: 1.25rem;
+            flex-wrap: wrap;
+        }
+
+        .link-group {
+            display: inline-flex;
+            align-items: center;
+            background-color: rgba(79, 70, 229, 0.06);
+            border: 1px solid rgba(79, 70, 229, 0.15);
+            border-radius: 99px;
+            padding: 2px 4px 2px 2px;
+            transition: all 0.2s ease;
+        }
+
+        .link-group:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.08);
+            background-color: rgba(79, 70, 229, 0.09);
+        }
+
+        .link-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.45rem 1rem 0.45rem 1.25rem;
+            color: var(--primary-color);
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .btn-link-copy {
+            background: transparent;
+            border: none;
+            padding: 6px;
+            border-radius: 50%;
+            color: rgba(79, 70, 229, 0.6);
+            cursor: pointer;
+            box-shadow: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        
+        .btn-link-copy:hover {
+            background-color: rgba(79, 70, 229, 0.15);
+            color: var(--primary-color);
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border-radius: 16px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+            padding: 2rem;
+            overflow: hidden;
+        }
+
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .toolbar-group {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+        }
+
+        .input-number {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            width: 90px;
+            font-size: 1rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        
+        .input-number:focus {
+            border-color: var(--primary-color);
+        }
+
+        .select-suffix {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0.75rem 1.5rem 0.75rem 1rem;
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--text-main);
+            outline: none;
+            background-color: #F9FAFB;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .select-suffix:focus {
+            border-color: var(--primary-color);
+            background-color: #FFF;
+        }
+
+        button {
+            border: none;
+            border-radius: 8px;
+            padding: 0.75rem 1.25rem;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        .btn-generate {
+            background-color: var(--primary-color);
+            color: white;
+            box-shadow: 0 4px 6px rgba(79, 70, 229, 0.2);
+        }
+        .btn-generate:hover { background-color: var(--primary-hover); box-shadow: 0 6px 12px rgba(79, 70, 229, 0.3); transform: translateY(-1px); }
+
+        .btn-export {
+            background-color: var(--success-color);
+            color: white;
+            box-shadow: 0 4px 6px rgba(16, 185, 129, 0.2);
+        }
+        .btn-export:hover { background-color: var(--success-hover); box-shadow: 0 6px 12px rgba(16, 185, 129, 0.3); transform: translateY(-1px); }
+
+        .btn-danger {
+            background-color: transparent;
+            color: var(--danger-color);
+            border: 1px solid var(--danger-color);
+        }
+        .btn-danger:hover { background-color: var(--danger-color); color: white; }
+
+        button:disabled {
+            background-color: #9CA3AF;
+            border-color: #9CA3AF;
+            color: white;
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+        }
+
+        .table-wrapper {
+            overflow-x: auto;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            max-height: 600px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th {
+            background-color: #F9FAFB;
+            color: var(--text-muted);
+            font-weight: 600;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.9rem;
+            color: var(--text-main);
+            white-space: nowrap;
+        }
+
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background-color: #F9FAFB; }
+
+        .copy-cell {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            gap: 1rem;
+        }
+
+        .btn-group-cell {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .icon-btn {
+            background: transparent;
+            border: none;
+            padding: 5px;
+            border-radius: 6px;
+            color: var(--text-muted);
+            cursor: pointer;
+            box-shadow: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        
+        .icon-btn:hover {
+            background-color: #E5E7EB;
+            color: var(--primary-color);
+        }
+
+        .icon-btn-email-full {
+            background-color: rgba(79, 70, 229, 0.05);
+            color: var(--primary-color);
+            border: 1px solid rgba(79, 70, 229, 0.1);
+        }
+        .icon-btn-email-full:hover {
+            background-color: rgba(79, 70, 229, 0.15);
+            color: var(--primary-hover);
+        }
+
+        .btn-copy-all {
+            background-color: #F3F4F6;
+            color: var(--text-main);
+            padding: 0.5rem 0.75rem;
+            font-size: 0.85rem;
+            margin: 0 auto;
+        }
+        .btn-copy-all:hover {
+            background-color: #E5E7EB;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        .time-text {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+
+        #toast {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background-color: rgba(31, 41, 55, 0.9);
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 99px;
+            font-size: 0.9rem;
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        #toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 右上角悬浮教程模块 -->
+    <div class="tutorial-wrapper">
+        <div class="btn-tutorial">
+            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+            </svg>
+            使用教程
+        </div>
+        <div class="tutorial-popover">
+            <h4>
+                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                注册教程说明
+            </h4>
+            <!-- 使用 start="0" 让列表从0开始编号 -->
+            <ol start="0">
+                <li>使用谷歌的无痕浏览。</li>
+                <li>首先注册邮箱，优先注册outlook邮箱，然后登录准备接受GitHub的注册验证码。</li>
+                <li>然后注册GitHub账号，注册完成后可以在VSCODE中进行登录。如果已经登录就要先注销再登录，注销在左下角的小人头那里。点击后再点注销。</li>
+                <li>账号以及密码要保存，下次重置额度了还可以使用。</li>
+            </ol>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="header">
+            <h1>开发者账号批量生成器</h1>
+            <p>自动生成高强度账号、支持批量生成、本地记录保存及一键复制</p>
+            
+            <div class="quick-links">
+                <div class="link-group">
+                    <a href="https://outlook.live.com/mail/?prompt=create_account" target="_blank" class="link-pill">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                        注册 Outlook
+                    </a>
+                    <button class="btn-link-copy" title="一键复制 Outlook 注册链接" onclick="copyText('https://outlook.live.com/mail/?prompt=create_account')">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                    </button>
+                </div>
+
+                <div class="link-group">
+                    <a href="https://account.proton.me/mail/signup" target="_blank" class="link-pill">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                        注册 Proton
+                    </a>
+                    <button class="btn-link-copy" title="一键复制 Proton 注册链接" onclick="copyText('https://account.proton.me/mail/signup')">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                    </button>
+                </div>
+
+                <div class="link-group">
+                    <a href="https://app.tuta.com/signup" target="_blank" class="link-pill">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                        注册 Tuta
+                    </a>
+                    <button class="btn-link-copy" title="一键复制 Tuta 注册链接" onclick="copyText('https://app.tuta.com/signup')">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                    </button>
+                </div>
+
+                <div class="link-group">
+                    <a href="https://github.com/signup" target="_blank" class="link-pill">
+                        <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"></path></svg>
+                        注册 GitHub
+                    </a>
+                    <button class="btn-link-copy" title="一键复制 GitHub 链接" onclick="copyText('https://github.com/signup')">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="toolbar">
+                <div class="toolbar-group">
+                    <input type="number" id="generateCount" class="input-number" min="1" max="1000" value="1" title="每次生成的数量" placeholder="数量">
+                    <select id="emailSuffixSelect" class="select-suffix" title="选择当前要复制或导出的邮箱后缀">
+                        <option value="@outlook.com">@outlook.com</option>
+                        <option value="@proton.me">@proton.me</option>
+                        <option value="@tuta.com">@tuta.com</option>
+                        <option value="@gmail.com">@gmail.com</option>
+                    </select>
+                    <button class="btn-generate" id="generateBtn">
+                        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                        生成账号
+                    </button>
+                </div>
+                <div class="toolbar-group">
+                    <button class="btn-export" id="exportBtn" disabled>
+                        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        导出 CSV
+                    </button>
+                    <button class="btn-danger" id="clearBtn" disabled>
+                        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        清空记录
+                    </button>
+                </div>
+            </div>
+
+            <div class="table-wrapper">
+                <table id="dataTable">
+                    <thead>
+                        <tr>
+                            <th>生成时间</th>
+                            <th>邮箱前缀</th>
+                            <th>邮箱密码</th>
+                            <th>GitHub 用户名</th>
+                            <th>GitHub 密码</th>
+                            <th style="text-align: center;">快捷操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody">
+                        <!-- 数据由 JS 渲染 -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast">复制成功</div>
+
+    <script>
+        let accountsData = JSON.parse(localStorage.getItem('devAccountsData')) || [];
+        
+        const randomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+        const randomItem = (arr) => arr[Math.floor(Math.random() * arr.length)];
+        
+        const lowerLetters = "abcdefghijklmnopqrstuvwxyz";
+        const upperLetters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        const numbers = "0123456789";
+        const symbols = "!@#$%^&*";
+
+        function getFormattedTime() {
+            const now = new Date();
+            const pad = (n) => n.toString().padStart(2, '0');
+            return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+        }
+
+        function generateEmailPrefix() {
+            const length = randomInt(8, 12);
+            let result = "";
+            for (let i = 0; i < length; i++) {
+                result += randomItem((lowerLetters + numbers).split(""));
+            }
+            return result;
+        }
+
+        function generateStrongPassword() {
+            const length = 16;
+            let pwd = [
+                randomItem(lowerLetters.split("")),
+                randomItem(upperLetters.split("")),
+                randomItem(numbers.split("")),
+                randomItem(symbols.split(""))
+            ];
+            const allChars = lowerLetters + upperLetters + numbers + symbols;
+            for (let i = pwd.length; i < length; i++) {
+                pwd.push(randomItem(allChars.split("")));
+            }
+            return pwd.sort(() => Math.random() - 0.5).join("");
+        }
+
+        function generateGitHubUsername() {
+            const length = randomInt(8, 15);
+            let result = randomItem(lowerLetters.split("")); 
+            const charset = lowerLetters + numbers;
+            const hyphenPos = randomInt(2, length - 2); 
+            for (let i = 1; i < length; i++) {
+                if (i === hyphenPos) result += "-";
+                else result += randomItem(charset.split(""));
+            }
+            return result;
+        }
+
+        function saveToLocal() {
+            localStorage.setItem('devAccountsData', JSON.stringify(accountsData));
+        }
+
+        function copyText(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                showToast("复制成功");
+            }).catch(err => {
+                console.error("复制失败:", err);
+                showToast("复制失败，请重试");
+            });
+        }
+
+        function copyAllInfo(index) {
+            const account = accountsData[index];
+            const currentSuffix = document.getElementById("emailSuffixSelect").value;
+            const textToCopy = `邮箱前缀：${account.emailPrefix}\n完整邮箱：${account.emailPrefix}${currentSuffix}\n邮箱密码：${account.emailPwd}\nGITHUB账号：${account.githubName}\nGITHUB密码：${account.githubPwd}`;
+            copyText(textToCopy);
+        }
+
+        function copyFullEmailFromRow(prefix) {
+            const currentSuffix = document.getElementById("emailSuffixSelect").value;
+            copyText(prefix + currentSuffix);
+        }
+
+        let toastTimeout;
+        function showToast(message) {
+            const toast = document.getElementById("toast");
+            toast.textContent = message;
+            toast.classList.add("show");
+            
+            clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => {
+                toast.classList.remove("show");
+            }, 2000);
+        }
+
+        function createCopyCell(text) {
+            const safeText = text.replace(/'/g, "\\'");
+            return `
+                <div class="copy-cell">
+                    <span>${text}</span>
+                    <button class="icon-btn" title="复制" onclick="copyText('${safeText}')">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                    </button>
+                </div>
+            `;
+        }
+
+        function createEmailCopyCell(text) {
+            const safeText = text.replace(/'/g, "\\'");
+            return `
+                <div class="copy-cell">
+                    <span>${text}</span>
+                    <div class="btn-group-cell">
+                        <button class="icon-btn" title="仅复制纯前缀" onclick="copyText('${safeText}')">
+                            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                        </button>
+                        <button class="icon-btn icon-btn-email-full" title="复制完整邮箱（带当前所选后缀）" onclick="copyFullEmailFromRow('${safeText}')">
+                            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById("tableBody");
+            const exportBtn = document.getElementById("exportBtn");
+            const clearBtn = document.getElementById("clearBtn");
+            
+            if (accountsData.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="empty-state">暂无生成记录，请选择数量后点击上方按钮生成。</td></tr>`;
+                exportBtn.disabled = true;
+                clearBtn.disabled = true;
+                return;
+            }
+
+            exportBtn.disabled = false;
+            clearBtn.disabled = false;
+            tbody.innerHTML = "";
+            
+            accountsData.forEach((account, index) => {
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                    <td class="time-text">${account.createdAt}</td>
+                    <td>${createEmailCopyCell(account.emailPrefix)}</td>
+                    <td>${createCopyCell(account.emailPwd)}</td>
+                    <td>${createCopyCell(account.githubName)}</td>
+                    <td>${createCopyCell(account.githubPwd)}</td>
+                    <td style="text-align: center;">
+                        <button class="btn-copy-all" onclick="copyAllInfo(${index})">
+                            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path></svg>
+                            复制全部
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        document.getElementById("emailSuffixSelect").addEventListener("change", () => {
+            showToast(`已切换默认邮箱后缀`);
+        });
+
+        document.getElementById("generateBtn").addEventListener("click", () => {
+            const countInput = document.getElementById("generateCount");
+            let count = parseInt(countInput.value) || 1;
+            
+            if (count > 1000) count = 1000;
+            if (count < 1) count = 1;
+
+            const timeNow = getFormattedTime();
+            
+            for (let i = 0; i < count; i++) {
+                accountsData.unshift({
+                    createdAt: timeNow,
+                    emailPrefix: generateEmailPrefix(),
+                    emailPwd: generateStrongPassword(),
+                    githubName: generateGitHubUsername(),
+                    githubPwd: generateStrongPassword()
+                });
+            }
+            
+            saveToLocal();
+            renderTable();
+            showToast(`成功生成 ${count} 个账号`);
+        });
+
+        document.getElementById("clearBtn").addEventListener("click", () => {
+            if (confirm("确定要清空所有本地生成的账号记录吗？此操作不可恢复。")) {
+                accountsData = [];
+                saveToLocal();
+                renderTable();
+                showToast("记录已清空");
+            }
+        });
+
+        document.getElementById("exportBtn").addEventListener("click", () => {
+            if (accountsData.length === 0) return;
+
+            const currentSuffix = document.getElementById("emailSuffixSelect").value;
+            let csvContent = "\uFEFF"; 
+            csvContent += `生成时间,邮箱前缀,完整邮箱地址(${currentSuffix}),邮箱密码,GitHub用户名,GitHub密码\n`;
+
+            accountsData.forEach(row => {
+                const fullEmail = `${row.emailPrefix}${currentSuffix}`;
+                csvContent += `"${row.createdAt}","${row.emailPrefix}","${fullEmail}","${row.emailPwd}","${row.githubName}","${row.githubPwd}"\n`;
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", `账号记录批量导出_${new Date().getTime()}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        });
+
+        renderTable();
+    </script>
+</body>
+</html>
