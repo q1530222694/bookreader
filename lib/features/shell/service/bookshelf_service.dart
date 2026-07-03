@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 
 import '../model/book_model.dart';
 
@@ -13,9 +14,16 @@ class BookshelfService {
     }
 
     final id = DateTime.now().millisecondsSinceEpoch.toString();
-    final title = file.uri.pathSegments.last;
+    final rawTitle = file.uri.pathSegments.last;
+    final title = rawTitle.replaceAll(RegExp(r'\.[^.]+$'), '');
 
-    final book = BookModel(id: id, title: title, path: file.path, type: 'pdf');
+    final book = BookModel(
+      id: id,
+      title: title,
+      path: file.path,
+      type: 'pdf',
+      progress: 0.0,
+    );
 
     _books.add(book);
     return book;
@@ -24,5 +32,18 @@ class BookshelfService {
   /// Get all imported books.
   List<BookModel> listBooks() {
     return List<BookModel>.unmodifiable(_books);
+  }
+
+  BookModel? pickRandomBook() {
+    if (_books.isEmpty) {
+      return null;
+    }
+
+    final randomIndex = Random().nextInt(_books.length);
+    return _books[randomIndex];
+  }
+
+  void removeBook(String bookId) {
+    _books.removeWhere((book) => book.id == bookId);
   }
 }

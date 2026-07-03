@@ -1,4 +1,26 @@
-﻿## [2026-07-03] 优化：DOC转PDF 使用纯Dart实现
+﻿### [2026-07-03] 新增：书架随机读书
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/bookshelf_page.dart`
+  └─ 依赖/调用 ➔ `lib/features/shell/controller/bookshelf_controller.dart`
+  └─ 打开 ➔ `lib/features/shell/ui/book_viewer_page.dart`
+  └─ 变更 ➔ 空书架时仅显示导入按钮
+- `lib/features/shell/controller/bookshelf_controller.dart`
+  └─ 依赖/调用 ➔ `lib/features/shell/service/bookshelf_service.dart`
+  └─ 消费 ➔ `lib/features/shell/model/book_model.dart`
+- `lib/features/shell/service/bookshelf_service.dart`
+  └─ 提供 ➔ 随机选择当前书架中的书籍
+- `lib/features/shell/ui/tools_page.dart`
+  └─ 变更 ➔ 移除“可用工具”标题，优化工具列表布局
+- `lib/features/shell/ui/memory_page.dart`
+  └─ 新增 ➔ 日历展示卡片
+  └─ 预留 ➔ 阅读时长统计区域
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+
+---
+
+## [2026-07-03] 优化：DOC转PDF 使用纯Dart实现
 
 ### 核心改进
 - ✅ 使用纯 Dart 实现 DOC→PDF 转换，完全移除系统工具依赖

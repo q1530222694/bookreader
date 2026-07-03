@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:file_picker/file_picker.dart';
 
@@ -35,8 +36,8 @@ class BookshelfController {
         return;
       }
 
-      final book = await _service.importPdf(File(filePath));
-      books.value = List<BookModel>.from(books.value)..add(book);
+      await _service.importPdf(File(filePath));
+      books.value = _service.listBooks();
     } catch (e) {
       errorText.value = '导入 PDF 失败：$e';
     } finally {
@@ -58,19 +59,35 @@ class BookshelfController {
         return;
       }
 
-      final imported = <BookModel>[];
       for (final file in result.files) {
         final filePath = file.path;
         if (filePath == null) continue;
-        final book = await _service.importPdf(File(filePath));
-        imported.add(book);
+        await _service.importPdf(File(filePath));
       }
-      books.value = List<BookModel>.from(books.value)..addAll(imported);
+      books.value = _service.listBooks();
     } catch (e) {
       errorText.value = '批量导入失败：$e';
     } finally {
       isLoading.value = false;
     }
+  }
+
+  BookModel? pickRandomBook() {
+    final availableBooks = books.value;
+    if (availableBooks.isEmpty) {
+      return null;
+    }
+    final randomIndex = Random().nextInt(availableBooks.length);
+    return availableBooks[randomIndex];
+  }
+
+  void setError(String? message) {
+    errorText.value = message;
+  }
+
+  void removeBook(String bookId) {
+    _service.removeBook(bookId);
+    books.value = _service.listBooks();
   }
 
   void dispose() {

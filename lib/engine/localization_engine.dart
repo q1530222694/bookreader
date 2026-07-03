@@ -353,6 +353,122 @@ class LocalizationEngine {
       'zh': '取消',
       'en': 'Cancel',
     },
+    'done': {
+      'zh': '完成',
+      'en': 'Done',
+    },
+    'bookshelf_import_single': {
+      'zh': '单本导入',
+      'en': 'Import Single',
+    },
+    'bookshelf_import_multiple': {
+      'zh': '多选导入',
+      'en': 'Import Multiple',
+    },
+    'bookshelf_random_read': {
+      'zh': '随机读书',
+      'en': 'Random Read',
+    },
+    'bookshelf_search_placeholder': {
+      'zh': '搜索已导入的书籍',
+      'en': 'Search imported books',
+    },
+    'bookshelf_empty_error': {
+      'zh': '当前书架中暂无书籍',
+      'en': 'No books in bookshelf',
+    },
+    'bookshelf_import_button': {
+      'zh': '导入书籍',
+      'en': 'Import Book',
+    },
+    'bookshelf_no_match_books': {
+      'zh': '没有找到匹配的书籍',
+      'en': 'No matching books found',
+    },
+    'bookshelf_delete': {
+      'zh': '删除',
+      'en': 'Delete',
+    },
+    'memory_reading_duration_hint': {
+      'zh': '阅读时长统计将显示在此处',
+      'en': 'Reading duration statistics will appear here',
+    },
+    'calendar_january': {
+      'zh': '一月',
+      'en': 'Jan',
+    },
+    'calendar_february': {
+      'zh': '二月',
+      'en': 'Feb',
+    },
+    'calendar_march': {
+      'zh': '三月',
+      'en': 'Mar',
+    },
+    'calendar_april': {
+      'zh': '四月',
+      'en': 'Apr',
+    },
+    'calendar_may': {
+      'zh': '五月',
+      'en': 'May',
+    },
+    'calendar_june': {
+      'zh': '六月',
+      'en': 'Jun',
+    },
+    'calendar_july': {
+      'zh': '七月',
+      'en': 'Jul',
+    },
+    'calendar_august': {
+      'zh': '八月',
+      'en': 'Aug',
+    },
+    'calendar_september': {
+      'zh': '九月',
+      'en': 'Sep',
+    },
+    'calendar_october': {
+      'zh': '十月',
+      'en': 'Oct',
+    },
+    'calendar_november': {
+      'zh': '十一月',
+      'en': 'Nov',
+    },
+    'calendar_december': {
+      'zh': '十二月',
+      'en': 'Dec',
+    },
+    'calendar_sunday': {
+      'zh': '日',
+      'en': 'Sun',
+    },
+    'calendar_monday': {
+      'zh': '一',
+      'en': 'Mon',
+    },
+    'calendar_tuesday': {
+      'zh': '二',
+      'en': 'Tue',
+    },
+    'calendar_wednesday': {
+      'zh': '三',
+      'en': 'Wed',
+    },
+    'calendar_thursday': {
+      'zh': '四',
+      'en': 'Thu',
+    },
+    'calendar_friday': {
+      'zh': '五',
+      'en': 'Fri',
+    },
+    'calendar_saturday': {
+      'zh': '六',
+      'en': 'Sat',
+    },
     'enter_content': {
       'zh': '请输入每日一句内容',
       'en': 'Please enter the daily sentence content',
