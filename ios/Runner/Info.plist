@@ -66,5 +66,8 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<!-- 照片库权限：用于 file_picker 选择图片 -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>应用需要访问您的相册以选择图片并转换为PDF</string>
 </dict>
 </plist>

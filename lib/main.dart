@@ -7,7 +7,7 @@ import 'features/shell/ui/shell_page.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  const permissionJson = '{"membership.enable": true, "payment.enable": true}';
+  const permissionJson = '{"membership.enable": true, "payment.enable": true, "tools.image_to_pdf": true}';
   PermissionEngine.initializeFromJson(permissionJson);
   PermissionEngine.cacheRawPayload(permissionJson);
 
