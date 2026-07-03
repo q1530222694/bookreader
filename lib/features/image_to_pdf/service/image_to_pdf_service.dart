@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart' as pdf;
 import 'package:pdf/widgets.dart' as pw;
+import '../service/filepicker_diagnostics.dart';
 
 import '../model/export_record_model.dart';
 import '../model/image_to_pdf_model.dart';
@@ -30,50 +32,41 @@ class ImageToPdfService {
         return ConversionResult.failure(message: '请选择至少一张图片');
       }
 
-      // 创建PDF文档
-      final pdfDoc = pw.Document();
-
-      // 加载并添加每张图片到PDF
-      for (int i = 0; i < imagePaths.length; i++) {
-        final imagePath = imagePaths[i];
-
-        // 验证图片文件存在
-        final imageFile = File(imagePath);
-        if (!await imageFile.exists()) {
-          return ConversionResult.failure(
-            message: '图片 ${i + 1} 不存在: $imagePath',
-          );
-        }
-
-        // 读取图片数据
-        final imageBytes = await imageFile.readAsBytes();
-        final image = pw.MemoryImage(imageBytes);
-
-        // 添加页面，使用图片填充
-        pdfDoc.addPage(
-          pw.Page(
-            pageFormat: _getPageFormatFromImage(imageBytes),
-            build: (context) {
-              return pw.Image(image);
-            },
-          ),
-        );
-      }
-
       // 获取输出目录（应用文档目录）
       final outputDir = await getApplicationDocumentsDirectory();
       final outputPath =
           '${outputDir.path}${Platform.pathSeparator}$outputFileName';
 
-      // 保存PDF文件
-      final outputFile = File(outputPath);
-      final pdfBytes = await pdfDoc.save();
-      await outputFile.writeAsBytes(pdfBytes);
+      // 在后台 isolate 中生成并写入 PDF，避免主线程阻塞
+      await FilepickerDiagnostics.writeLog('convertImagesToSinglePdf(): 开始在 isolate 中生成PDF');
 
-      return ConversionResult.success(
-        message: '成功转换 ${imagePaths.length} 张图片为PDF',
-        filePath: outputPath,
-      );
+      final args = {
+        'imagePaths': imagePaths,
+        'outputPath': outputPath,
+      };
+
+      Map<String, dynamic> result;
+      try {
+        result = await compute(generatePdfAndSave, args)
+            .timeout(const Duration(seconds: 30));
+      } on TimeoutException catch (e) {
+        await FilepickerDiagnostics.writeLog('compute 超时: $e，改为主线程执行 PDF 生成');
+        result = await generatePdfAndSave(args);
+      } catch (e) {
+        await FilepickerDiagnostics.writeLog('compute 调用失败: $e');
+        return ConversionResult.failure(message: '转换失败: ${e.toString()}');
+      }
+
+      if (result['success'] == true) {
+        await FilepickerDiagnostics.writeLog('convertImagesToSinglePdf(): isolate 生成成功 $outputPath');
+        return ConversionResult.success(
+          message: '成功转换 ${imagePaths.length} 张图片为PDF',
+          filePath: outputPath,
+        );
+      } else {
+        await FilepickerDiagnostics.writeLog('convertImagesToSinglePdf(): isolate 生成失败: ${result['message']}');
+        return ConversionResult.failure(message: '转换失败: ${result['message']}');
+      }
     } catch (e) {
       return ConversionResult.failure(
         message: '转换失败: ${e.toString()}',
@@ -230,5 +223,48 @@ class ImageToPdfService {
       debugPrint('更新导出记录失败: $e');
       return false;
     }
+  }
+}
+
+/// 在 isolate 中生成 PDF 并写入到指定路径的辅助函数
+/// 参数为 Map 包含 'imagePaths' (List<String>) 和 'outputPath' (String)
+Future<Map<String, dynamic>> generatePdfAndSave(Map<String, dynamic> args) async {
+  try {
+    await FilepickerDiagnostics.writeLog('generatePdfAndSave(): isolate 开始');
+    final List<dynamic> pathsDyn = args['imagePaths'] as List<dynamic>;
+    final List<String> imagePaths = pathsDyn.map((e) => e as String).toList();
+    final String outputPath = args['outputPath'] as String;
+
+    final pw.Document pdfDoc = pw.Document();
+
+    for (int i = 0; i < imagePaths.length; i++) {
+      final imagePath = imagePaths[i];
+      final imageFile = File(imagePath);
+      if (!await imageFile.exists()) {
+        return {'success': false, 'message': '图片不存在: $imagePath'};
+      }
+
+      final imageBytes = await imageFile.readAsBytes();
+      final image = pw.MemoryImage(imageBytes);
+
+      pdfDoc.addPage(
+        pw.Page(
+          pageFormat: pdf.PdfPageFormat.a4,
+          build: (context) {
+            return pw.Image(image);
+          },
+        ),
+      );
+    }
+
+    final outputFile = File(outputPath);
+    final pdfBytes = await pdfDoc.save();
+    await outputFile.writeAsBytes(pdfBytes);
+
+    await FilepickerDiagnostics.writeLog('generatePdfAndSave(): isolate 写入完成: $outputPath');
+    return {'success': true, 'message': 'ok'};
+  } catch (e) {
+    await FilepickerDiagnostics.writeLog('generatePdfAndSave(): isolate 异常: $e');
+    return {'success': false, 'message': e.toString()};
   }
 }

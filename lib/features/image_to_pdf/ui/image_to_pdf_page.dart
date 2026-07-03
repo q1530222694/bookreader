@@ -4,6 +4,7 @@ import 'package:flutter/cupertino.dart';
 
 import '../controller/image_to_pdf_controller.dart';
 import '../model/export_record_model.dart';
+import '../service/filepicker_diagnostics.dart';
 
 /// ImageToPdfPage 纯UI层，负责显示界面和处理用户交互
 class ImageToPdfPage extends StatefulWidget {
@@ -91,22 +92,34 @@ class _ImageToPdfPageState extends State<ImageToPdfPage> {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final pdfFileName = 'images_$timestamp.pdf';
 
-    // 执行转换
-    final result = await ImageToPdfController.convertToPdf(
-      imagePaths: _selectedImages,
-      pdfFileName: pdfFileName,
-    );
+    try {
+      // 执行转换
+      final result = await ImageToPdfController.convertToPdf(
+        imagePaths: _selectedImages,
+        pdfFileName: pdfFileName,
+      );
 
-    if (mounted) {
-      setState(() {
-        _isConverting = false;
-        _statusMessage = result.message;
-        if (result.success) {
-          _selectedImages = [];
-          // 刷新导出记录列表
-          _loadExportRecords();
-        }
-      });
+      if (mounted) {
+        setState(() {
+          _isConverting = false;
+          _statusMessage = result.message;
+          if (result.success) {
+            _selectedImages = [];
+            // 刷新导出记录列表
+            _loadExportRecords();
+          }
+        });
+      }
+    } catch (e, st) {
+      debugPrint('转换异常: $e');
+      debugPrint('$st');
+      await FilepickerDiagnostics.writeLog('ui _onConvertPressed 异常: $e\n$st');
+      if (mounted) {
+        setState(() {
+          _isConverting = false;
+          _statusMessage = '转换异常: ${e.toString()}';
+        });
+      }
     }
   }
 
@@ -168,8 +181,13 @@ class _ImageToPdfPageState extends State<ImageToPdfPage> {
                 topLeft: Radius.circular(7),
                 topRight: Radius.circular(7),
               ),
-              child: Image.file(
-                File(imagePath),
+              child: Image(
+                image: ResizeImage(
+                  FileImage(File(imagePath)),
+                  // 按缩略图尺寸请求解码，减小内存与解码时间
+                  width: 160,
+                  height: 160,
+                ),
                 width: 80,
                 height: 80,
                 fit: BoxFit.cover,

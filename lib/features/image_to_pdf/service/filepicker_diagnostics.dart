@@ -30,4 +30,17 @@ class FilepickerDiagnostics {
     
     debugPrint('=== 诊断信息输出完成 ===');
   }
+
+  /// 将诊断信息写入临时文件，便于在设备上抓取日志
+  static Future<void> writeLog(String msg) async {
+    try {
+      final tempDir = Directory.systemTemp;
+      final logFile = File('${tempDir.path}${Platform.pathSeparator}filepicker_debug.log');
+      final line = '${DateTime.now().toIso8601String()} $msg\n';
+      await logFile.writeAsString(line, mode: FileMode.append, flush: true);
+      debugPrint('诊断日志已写入: ${logFile.path}');
+    } catch (e) {
+      debugPrint('写入诊断日志失败: $e');
+    }
+  }
 }

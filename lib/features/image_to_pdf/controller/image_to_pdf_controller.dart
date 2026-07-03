@@ -53,10 +53,13 @@ class ImageToPdfController {
   static Future<List<String>> selectImages() async {
     try {
       FilepickerDiagnostics.printDiagnostics();
+      await FilepickerDiagnostics.writeLog('selectImages() 开始');
       
       final hasPermission = await _requestStoragePermission();
+      await FilepickerDiagnostics.writeLog('权限检查结果: $hasPermission');
       if (!hasPermission) {
         debugPrint('用户拒绝了存储权限');
+        await FilepickerDiagnostics.writeLog('用户拒绝了存储权限');
         return [];
       }
 
@@ -67,21 +70,25 @@ class ImageToPdfController {
       );
 
       if (result == null || result.files.isEmpty) {
+        await FilepickerDiagnostics.writeLog('文件选择结果为空或取消');
         return [];
       }
 
       final imagePaths = <String>[];
+      await FilepickerDiagnostics.writeLog('文件选择结果 count=${result.files.length}');
       
       // 使用索引来避免相同时间戳导致的文件名冲突
       for (int i = 0; i < result.files.length; i++) {
         final file = result.files[i];
         String? filePath = file.path;
+        await FilepickerDiagnostics.writeLog('处理选中文件: name=${file.name} path=${file.path} bytes=${file.bytes != null}');
 
         // 处理偶尔出现的纯 content:// 且无物理路径的情况
         if (filePath != null && filePath.startsWith('content://')) {
           // 由于没有启用 withData: true，我们不能依赖 file.bytes
           // 如果真的遇到未被插件自动缓存的 content URI，建议忽略或使用 native channel 专门处理
           debugPrint('警告: 遇到无法解析的 content URI: $filePath');
+          await FilepickerDiagnostics.writeLog('警告: 遇到无法解析的 content URI: $filePath');
           continue; 
         }
 
@@ -90,24 +97,29 @@ class ImageToPdfController {
           try {
             final f = File(filePath);
             if (await f.exists()) {
+              await FilepickerDiagnostics.writeLog('选中文件存在: $filePath');
               imagePaths.add(filePath);
             } else if (file.bytes != null) {
               // 仅兼容 Web 端或明确要求使用 bytes 的特殊场景
               final recovered = await _saveBytesToTempFile(file.bytes!, file.name, i);
               if (recovered != null) {
+                await FilepickerDiagnostics.writeLog('通过字节恢复文件: $recovered');
                 imagePaths.add(recovered);
               }
             }
           } catch (e) {
             debugPrint('校验选中文件失败，跳过该文件: $e');
+            await FilepickerDiagnostics.writeLog('校验选中文件失败，跳过该文件: $e');
             continue;
           }
         }
       }
 
+      await FilepickerDiagnostics.writeLog('selectImages() 完成，返回 count=${imagePaths.length}');
       return imagePaths;
     } catch (e) {
       debugPrint('选择图片时发生错误: $e');
+      await FilepickerDiagnostics.writeLog('选择图片异常: $e');
       return [];
     }
   }
@@ -126,9 +138,11 @@ class ImageToPdfController {
 
       await tempFile.writeAsBytes(bytes);
       debugPrint('已保存临时文件: ${tempFile.path}');
+      await FilepickerDiagnostics.writeLog('已保存临时文件: ${tempFile.path}');
       return tempFile.path;
     } catch (e) {
       debugPrint('保存临时文件失败: $e');
+      await FilepickerDiagnostics.writeLog('保存临时文件失败: $e');
       return null;
     }
   }
@@ -174,29 +188,37 @@ class ImageToPdfController {
     required List<String> imagePaths,
     String pdfFileName = 'output.pdf',
   }) async {
-    final result = await ImageToPdfService.convertImagesToSinglePdf(
-      imagePaths: imagePaths,
-      outputFileName: pdfFileName,
-    );
-
-    // 如果转换成功，保存导出记录
-    if (result.success && result.filePath != null) {
-      final pdfFile = File(result.filePath!);
-      final fileSize = await pdfFile.length();
-      
-      final record = ExportRecord(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        filePath: result.filePath!,
-        fileName: pdfFileName,
-        imageCount: imagePaths.length,
-        exportedAt: DateTime.now(),
-        fileSize: fileSize,
+    await FilepickerDiagnostics.writeLog('convertToPdf(): 开始，count=${imagePaths.length}');
+    try {
+      final result = await ImageToPdfService.convertImagesToSinglePdf(
+        imagePaths: imagePaths,
+        outputFileName: pdfFileName,
       );
-      
-      await ImageToPdfService.saveExportRecord(record);
-    }
 
-    return result;
+      await FilepickerDiagnostics.writeLog('convertToPdf(): 结束，success=${result.success} message=${result.message}');
+
+      // 如果转换成功，保存导出记录
+      if (result.success && result.filePath != null) {
+        final pdfFile = File(result.filePath!);
+        final fileSize = await pdfFile.length();
+        
+        final record = ExportRecord(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          filePath: result.filePath!,
+          fileName: pdfFileName,
+          imageCount: imagePaths.length,
+          exportedAt: DateTime.now(),
+          fileSize: fileSize,
+        );
+        
+        await ImageToPdfService.saveExportRecord(record);
+      }
+
+      return result;
+    } catch (e, st) {
+      await FilepickerDiagnostics.writeLog('convertToPdf(): 异常 $e\n$st');
+      return ConversionResult.failure(message: '转换失败: ${e.toString()}');
+    }
   }
 
   /// 获取所有导出记录列表
