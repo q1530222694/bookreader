@@ -10,9 +10,7 @@ import '../service/bookshelf_service.dart';
 class BookshelfController {
   final BookshelfService _service = BookshelfService();
 
-  final ValueNotifier<List<BookModel>> books = ValueNotifier<List<BookModel>>(
-    [],
-  );
+  final ValueNotifier<List<BookModel>> books = BookshelfService.booksNotifier;
   final ValueNotifier<bool> isLoading = ValueNotifier<bool>(false);
   final ValueNotifier<String?> errorText = ValueNotifier<String?>(null);
 
@@ -91,7 +89,6 @@ class BookshelfController {
   }
 
   void dispose() {
-    books.dispose();
     isLoading.dispose();
     errorText.dispose();
   }

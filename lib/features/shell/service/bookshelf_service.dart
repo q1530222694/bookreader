@@ -1,11 +1,18 @@
 import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
+
 import '../model/book_model.dart';
 
 /// BookshelfService handles local book import and simple book metadata extraction.
 class BookshelfService {
-  final List<BookModel> _books = [];
+  static final List<BookModel> _books = [];
+  static final ValueNotifier<List<BookModel>> booksNotifier =
+      ValueNotifier<List<BookModel>>(List<BookModel>.unmodifiable(_books));
+
+  /// Returns true when the bookshelf contains at least one book.
+  static bool get hasBooks => _books.isNotEmpty;
 
   /// Import a PDF file and return a book model for the local bookshelf.
   Future<BookModel> importPdf(File file) async {
@@ -26,6 +33,7 @@ class BookshelfService {
     );
 
     _books.add(book);
+    booksNotifier.value = List<BookModel>.unmodifiable(_books);
     return book;
   }
 
@@ -45,5 +53,6 @@ class BookshelfService {
 
   void removeBook(String bookId) {
     _books.removeWhere((book) => book.id == bookId);
+    booksNotifier.value = List<BookModel>.unmodifiable(_books);
   }
 }

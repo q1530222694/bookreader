@@ -36,17 +36,21 @@ class _DailySentencePageState extends State<DailySentencePage> {
           ),
           actions: [
             CupertinoActionSheetAction(
-              onPressed: () {
-                _controller.addSentence(_textController.text);
-                Navigator.of(context).pop();
-                _textController.clear();
+              onPressed: () async {
+                await _controller.addSentence(_textController.text);
+                if (_controller.errorText.value == null) {
+                  Navigator.of(context).pop();
+                  _textController.clear();
+                }
               },
               child: Text(LocalizationEngine.text('save')),
             ),
           ],
           cancelButton: CupertinoActionSheetAction(
             onPressed: () {
-              Navigator.of(context).pop();
+              if (mounted) {
+                Navigator.of(context).pop();
+              }
             },
             child: Text(LocalizationEngine.text('cancel')),
           ),

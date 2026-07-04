@@ -20,6 +20,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   late final bool _ownsController;
   final TextEditingController _searchController = TextEditingController();
   String _searchText = '';
+  bool _showCoverMode = true;
 
   @override
   void initState() {
@@ -349,6 +350,83 @@ class _BookshelfPageState extends State<BookshelfPage> {
     );
   }
 
+  Widget _buildBookListItem(BookModel book) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => _openBook(book),
+        onLongPress: () => _showBookActions(context, book),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: CupertinoColors.systemBackground,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: CupertinoColors.systemGrey5),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: SizedBox(
+                  width: 88,
+                  height: 120,
+                  child: _buildBookThumbnail(book),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      book.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      '${(book.progress * 100).toStringAsFixed(0)}% · ${book.type.toUpperCase()}',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: CupertinoColors.systemGrey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              CupertinoButton(
+                padding: const EdgeInsets.all(6),
+                minSize: 0,
+                borderRadius: BorderRadius.circular(999),
+                color: CupertinoColors.systemGrey6.withOpacity(0.95),
+                onPressed: () => _showBookActions(context, book),
+                child: const Icon(CupertinoIcons.ellipsis, size: 16),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBookThumbnail(BookModel book) {
+    if (book.coverBytes != null) {
+      return Image.memory(
+        book.coverBytes!,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => _buildGeneratedCover(book),
+      );
+    }
+
+    return _buildGeneratedCover(book);
+  }
+
   @override
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
@@ -414,10 +492,27 @@ class _BookshelfPageState extends State<BookshelfPage> {
           ],
         ),
         middle: const SizedBox.shrink(),
-        trailing: CupertinoButton(
-          padding: EdgeInsets.zero,
-          onPressed: () => _showMoreOptions(context),
-          child: const Icon(CupertinoIcons.ellipsis),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              onPressed: () {
+                setState(() {
+                  _showCoverMode = !_showCoverMode;
+                });
+              },
+              child: Icon(
+                _showCoverMode ? CupertinoIcons.list_bullet : CupertinoIcons.square_grid_2x2,
+              ),
+            ),
+            const SizedBox(width: 10),
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              onPressed: () => _showMoreOptions(context),
+              child: const Icon(CupertinoIcons.ellipsis),
+            ),
+          ],
         ),
       ),
       child: SafeArea(
@@ -441,29 +536,37 @@ class _BookshelfPageState extends State<BookshelfPage> {
                             child: Text(LocalizationEngine.text('bookshelf_import_button')),
                           ),
                         )
-                      : filteredBooks.isEmpty
-                          ? Center(
-                              child: Text(
-                                LocalizationEngine.text('bookshelf_no_match_books'),
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  color: CupertinoColors.inactiveGray,
-                                ),
-                              ),
-                            )
-                          : GridView.builder(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 2,
-                                childAspectRatio: 0.72,
-                                crossAxisSpacing: 8,
-                                mainAxisSpacing: 8,
-                              ),
-                              itemCount: filteredBooks.length,
-                              itemBuilder: (context, index) {
-                                return _buildBookItem(filteredBooks[index]);
-                              },
-                            ),
+                          : filteredBooks.isEmpty
+                              ? Center(
+                                  child: Text(
+                                    LocalizationEngine.text('bookshelf_no_match_books'),
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      color: CupertinoColors.inactiveGray,
+                                    ),
+                                  ),
+                                )
+                              : _showCoverMode
+                                  ? GridView.builder(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                        crossAxisCount: 2,
+                                        childAspectRatio: 0.72,
+                                        crossAxisSpacing: 8,
+                                        mainAxisSpacing: 8,
+                                      ),
+                                      itemCount: filteredBooks.length,
+                                      itemBuilder: (context, index) {
+                                        return _buildBookItem(filteredBooks[index]);
+                                      },
+                                    )
+                                  : ListView.builder(
+                                      padding: const EdgeInsets.symmetric(vertical: 4),
+                                      itemCount: filteredBooks.length,
+                                      itemBuilder: (context, index) {
+                                        return _buildBookListItem(filteredBooks[index]);
+                                      },
+                                    ),
                 );
               },
             ),

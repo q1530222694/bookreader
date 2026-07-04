@@ -1,6 +1,8 @@
 import 'package:flutter/cupertino.dart';
 
 import '../../../engine/localization_engine.dart';
+import '../service/daily_sentence_service.dart';
+import '../model/daily_sentence_model.dart';
 import 'daily_sentence_page.dart';
 
 /// HomePage displays the main dashboard content for the shell module.
@@ -24,13 +26,27 @@ class HomePage extends StatelessWidget {
             Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 560),
-                child: CupertinoButton(
-                  padding: EdgeInsets.zero,
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      CupertinoPageRoute(
-                        builder: (context) => const DailySentencePage(),
-                      ),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    final sentences = DailySentenceService.sentencesNotifier.value;
+                    final latest = sentences.isNotEmpty
+                        ? sentences.last.content
+                        : LocalizationEngine.text('no_sentences');
+                    showCupertinoDialog<void>(
+                      context: context,
+                      builder: (context) {
+                        return CupertinoAlertDialog(
+                          title: Text(LocalizationEngine.text('view_full')),
+                          content: Text(latest),
+                          actions: [
+                            CupertinoDialogAction(
+                              onPressed: () => Navigator.of(context).pop(),
+                              child: Text(LocalizationEngine.text('cancel')),
+                            ),
+                          ],
+                        );
+                      },
                     );
                   },
                   child: Container(
@@ -44,21 +60,49 @@ class HomePage extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          LocalizationEngine.text('daily_sentence'),
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: CupertinoColors.label.resolveFrom(context),
-                          ),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                LocalizationEngine.text('daily_sentence'),
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: CupertinoColors.label.resolveFrom(context),
+                                ),
+                              ),
+                            ),
+                            CupertinoButton(
+                              padding: EdgeInsets.zero,
+                              minSize: 32,
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  CupertinoPageRoute(
+                                    builder: (context) => const DailySentencePage(),
+                                  ),
+                                );
+                              },
+                              child: const Icon(CupertinoIcons.add),
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 12),
-                        Text(
-                          LocalizationEngine.text('view_full'),
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: CupertinoColors.secondaryLabel.resolveFrom(context),
-                          ),
+                        ValueListenableBuilder<List<DailySentenceModel>>(
+                          valueListenable: DailySentenceService.sentencesNotifier,
+                          builder: (context, sentences, child) {
+                            final latestSentence = sentences.isNotEmpty
+                                ? sentences.last.content
+                                : LocalizationEngine.text('no_sentences');
+                            return Text(
+                              latestSentence,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                              ),
+                            );
+                          },
                         ),
                       ],
                     ),
