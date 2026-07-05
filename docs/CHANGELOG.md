@@ -207,3 +207,17 @@
 - Permission Key: `membership.enable`, `payment.enable`, `tools.image_to_pdf`
 - Config keys: `settings.language`, `settings.appearance`, `settings.themeColor`, `settings.fontFamily`, `settings.startupPage`, `settings.startupSplash*`
 
+---
+
+### [2026-07-05] 修改：书架页面重设计（覆盖式卡片与最近阅读）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/bookshelf_page.dart`
+  └─ 变更：重设计书架主界面，新增顶部统计卡片组、最近阅读横向缩略卡、分类段控（全部/PDF/EPUB/TXT/其他），并保留原有导入/随机/长按菜单等交互
+  └─ 依赖/调用 ➔ `lib/features/shell/controller/bookshelf_controller.dart`
+  └─ 打开 ➔ `lib/features/shell/ui/book_viewer_page.dart`
+  └─ 显示 ➔ 网格/列表两种视图（封面/列表）与自定义进度条
+  └─ 变更 ➔ 提示新增多语言键：`bookshelf_tab_all`, `bookshelf_tab_other`, `recently_reading`, `view_all`, `no_recently_reading`
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+

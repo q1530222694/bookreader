@@ -15,7 +15,13 @@ class MemoryPage extends StatefulWidget {
 class _MemoryPageState extends State<MemoryPage> {
   _ReadingPeriod _period = _ReadingPeriod.day;
   _ChartMode _chartMode = _ChartMode.bar;
-  int _selectedPoint = 5;
+  int _selectedPoint = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedPoint = _buildPeriodData().values.length - 1;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -83,7 +89,7 @@ class _MemoryPageState extends State<MemoryPage> {
               onTap: () {
                 setState(() {
                   _period = period;
-                  _selectedPoint = 5;
+                  _selectedPoint = _buildPeriodDataFor(period).values.length - 1;
                 });
               },
               child: AnimatedContainer(
@@ -277,6 +283,7 @@ class _MemoryPageState extends State<MemoryPage> {
   Widget _buildChartCard(CupertinoThemeData theme, _PeriodData data) {
     final labels = data.labels;
     final values = data.values;
+    final selectedIndex = _selectedPoint.clamp(0, values.length - 1);
 
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
@@ -338,7 +345,7 @@ class _MemoryPageState extends State<MemoryPage> {
             labels: labels,
             values: values,
             isBarChart: _chartMode == _ChartMode.bar,
-            selectedIndex: _selectedPoint,
+            selectedIndex: selectedIndex,
             onSelect: (index) => setState(() => _selectedPoint = index),
             accentColor: theme.primaryColor,
           ),
@@ -350,12 +357,12 @@ class _MemoryPageState extends State<MemoryPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    labels[_selectedPoint],
+                    labels[selectedIndex],
                     style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    values[_selectedPoint].toStringAsFixed(0) + LocalizationEngine.text('hours_short'),
+                    values[selectedIndex].toStringAsFixed(0) + LocalizationEngine.text('hours_short'),
                     style: const TextStyle(fontSize: 13, color: CupertinoColors.systemGrey),
                   ),
                 ],
@@ -551,8 +558,10 @@ class _MemoryPageState extends State<MemoryPage> {
     );
   }
 
-  _PeriodData _buildPeriodData() {
-    switch (_period) {
+  _PeriodData _buildPeriodData() => _buildPeriodDataFor(_period);
+
+  _PeriodData _buildPeriodDataFor(_ReadingPeriod period) {
+    switch (period) {
       case _ReadingPeriod.day:
         return _PeriodData(
           totalDuration: '18h 45m',
@@ -566,7 +575,7 @@ class _MemoryPageState extends State<MemoryPage> {
           totalDuration: '34h 12m',
           averageDuration: '4h 52m',
           changeRate: '+18%',
-          labels: ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7', 'W8', 'W9', 'W10', 'W11', 'W12'],
+          labels: ['第1周', '第2周', '第3周', '第4周', '第5周', '第6周', '第7周', '第8周', '第9周', '第10周', '第11周', '第12周'],
           values: [4.6, 5.1, 4.9, 5.6, 6.1, 5.8, 6.5, 7.2, 6.3, 7.4, 8.0, 8.5],
         );
       case _ReadingPeriod.month:
@@ -574,7 +583,7 @@ class _MemoryPageState extends State<MemoryPage> {
           totalDuration: '126h 40m',
           averageDuration: '10h 33m',
           changeRate: '+12%',
-          labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+          labels: ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'],
           values: [8.3, 9.4, 10.2, 10.6, 11.1, 10.8, 11.6, 12.2, 11.7, 12.9, 13.4, 14.1],
         );
       case _ReadingPeriod.year:
@@ -690,23 +699,45 @@ class _ReadingChart extends StatelessWidget {
         ),
         child: LayoutBuilder(
           builder: (context, constraints) {
+            final chartLeft = 44.0;
+            final chartRight = constraints.maxWidth - 12.0;
+            final chartWidth = chartRight - chartLeft;
+            final chartBottom = constraints.maxHeight - 12.0;
+            final maxValue = values.reduce(math.max);
             final points = <Rect>[];
-            final width = constraints.maxWidth;
-            final height = constraints.maxHeight;
-            final chartWidth = width - 24;
-            final chartHeight = height - 28;
-            final step = chartWidth / math.max(values.length - 1, 1);
-            for (var index = 0; index < values.length; index++) {
-              final x = 12 + step * index;
-              final y = chartHeight - ((values[index] / values.reduce(math.max)) * (chartHeight - 18)) - 12;
-              points.add(Rect.fromCenter(center: Offset(x, y), width: 24, height: 24));
+
+            if (isBarChart) {
+              final barWidth = math.min(chartWidth / values.length * 0.6, 34.0);
+              final spacing = math.max((chartWidth - barWidth * values.length) / (values.length + 1), 4.0);
+              for (var index = 0; index < values.length; index++) {
+                final x = chartLeft + spacing + index * (barWidth + spacing);
+                final height = (values[index] / maxValue) * (constraints.maxHeight - 40);
+                final y = chartBottom - height;
+                points.add(Rect.fromLTWH(x, y, barWidth, height));
+              }
+            } else {
+              final step = chartWidth / math.max(values.length - 1, 1);
+              for (var index = 0; index < values.length; index++) {
+                final x = chartLeft + step * index;
+                final y = chartBottom - (values[index] / maxValue) * (constraints.maxHeight - 40);
+                points.add(Rect.fromCenter(center: Offset(x, y), width: 24, height: 24));
+              }
             }
+
             return GestureDetector(
               onTapUp: (details) {
-                final localX = details.localPosition.dx;
-                final index = ((localX - 12) / step).round();
-                if (index >= 0 && index < values.length) {
-                  onSelect(index.clamp(0, values.length - 1));
+                final tapX = details.localPosition.dx;
+                if (isBarChart) {
+                  for (var i = 0; i < points.length; i++) {
+                    if (points[i].contains(details.localPosition)) {
+                      onSelect(i);
+                      return;
+                    }
+                  }
+                } else {
+                  final closestIndex = ((tapX - chartLeft) / (values.length > 1 ? chartWidth / (values.length - 1) : chartWidth)).round();
+                  final index = closestIndex.clamp(0, values.length - 1);
+                  onSelect(index);
                 }
               },
               child: Stack(children: points.map((rect) => Positioned.fromRect(rect: rect, child: const SizedBox())).toList()),
@@ -737,8 +768,12 @@ class _ChartPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final chartHeight = size.height - 24;
-    final chartWidth = size.width - 24;
+    final chartLeft = 44.0;
+    final chartRight = size.width - 12.0;
+    final chartTop = 12.0;
+    final chartBottom = size.height - 12.0;
+    final chartWidth = chartRight - chartLeft;
+    final chartHeight = chartBottom - chartTop;
     final maxValue = values.reduce(math.max);
     final gridPaint = Paint()..color = gridColor..style = PaintingStyle.stroke;
     final axisPaint = Paint()..color = CupertinoColors.systemGrey4..strokeWidth = 1;
@@ -749,55 +784,86 @@ class _ChartPainter extends CustomPainter {
       ..style = PaintingStyle.stroke;
     final selectedPaint = Paint()..color = accentColor..style = PaintingStyle.fill;
 
-    for (var index = 0; index < 4; index++) {
-      final y = 16 + index * (chartHeight / 3);
-      canvas.drawLine(Offset(12, y), Offset(chartWidth, y), gridPaint);
+    const labelCount = 5;
+    final stepValue = maxValue / (labelCount - 1);
+    final labelStyle = const TextStyle(fontSize: 10, color: CupertinoColors.systemGrey);
+
+    for (var i = 0; i < labelCount; i++) {
+      final y = chartBottom - chartHeight / (labelCount - 1) * i;
+      final labelValue = stepValue * i;
+      final formatted = labelValue % 1 == 0 ? labelValue.toInt().toString() : labelValue.toStringAsFixed(1);
+      final textPainter = TextPainter(
+        text: TextSpan(text: '$formatted${LocalizationEngine.text('hours_short')}', style: labelStyle),
+        textDirection: TextDirection.ltr,
+        textAlign: TextAlign.right,
+      )..layout(minWidth: 0, maxWidth: chartLeft - 8);
+      textPainter.paint(canvas, Offset(chartLeft - textPainter.width - 6, y - textPainter.height / 2));
+      canvas.drawLine(Offset(chartLeft, y), Offset(chartRight, y), gridPaint);
     }
 
-    if (isBarChart) {
-      final barWidth = chartWidth / (values.length * 1.6);
+    canvas.drawLine(Offset(chartLeft, chartTop), Offset(chartLeft, chartBottom), axisPaint);
+
+    if (values.isNotEmpty) {
+      final labelStyle = const TextStyle(fontSize: 10, color: CupertinoColors.systemGrey);
+      final xStep = values.length > 1 ? chartWidth / (values.length - 1) : chartWidth;
       for (var index = 0; index < values.length; index++) {
-        final x = 12 + barWidth * (index * 1.3 + 0.3);
-        final h = (values[index] / maxValue) * (chartHeight - 24);
-        final rect = Rect.fromLTWH(x, chartHeight - h, barWidth * 0.7, h);
-        final color = index == selectedIndex ? accentColor : accentColor.withOpacity(0.7);
+        if (values.length > 10 && index.isOdd) continue;
+        final label = labels[index];
+        final textPainter = TextPainter(
+          text: TextSpan(text: label, style: labelStyle),
+          textDirection: TextDirection.ltr,
+          textAlign: TextAlign.center,
+        )..layout(minWidth: 0, maxWidth: xStep + 4);
+        final x = isBarChart
+            ? chartLeft + math.max((chartWidth - math.min(chartWidth / values.length * 0.6, 34.0) * values.length) / (values.length + 1), 4.0) + index * (math.min(chartWidth / values.length * 0.6, 34.0) + math.max((chartWidth - math.min(chartWidth / values.length * 0.6, 34.0) * values.length) / (values.length + 1), 4.0)) + math.min(chartWidth / values.length * 0.6, 34.0) / 2
+            : chartLeft + xStep * index;
+        final dx = x - textPainter.width / 2;
+        textPainter.paint(canvas, Offset(dx.clamp(chartLeft - textPainter.width / 2, chartRight - textPainter.width / 2), chartBottom + 4));
+      }
+    }
+
+    canvas.drawLine(Offset(chartLeft, chartBottom), Offset(chartRight, chartBottom), axisPaint);
+
+    if (isBarChart) {
+      final barWidth = math.min(chartWidth / values.length * 0.6, 34.0);
+      final spacing = math.max((chartWidth - barWidth * values.length) / (values.length + 1), 4.0);
+      for (var index = 0; index < values.length; index++) {
+        final x = chartLeft + spacing + index * (barWidth + spacing);
+        final barHeight = (values[index] / maxValue) * chartHeight;
+        final rect = Rect.fromLTWH(x, chartBottom - barHeight, barWidth, barHeight);
+        final color = index == selectedIndex ? accentColor : accentColor.withOpacity(0.72);
         final barPaint = Paint()..color = color..style = PaintingStyle.fill;
         canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(10)), barPaint);
       }
     } else {
-      final points = <Offset>[];
-      for (var index = 0; index < values.length; index++) {
-        final x = 12 + (chartWidth / math.max(values.length - 1, 1)) * index;
-        final y = chartHeight - (values[index] / maxValue) * (chartHeight - 24);
-        points.add(Offset(x, y));
-      }
-      if (points.length > 1) {
-        final fillPath = Path()
-          ..moveTo(points.first.dx, chartHeight)
-          ..lineTo(points.first.dx, points.first.dy);
-        for (final point in points.skip(1)) {
-          fillPath.lineTo(point.dx, point.dy);
+        final points = <Offset>[];
+        for (var index = 0; index < values.length; index++) {
+          final x = chartLeft + (chartWidth / math.max(values.length - 1, 1)) * index;
+          final y = chartBottom - (values[index] / maxValue) * chartHeight;
+          points.add(Offset(x, y));
         }
-        fillPath.lineTo(points.last.dx, chartHeight);
-        fillPath.close();
-        canvas.drawPath(fillPath, fillPaint);
+        if (points.length > 1) {
+          final fillPath = Path()..moveTo(points.first.dx, chartBottom);
+          for (final point in points) {
+            fillPath.lineTo(point.dx, point.dy);
+          }
+          fillPath.lineTo(points.last.dx, chartBottom);
+          fillPath.close();
+          canvas.drawPath(fillPath, fillPaint);
 
-        final path = Path()..moveTo(points.first.dx, points.first.dy);
-        for (final point in points.skip(1)) {
-          path.lineTo(point.dx, point.dy);
+          final path = Path()..moveTo(points.first.dx, points.first.dy);
+          for (final point in points.skip(1)) {
+            path.lineTo(point.dx, point.dy);
+          }
+          canvas.drawPath(path, linePaint);
         }
-        canvas.drawPath(path, linePaint);
-      }
-      for (var index = 0; index < points.length; index++) {
-        final point = points[index];
-        final radius = index == selectedIndex ? 6.0 : 4.5;
-        canvas.drawCircle(point, radius, selectedPaint);
+        for (var index = 0; index < points.length; index++) {
+          final point = points[index];
+          final radius = index == selectedIndex ? 6.0 : 4.5;
+          canvas.drawCircle(point, radius, selectedPaint);
+        }
       }
     }
-
-    canvas.drawLine(Offset(12, chartHeight), Offset(chartWidth, chartHeight), axisPaint);
-  }
-
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

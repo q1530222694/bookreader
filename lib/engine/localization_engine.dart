@@ -585,6 +585,42 @@ class LocalizationEngine {
       'zh': '每日一句全文',
       'en': 'Full daily sentence',
     },
+    'no_recently_reading': {
+      'zh': '尚未有最近阅读记录，先添加一本书籍开始阅读吧。',
+      'en': 'No recent reads yet. Add a book to get started.',
+    },
+    'greeting_with_name': {
+      'zh': '下午好，',
+      'en': 'Good afternoon,',
+    },
+    'greeting_subtitle': {
+      'zh': '今天继续阅读吧',
+      'en': "Continue your reading today",
+    },
+    'reading_progress_label': {
+      'zh': '阅读进度',
+      'en': 'Reading Progress',
+    },
+    'continue_reading': {
+      'zh': '继续阅读',
+      'en': 'Continue',
+    },
+    'import_pdf': {
+      'zh': '导入 PDF',
+      'en': 'Import PDF',
+    },
+    'recent_files': {
+      'zh': '最近文件',
+      'en': 'Recent Files',
+    },
+    'reading_stats': {
+      'zh': '阅读统计',
+      'en': 'Reading Stats',
+    },
+    'favorites': {
+      'zh': '我的收藏',
+      'en': 'Favorites',
+    },
     'font_family': {
       'zh': '字体',
       'en': 'Font Family',
@@ -696,6 +732,54 @@ class LocalizationEngine {
     'language_settings_title': {
       'zh': '语言设置',
       'en': 'Language Settings',
+    },
+    'view_all': {
+      'zh': '查看全部 >',
+      'en': 'View All >',
+    },
+    'bookshelf_tab_all': {
+      'zh': '全部',
+      'en': 'All',
+    },
+    'bookshelf_tab_other': {
+      'zh': '其他',
+      'en': 'Other',
+    },
+    'bookshelf_all_label': {
+      'zh': '全部书籍',
+      'en': 'All Books',
+    },
+    'bookshelf_favorites_label': {
+      'zh': '收藏',
+      'en': 'Favorites',
+    },
+    'bookshelf_reading_label': {
+      'zh': '在读',
+      'en': 'Reading',
+    },
+    'bookshelf_finished_label': {
+      'zh': '已读',
+      'en': 'Finished',
+    },
+    'bookshelf_unread': {
+      'zh': '未读',
+      'en': 'Unread',
+    },
+    'reading_status_read': {
+      'zh': '已读',
+      'en': 'Read',
+    },
+    'file_type_pdf': {
+      'zh': 'PDF',
+      'en': 'PDF',
+    },
+    'file_type_epub': {
+      'zh': 'EPUB',
+      'en': 'EPUB',
+    },
+    'file_type_txt': {
+      'zh': 'TXT',
+      'en': 'TXT',
     },
   };
 

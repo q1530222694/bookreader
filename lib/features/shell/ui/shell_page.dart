@@ -72,7 +72,7 @@ class _ShellPageState extends State<ShellPage> {
               valueListenable: SettingsController.fontFamily,
               builder: (context, fontFamily, child) {
                 return CupertinoApp(
-                  title: 'Book Reader',
+                  title: LocalizationEngine.text('about_app_title'),
                   theme: ThemeEngine.buildThemeData(
                     brightness: brightness,
                     primaryColor: primaryColor,

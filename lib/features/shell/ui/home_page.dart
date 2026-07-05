@@ -8,7 +8,7 @@ import '../model/daily_sentence_model.dart';
 import 'book_viewer_page.dart';
 import 'daily_sentence_page.dart';
 
-/// HomePage displays the main dashboard content for the shell module.
+/// HomePage displays the redesigned dashboard matching the provided mock.
 class HomePage extends StatefulWidget {
   const HomePage({super.key, this.controller});
 
@@ -45,170 +45,115 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildRecentBookThumb(BookModel book) {
-    final cover = book.coverBytes != null
-        ? Image.memory(
-            book.coverBytes!,
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) => _buildGeneratedCover(book),
-          )
-        : _buildGeneratedCover(book);
+  Widget _greetingSection(BuildContext context) {
+    final theme = CupertinoTheme.of(context);
+    final textStyle = theme.textTheme.textStyle;
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        cover,
-        Positioned(
-          left: 8,
-          top: 8,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: CupertinoColors.black.withOpacity(0.65),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              '${(book.progress * 100).toStringAsFixed(0)}%',
-              style: const TextStyle(
-                color: CupertinoColors.white,
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-              ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  LocalizationEngine.text('greeting_with_name'),
+                  style: textStyle.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  LocalizationEngine.text('greeting_subtitle'),
+                  style: theme.textTheme.textStyle.copyWith(color: CupertinoColors.secondaryLabel.resolveFrom(context)),
+                ),
+              ],
             ),
           ),
-        ),
-        Positioned(
-          right: 8,
-          top: 8,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: CupertinoColors.black.withOpacity(0.65),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              book.type.toUpperCase(),
-              style: const TextStyle(
-                color: CupertinoColors.white,
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+          CupertinoButton(
+            padding: EdgeInsets.zero,
+            minSize: 36,
+            onPressed: () {},
+            child: const Icon(CupertinoIcons.bell),
           ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildGeneratedCover(BookModel book) {
-    final seed = book.title.hashCode % 7;
-    final colors = <Color>[
-      CupertinoColors.systemBlue,
-      CupertinoColors.systemGreen,
-      CupertinoColors.systemIndigo,
-      CupertinoColors.systemOrange,
-      CupertinoColors.systemPink,
-      CupertinoColors.systemPurple,
-      CupertinoColors.systemTeal,
-    ];
-
-    return Container(
-      width: double.infinity,
-      height: double.infinity,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [colors[seed], colors[(seed + 2) % colors.length]],
-        ),
-      ),
-      child: const Center(
-        child: Icon(
-          CupertinoIcons.book_fill,
-          size: 30,
-          color: CupertinoColors.white,
-        ),
+        ],
       ),
     );
   }
 
-  Widget _buildRecentReadingSection(BuildContext context, List<BookModel> books) {
-    final recentBooks = books.length > 3 ? books.sublist(books.length - 3) : books;
-    if (recentBooks.isEmpty) {
-      return const SizedBox.shrink();
-    }
+  Widget _recentReadingCard(BuildContext context, BookModel? book) {
+    final theme = CupertinoTheme.of(context);
 
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 560),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(16),
-          margin: const EdgeInsets.only(bottom: 16),
-          decoration: BoxDecoration(
-            color: CupertinoColors.secondarySystemBackground.resolveFrom(context),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: CupertinoColors.separator.resolveFrom(context)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Container(
+        decoration: BoxDecoration(
+          color: theme.scaffoldBackgroundColor,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(color: CupertinoColors.systemGrey.withOpacity(0.06), blurRadius: 12, offset: const Offset(0, 6)),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
             children: [
-              Text(
-                LocalizationEngine.text('recently_reading'),
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: CupertinoColors.label.resolveFrom(context),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: SizedBox(
+                  width: 84,
+                  height: 112,
+                  child: book == null
+                      ? Container(color: CupertinoColors.systemGrey)
+                      : (book.coverBytes != null
+                          ? Image.memory(book.coverBytes!, fit: BoxFit.cover)
+                          : Container(color: CupertinoColors.systemGrey)),
                 ),
               ),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 146,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: recentBooks.length,
-                  separatorBuilder: (context, index) => const SizedBox(width: 12),
-                  itemBuilder: (context, index) {
-                    final book = recentBooks[index];
-                    return GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () => _openBook(book),
-                      child: SizedBox(
-                        width: 96,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: SizedBox(
-                                height: 104,
-                                width: 96,
-                                child: _buildRecentBookThumb(book),
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            SizedBox(
-                              height: 36,
-                              child: FittedBox(
-                                alignment: Alignment.topLeft,
-                                fit: BoxFit.scaleDown,
-                                child: Text(
-                                  book.title,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    height: 1.1,
-                                    color: CupertinoColors.label.resolveFrom(context),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      book?.title ?? LocalizationEngine.text('no_recently_reading'),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.textStyle.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      LocalizationEngine.text('reading_progress_label',),
+                      style: theme.textTheme.textStyle.copyWith(color: CupertinoColors.secondaryLabel.resolveFrom(context)),
+                    ),
+                    const SizedBox(height: 8),
+                    // progress bar (custom, avoid Material dependency)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: Container(
+                        height: 8,
+                        color: CupertinoColors.systemGrey.resolveFrom(context).withOpacity(0.18),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: FractionallySizedBox(
+                            widthFactor: (book?.progress ?? 0).clamp(0.0, 1.0),
+                            child: Container(color: theme.primaryColor),
+                          ),
                         ),
                       ),
-                    );
-                  },
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        CupertinoButton.filled(
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                          onPressed: book == null ? null : () => _openBook(book!),
+                          child: Text(LocalizationEngine.text('continue_reading')),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(child: Container()),
+                      ],
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -218,111 +163,170 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Widget _statsGrid(BuildContext context) {
+    final theme = CupertinoTheme.of(context);
+
+    return ValueListenableBuilder<List<BookModel>>(
+      valueListenable: _controller.books,
+      builder: (context, books, child) {
+        final totalBooks = books.length;
+        final completed = books.where((b) => b.progress >= 0.999).length;
+        final avgProgress = totalBooks > 0 ? (books.map((b) => b.progress).reduce((a, b) => a + b) / totalBooks) : 0.0;
+
+        final items = [
+          {'label': LocalizationEngine.text('today_reading'), 'value': '0h 0m'},
+          {'label': LocalizationEngine.text('today_books'), 'value': '$totalBooks'},
+          {'label': LocalizationEngine.text('total_pages'), 'value': '${(avgProgress * 100).toStringAsFixed(0)}%'},
+          {'label': LocalizationEngine.text('streak_days'), 'value': '$completed'},
+        ];
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: items.map((it) {
+              return Expanded(
+                child: Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 6),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: theme.scaffoldBackgroundColor,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(it['value'] as String, style: theme.textTheme.textStyle.copyWith(fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 6),
+                      Text(it['label'] as String, style: theme.textTheme.textStyle.copyWith(color: CupertinoColors.secondaryLabel.resolveFrom(context))),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _quickFunctions(BuildContext context) {
+    final theme = CupertinoTheme.of(context);
+    final tiles = [
+      {'icon': CupertinoIcons.folder, 'label': LocalizationEngine.text('import_pdf')},
+      {'icon': CupertinoIcons.clock, 'label': LocalizationEngine.text('recent_files')},
+      {'icon': CupertinoIcons.chart_bar, 'label': LocalizationEngine.text('reading_stats')},
+      {'icon': CupertinoIcons.star, 'label': LocalizationEngine.text('favorites')},
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: tiles.map((t) {
+          return Expanded(
+            child: Column(
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: theme.primaryColor.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(t['icon'] as IconData, color: theme.primaryColor),
+                ),
+                const SizedBox(height: 8),
+                Text(t['label'] as String, style: theme.textTheme.textStyle.copyWith(fontSize: 12, color: CupertinoColors.secondaryLabel.resolveFrom(context)), maxLines: 1, overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _dailySentence(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            LocalizationEngine.text('daily_sentence'),
+            style: CupertinoTheme.of(context).textTheme.navTitleTextStyle.copyWith(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: CupertinoColors.secondarySystemBackground.resolveFrom(context),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: ValueListenableBuilder<List<DailySentenceModel>>(
+              valueListenable: DailySentenceService.sentencesNotifier,
+              builder: (context, sentences, child) {
+                final latest = sentences.isNotEmpty ? sentences.last.content : LocalizationEngine.text('no_sentences');
+                return Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '"$latest"',
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: CupertinoTheme.of(context).textTheme.textStyle.copyWith(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                              color: CupertinoColors.label.resolveFrom(context),
+                              height: 1.6,
+                            ),
+                      ),
+                    ),
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      minSize: 36,
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          CupertinoPageRoute(
+                            builder: (context) => const DailySentencePage(),
+                          ),
+                        );
+                      },
+                      child: Icon(CupertinoIcons.chevron_right, color: CupertinoColors.secondaryLabel.resolveFrom(context)),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
-      navigationBar: CupertinoNavigationBar(
-        leading: Text(
-          LocalizationEngine.text('home'),
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: CupertinoColors.label.resolveFrom(context)),
-        ),
-      ),
-      backgroundColor: CupertinoColors.systemBackground.resolveFrom(context),
+      navigationBar: CupertinoNavigationBar(middle: Text(LocalizationEngine.text('home'))),
       child: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.only(top: 8, bottom: 18),
           children: [
+            _greetingSection(context),
+            const SizedBox(height: 6),
             ValueListenableBuilder<List<BookModel>>(
               valueListenable: _controller.books,
-              builder: (context, books, child) => _buildRecentReadingSection(context, books),
+              builder: (context, books, child) {
+                final latest = books.isNotEmpty ? books.last : null;
+                return _recentReadingCard(context, latest);
+              },
             ),
-            Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 560),
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () {
-                    final sentences = DailySentenceService.sentencesNotifier.value;
-                    final latest = sentences.isNotEmpty
-                        ? sentences.last.content
-                        : LocalizationEngine.text('no_sentences');
-                    showCupertinoDialog<void>(
-                      context: context,
-                      builder: (context) {
-                        return CupertinoAlertDialog(
-                          title: Text(LocalizationEngine.text('view_full')),
-                          content: Text(latest),
-                          actions: [
-                            CupertinoDialogAction(
-                              onPressed: () => Navigator.of(context).pop(),
-                              child: Text(LocalizationEngine.text('cancel')),
-                            ),
-                          ],
-                        );
-                      },
-                    );
-                  },
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: CupertinoColors.secondarySystemBackground.resolveFrom(context),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: CupertinoColors.separator.resolveFrom(context)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                LocalizationEngine.text('daily_sentence'),
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: CupertinoColors.label.resolveFrom(context),
-                                ),
-                              ),
-                            ),
-                            CupertinoButton(
-                              padding: EdgeInsets.zero,
-                              minSize: 32,
-                              onPressed: () {
-                                Navigator.of(context).push(
-                                  CupertinoPageRoute(
-                                    builder: (context) => const DailySentencePage(),
-                                  ),
-                                );
-                              },
-                              child: const Icon(CupertinoIcons.add),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        ValueListenableBuilder<List<DailySentenceModel>>(
-                          valueListenable: DailySentenceService.sentencesNotifier,
-                          builder: (context, sentences, child) {
-                            final latestSentence = sentences.isNotEmpty
-                                ? sentences.last.content
-                                : LocalizationEngine.text('no_sentences');
-                            return Text(
-                              latestSentence,
-                              maxLines: 3,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: CupertinoColors.secondaryLabel.resolveFrom(context),
-                              ),
-                            );
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
+            _statsGrid(context),
+            _quickFunctions(context),
+            _dailySentence(context),
           ],
         ),
       ),

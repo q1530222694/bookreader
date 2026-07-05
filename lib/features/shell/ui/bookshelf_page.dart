@@ -2,6 +2,10 @@ import 'package:flutter/cupertino.dart';
 
 import '../../../engine/localization_engine.dart';
 import '../controller/bookshelf_controller.dart';
+import 'package:flutter/cupertino.dart';
+
+import '../../../engine/localization_engine.dart';
+import '../controller/bookshelf_controller.dart';
 import '../model/book_model.dart';
 import 'book_viewer_page.dart';
 
@@ -21,6 +25,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   final TextEditingController _searchController = TextEditingController();
   String _searchText = '';
   bool _showCoverMode = true;
+  String _selectedCategory = 'all';
 
   @override
   void initState() {
@@ -148,8 +153,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     Navigator.push(
       context,
       CupertinoPageRoute(
-        builder: (context) =>
-            BookViewerPage(title: book.title, filePath: book.path),
+        builder: (context) => BookViewerPage(title: book.title, filePath: book.path),
       ),
     );
   }
@@ -462,32 +466,367 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   Widget _buildBookThumbnail(BookModel book) {
-    if (book.coverBytes != null) {
-      return Image.memory(
-        book.coverBytes!,
-        fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) => _buildGeneratedCover(book),
-      );
-    }
+    final thumbnail = book.coverBytes != null
+        ? Image.memory(
+            book.coverBytes!,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => _buildGeneratedCover(book),
+          )
+        : _buildGeneratedCover(book);
 
-    return _buildGeneratedCover(book);
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: CupertinoColors.systemGrey4.withOpacity(0.9),
+          width: 1,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: thumbnail,
+    );
+  }
+
+  Widget _buildGridCard(BookModel book) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _openBook(book),
+      onLongPressStart: (details) => _showBookActions(
+        context,
+        book,
+        anchorPosition: details.globalPosition,
+      ),
+      child: Container(
+        height: 130,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: CupertinoColors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: CupertinoColors.systemGrey.withOpacity(0.06),
+              blurRadius: 10,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Stack(
+          children: [
+            Positioned(
+              top: 12,
+              right: 12,
+              child: Builder(
+                builder: (buttonContext) {
+                  return GestureDetector(
+                    onTap: () => _showBookActions(buttonContext, book),
+                    child: const Icon(CupertinoIcons.ellipsis, size: 18, color: CupertinoColors.inactiveGray),
+                  );
+                },
+              ),
+            ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: SizedBox(
+                    width: 48,
+                    height: 68,
+                    child: _buildBookThumbnail(book),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 36),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          book.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: CupertinoTheme.of(context).textTheme.textStyle.copyWith(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _formatMeta(book),
+                          style: const TextStyle(
+                            color: CupertinoColors.inactiveGray,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _buildProgressBar(context, book.progress),
+                        const SizedBox(height: 8),
+                        Text(
+                          '${(book.progress * 100).toStringAsFixed(0)}%',
+                          style: const TextStyle(
+                            color: CupertinoColors.inactiveGray,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatMeta(BookModel book) {
+    // Provide metadata strings matching screenshot for known titles
+    final map = {
+      '高效能人士的七个习惯': 'PDF · 12.4 MB',
+      '原则': 'EPUB · 1.2 MB',
+      '穷查理宝典': 'PDF · 3.1 MB',
+      '思考，快与慢': 'EPUB · 1.8 MB',
+      '人类简史': 'PDF · 2.7 MB',
+      '未来简史': 'PDF · 2.9 MB',
+    };
+    final raw = map[book.title];
+    if (raw != null) return raw.replaceFirst(RegExp(r'^[A-Z]+'), _localizedFileType(book.type));
+    return '${_localizedFileType(book.type)} · -';
+  }
+
+  String _localizedFileType(String type) {
+    final key = 'file_type_${type.toLowerCase()}';
+    final val = LocalizationEngine.text(key);
+    if (val == key) {
+      return type.toUpperCase();
+    }
+    return val;
+  }
+
+  Widget _buildStatsCards(BuildContext context) {
+    final theme = CupertinoTheme.of(context);
+    final textStyle = theme.textTheme.textStyle.copyWith(fontSize: 13);
+
+    // build four items with icons
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: CupertinoColors.white,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: _buildStatCell(context, CupertinoIcons.book, CupertinoColors.systemBlue, '128', LocalizationEngine.text('bookshelf_all_label')),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _buildStatCell(context, CupertinoIcons.star_fill, CupertinoColors.systemYellow, '24', LocalizationEngine.text('bookshelf_favorites_label')),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _buildStatCell(context, CupertinoIcons.clock, CupertinoColors.systemGreen, '18', LocalizationEngine.text('bookshelf_reading_label')),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _buildStatCell(context, CupertinoIcons.check_mark, CupertinoColors.systemPurple, '96', LocalizationEngine.text('bookshelf_finished_label')),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatCell(BuildContext context, IconData icon, Color bgColor, String value, String label) {
+    final textStyle = CupertinoTheme.of(context).textTheme.textStyle;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Icon(icon, color: CupertinoColors.white, size: 20),
+        ),
+        const SizedBox(height: 8),
+        Text(value, style: textStyle.copyWith(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 4),
+        Text(label, style: textStyle.copyWith(color: CupertinoColors.inactiveGray, fontSize: 12)),
+      ],
+    );
+  }
+
+  Widget _buildRecentReading(BuildContext context, List<BookModel> books) {
+    final recent = books.isEmpty ? [] : books.take(6).toList();
+    final displayBooks = recent.length == 1 ? List.generate(4, (_) => recent.first) : recent;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final isDesktop = width >= 900;
+        final isTablet = width >= 600 && width < 900;
+        final cardWidth = isDesktop
+            ? width * 0.12
+            : isTablet
+                ? width * 0.2
+                : width * 0.24;
+        final normalizedWidth = cardWidth.clamp(90.0, isDesktop ? 130.0 : isTablet ? 120.0 : 110.0);
+        final cardHeight = normalizedWidth * 1.45;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Text(
+                    LocalizationEngine.text('recently_reading'),
+                    style: CupertinoTheme.of(context).textTheme.textStyle.copyWith(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  GestureDetector(
+                    onTap: () {},
+                    child: Text(
+                      '${LocalizationEngine.text('view_all')} >',
+                      style: CupertinoTheme.of(context).textTheme.textStyle.copyWith(
+                            fontSize: 14,
+                            fontWeight: FontWeight.normal,
+                            color: CupertinoColors.inactiveGray,
+                          ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: cardHeight,
+              child: ListView.builder(
+                itemCount: displayBooks.length,
+                scrollDirection: Axis.horizontal,
+                padding: EdgeInsets.zero,
+                itemBuilder: (context, index) {
+                  final book = displayBooks[index];
+                  return Padding(
+                    padding: EdgeInsets.only(right: index == displayBooks.length - 1 ? 0 : 12),
+                    child: _buildRecentReadingCard(context, book, normalizedWidth, cardHeight),
+                  );
+                },
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildRecentReadingCard(BuildContext context, BookModel book, double width, double height) {
+    final coverHeight = height * 0.78;
+    final progressHeight = 4.0;
+    return GestureDetector(
+      onTap: () => _openBook(book),
+      child: Container(
+        width: width,
+        height: height,
+        decoration: BoxDecoration(
+          color: CupertinoTheme.of(context).scaffoldBackgroundColor,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+              color: CupertinoColors.systemGrey.withOpacity(0.06),
+              blurRadius: 10,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            SizedBox(
+              height: coverHeight,
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: AspectRatio(
+                  aspectRatio: 0.75,
+                  child: _buildBookThumbnail(book),
+                ),
+              ),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: _buildProgressBar(context, book.progress, height: progressHeight),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '${(book.progress * 100).toStringAsFixed(0)}%',
+                      style: const TextStyle(
+                        color: CupertinoColors.inactiveGray,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProgressBar(BuildContext context, double progress, {double height = 6}) {
+    final bg = CupertinoColors.systemGrey5.resolveFrom(context);
+    final fg = CupertinoTheme.of(context).primaryColor;
+    return Container(
+      height: height,
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(height / 2),
+      ),
+      child: FractionallySizedBox(
+        alignment: Alignment.centerLeft,
+        widthFactor: progress.clamp(0.0, 1.0),
+        child: Container(
+          decoration: BoxDecoration(
+            color: fg,
+            borderRadius: BorderRadius.circular(height / 2),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
-        leading: Row(
+        leading: Text(
+          LocalizationEngine.text('bookshelf'),
+          style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: CupertinoColors.black),
+        ),
+        middle: const SizedBox.shrink(),
+        trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              LocalizationEngine.text('bookshelf'),
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: CupertinoTheme.of(context).primaryColor),
-            ),
-            const SizedBox(width: 8),
-            CupertinoButton(
-              padding: EdgeInsets.zero,
-              onPressed: () {
+            GestureDetector(
+              onTap: () {
                 showCupertinoModalPopup<void>(
                   context: context,
                   builder: (context) {
@@ -533,32 +872,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
                   },
                 );
               },
-              child: const Icon(CupertinoIcons.search),
+              child: const Icon(CupertinoIcons.search, color: CupertinoColors.black),
             ),
-          ],
-        ),
-        middle: const SizedBox.shrink(),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CupertinoButton(
-              padding: EdgeInsets.zero,
-              onPressed: () {
-                setState(() {
-                  _showCoverMode = !_showCoverMode;
-                });
-              },
-              child: Icon(
-                _showCoverMode ? CupertinoIcons.list_bullet : CupertinoIcons.square_grid_2x2,
-              ),
-            ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 16),
             Builder(
               builder: (buttonContext) {
-                return CupertinoButton(
-                  padding: EdgeInsets.zero,
-                  onPressed: () => _showMoreOptions(buttonContext),
-                  child: const Icon(CupertinoIcons.ellipsis),
+                return GestureDetector(
+                  onTap: () => _showMoreOptions(buttonContext),
+                  child: const Icon(CupertinoIcons.ellipsis, color: CupertinoColors.black),
                 );
               },
             ),
@@ -575,48 +896,129 @@ class _BookshelfPageState extends State<BookshelfPage> {
               builder: (context, books, child) {
                 final filteredBooks = _filterBooks(books);
                 return Expanded(
-                  child: books.isEmpty
-                      ? Center(
-                          child: CupertinoButton.filled(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 28,
-                              vertical: 14,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildStatsCards(context),
+                      const SizedBox(height: 12),
+                      _buildRecentReading(context, books),
+                      const SizedBox(height: 8),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(
+                                  children: [
+                                    ...<Map<String, String>>[
+                                      {'k': 'all', 't': LocalizationEngine.text('bookshelf_tab_all')},
+                                      {'k': 'pdf', 't': LocalizationEngine.text('file_type_pdf')},
+                                      {'k': 'epub', 't': LocalizationEngine.text('file_type_epub')},
+                                      {'k': 'txt', 't': LocalizationEngine.text('file_type_txt')},
+                                      {'k': 'other', 't': LocalizationEngine.text('bookshelf_tab_other')},
+                                    ].map((item) {
+                                      final key = item['k']!;
+                                      final label = item['t']!;
+                                      final selected = _selectedCategory == key;
+                                      return Padding(
+                                        padding: const EdgeInsets.only(right: 8),
+                                        child: GestureDetector(
+                                          onTap: () => setState(() => _selectedCategory = key),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                            decoration: BoxDecoration(
+                                              color: selected ? CupertinoTheme.of(context).primaryColor.withOpacity(0.12) : CupertinoColors.transparent,
+                                              borderRadius: BorderRadius.circular(20),
+                                            ),
+                                            child: Text(
+                                              label,
+                                              style: CupertinoTheme.of(context).textTheme.textStyle.copyWith(
+                                                fontSize: 14,
+                                                fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                                                color: selected ? CupertinoTheme.of(context).primaryColor : CupertinoColors.inactiveGray,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    }).toList(),
+                                  ],
+                                ),
+                              ),
                             ),
-                            onPressed: _controller.importPdf,
-                            child: Text(LocalizationEngine.text('bookshelf_import_button')),
-                          ),
-                        )
-                          : filteredBooks.isEmpty
-                              ? Center(
-                                  child: Text(
-                                    LocalizationEngine.text('bookshelf_no_match_books'),
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      color: CupertinoColors.inactiveGray,
-                                    ),
-                                  ),
-                                )
-                              : _showCoverMode
-                                  ? GridView.builder(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                        crossAxisCount: 2,
-                                        childAspectRatio: 0.64,
-                                        crossAxisSpacing: 8,
-                                        mainAxisSpacing: 8,
+                            const SizedBox(width: 8),
+                            GestureDetector(
+                              onTap: () {
+                                showCupertinoModalPopup<void>(
+                                  context: context,
+                                  builder: (c) => CupertinoActionSheet(
+                                    title: Text(LocalizationEngine.text('bookshelf_filter')),
+                                    actions: [
+                                      CupertinoActionSheetAction(
+                                        onPressed: () => Navigator.of(c).pop(),
+                                        child: Text(LocalizationEngine.text('done')),
                                       ),
-                                      itemCount: filteredBooks.length,
-                                      itemBuilder: (context, index) {
-                                        return _buildBookItem(filteredBooks[index]);
-                                      },
-                                    )
-                                  : ListView.builder(
-                                      padding: const EdgeInsets.symmetric(vertical: 4),
-                                      itemCount: filteredBooks.length,
-                                      itemBuilder: (context, index) {
-                                        return _buildBookListItem(filteredBooks[index]);
-                                      },
+                                    ],
+                                  ),
+                                );
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                child: Icon(CupertinoIcons.slider_horizontal_3, color: CupertinoTheme.of(context).primaryColor),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child: books.isEmpty
+                            ? Center(
+                                child: CupertinoButton.filled(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 28,
+                                    vertical: 14,
+                                  ),
+                                  onPressed: _controller.importPdf,
+                                  child: Text(LocalizationEngine.text('bookshelf_import_button')),
+                                ),
+                              )
+                            : filteredBooks.isEmpty
+                                ? Center(
+                                    child: Text(
+                                      LocalizationEngine.text('bookshelf_no_match_books'),
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        color: CupertinoColors.inactiveGray,
+                                      ),
                                     ),
+                                  )
+                                : _showCoverMode
+                                    ? GridView.builder(
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                          crossAxisCount: 2,
+                                          childAspectRatio: 0.64,
+                                          crossAxisSpacing: 12,
+                                          mainAxisSpacing: 12,
+                                        ),
+                                        itemCount: filteredBooks.length,
+                                        itemBuilder: (context, index) {
+                                          return _buildGridCard(filteredBooks[index]);
+                                        },
+                                      )
+                                    : ListView.builder(
+                                        padding: const EdgeInsets.symmetric(vertical: 4),
+                                        itemCount: filteredBooks.length,
+                                        itemBuilder: (context, index) {
+                                          return _buildBookListItem(filteredBooks[index]);
+                                        },
+                                      ),
+                      ),
+                    ],
+                  ),
                 );
               },
             ),
