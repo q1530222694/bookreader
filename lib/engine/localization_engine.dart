@@ -130,6 +130,10 @@ class LocalizationEngine {
       'zh': '每日一句',
       'en': 'Daily Sentence',
     },
+    'recently_reading': {
+      'zh': '最近阅读',
+      'en': 'Recently Read',
+    },
     'account_settings': {
       'zh': '账号与设置',
       'en': 'Account & Settings',
@@ -392,6 +396,106 @@ class LocalizationEngine {
     'memory_reading_duration_hint': {
       'zh': '阅读时长统计将显示在此处',
       'en': 'Reading duration statistics will appear here',
+    },
+    'reading_statistics': {
+      'zh': '阅读统计',
+      'en': 'Reading Statistics',
+    },
+    'total_reading_duration': {
+      'zh': '总阅读时长',
+      'en': 'Total Reading Time',
+    },
+    'daily_average': {
+      'zh': '日均',
+      'en': 'Daily Avg',
+    },
+    'vs_previous_period': {
+      'zh': '较上一周期',
+      'en': 'vs Previous Period',
+    },
+    'today_reading': {
+      'zh': '今日阅读',
+      'en': 'Today',
+    },
+    'this_week_reading': {
+      'zh': '本周阅读',
+      'en': 'This Week',
+    },
+    'reading_time_distribution': {
+      'zh': '阅读时长分布',
+      'en': 'Reading Time Distribution',
+    },
+    'reading_trend': {
+      'zh': '阅读趋势',
+      'en': 'Reading Trend',
+    },
+    'trend_summary': {
+      'zh': '趋势总结',
+      'en': 'Trend Summary',
+    },
+    'reading_trend_insight': {
+      'zh': '本周阅读时长持续提升，集中在晚间和周末，说明你的阅读节奏已经稳定。',
+      'en': 'Reading time kept rising this week, especially in the evenings and on weekends, showing a steady routine.',
+    },
+    'chart_hint': {
+      'zh': '点击数据点查看详细时长',
+      'en': 'Tap a point to inspect detailed reading time',
+    },
+    'hours_short': {
+      'zh': '小时',
+      'en': 'h',
+    },
+    'days_short': {
+      'zh': '天',
+      'en': 'd',
+    },
+    'books_short': {
+      'zh': '本',
+      'en': 'books',
+    },
+    'longest_reading_day': {
+      'zh': '最长阅读一天',
+      'en': 'Longest Reading Day',
+    },
+    'continuous_reading': {
+      'zh': '连续阅读',
+      'en': 'Streak',
+    },
+    'continuous_reading_label': {
+      'zh': '连续阅读',
+      'en': 'Reading Streak',
+    },
+    'cumulative_reading': {
+      'zh': '累计阅读',
+      'en': 'Accumulated Reading',
+    },
+    'cumulative_reading_days': {
+      'zh': '累计阅读天数',
+      'en': 'Reading Days',
+    },
+    'average_daily_reading': {
+      'zh': '平均每天阅读',
+      'en': 'Average Daily Reading',
+    },
+    'completed_books': {
+      'zh': '阅读完成书籍',
+      'en': 'Completed Books',
+    },
+    'period_day': {
+      'zh': '日',
+      'en': 'Day',
+    },
+    'period_week': {
+      'zh': '周',
+      'en': 'Week',
+    },
+    'period_month': {
+      'zh': '月',
+      'en': 'Month',
+    },
+    'period_year': {
+      'zh': '年',
+      'en': 'Year',
     },
     'calendar_january': {
       'zh': '一月',

@@ -52,4 +52,30 @@ void main() {
 
     expect(find.text('删除'), findsOneWidget);
   });
+
+  testWidgets('BookshelfPage uses a popover for long-press actions', (tester) async {
+    final controller = BookshelfController();
+    controller.books.value = [
+      const BookModel(
+        id: 'book-1',
+        title: 'Test Book',
+        path: '/tmp/test.pdf',
+        type: 'pdf',
+      ),
+    ];
+
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: BookshelfPage(controller: controller),
+      ),
+    );
+
+    await tester.longPress(find.byType(GestureDetector).first);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(CupertinoActionSheet), findsNothing);
+    expect(find.text('删除'), findsOneWidget);
+  });
 }

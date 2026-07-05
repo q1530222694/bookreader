@@ -139,33 +139,80 @@ class _ImageToPdfPageState extends State<ImageToPdfPage> {
     }
   }
 
+  void _showImageDeletePopover(BuildContext context, int index, {Offset? anchorPosition}) {
+    final overlayState = Overlay.of(context, rootOverlay: true);
+
+    late final OverlayEntry overlayEntry;
+    overlayEntry = OverlayEntry(
+      builder: (overlayContext) {
+        final targetPosition = anchorPosition ?? const Offset(0, 0);
+        final mediaQuery = MediaQuery.of(overlayContext);
+        final screenWidth = mediaQuery.size.width;
+        final screenHeight = mediaQuery.size.height;
+        final menuWidth = 168.0;
+        final menuHeight = 64.0;
+        final safeLeft = (targetPosition.dx - menuWidth / 2).clamp(12.0, screenWidth - menuWidth - 12.0);
+        final safeTop = (targetPosition.dy + 8.0).clamp(12.0, screenHeight - menuHeight - 12.0);
+
+        return Stack(
+          children: [
+            GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTap: () => overlayEntry.remove(),
+              child: Container(color: CupertinoColors.transparent),
+            ),
+            Positioned(
+              left: safeLeft,
+              top: safeTop,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: Container(
+                  width: menuWidth,
+                  decoration: BoxDecoration(
+                    color: CupertinoColors.systemBackground.resolveFrom(overlayContext),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: CupertinoColors.systemGrey4.resolveFrom(overlayContext)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: CupertinoColors.black.withOpacity(0.12),
+                        blurRadius: 12,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: CupertinoButton(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    onPressed: () {
+                      overlayEntry.remove();
+                      _removeImage(index);
+                    },
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '删除',
+                        style: const TextStyle(color: CupertinoColors.destructiveRed),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    overlayState.insert(overlayEntry);
+  }
+
   /// 构建图片预览项
   Widget _buildImagePreviewItem(String imagePath, int index) {
     return GestureDetector(
-      onLongPress: () {
-        // 长按删除图片
-        showCupertinoDialog(
-          context: context,
-          builder: (context) => CupertinoAlertDialog(
-            title: const Text('确认删除'),
-            content: const Text('确定要删除此图片吗？'),
-            actions: [
-              CupertinoDialogAction(
-                child: const Text('取消'),
-                onPressed: () => Navigator.pop(context),
-              ),
-              CupertinoDialogAction(
-                isDestructiveAction: true,
-                child: const Text('删除'),
-                onPressed: () {
-                  Navigator.pop(context);
-                  _removeImage(index);
-                },
-              ),
-            ],
-          ),
-        );
-      },
+      onLongPressStart: (details) => _showImageDeletePopover(
+        context,
+        index,
+        anchorPosition: details.globalPosition,
+      ),
       child: Container(
         margin: const EdgeInsets.only(right: 12),
         decoration: BoxDecoration(

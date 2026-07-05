@@ -1,4 +1,77 @@
-﻿### [2026-07-03] 新增：书架随机读书
+﻿### [2026-07-05] 新增：主页最近阅读模块
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/home_page.dart`
+  └─ 依赖/调用 ➔ `lib/features/shell/controller/bookshelf_controller.dart`
+  └─ 打开 ➔ `lib/features/shell/ui/book_viewer_page.dart`
+  └─ 变更 ➔ 在首页新增“最近阅读”横向缩略图列表，展示最近 3 本书并点击跳转
+- `lib/features/shell/controller/bookshelf_controller.dart`
+  └─ 依赖/调用 ➔ `lib/features/shell/service/bookshelf_service.dart`
+  └─ 消费 ➔ `lib/features/shell/model/book_model.dart`
+- `lib/engine/localization_engine.dart`
+  └─ 新增 ➔ `recently_reading` 多语言文案
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+
+---
+
+### [2026-07-04] 新增：阅读时长分布圆形图表
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/memory_page.dart`
+  └─ 新增 ➔ `_buildReadingTimeDistribution()` 方法与 `_DonutChartPainter` 画笔
+  └─ 新增 ➔ `_DistributionItem` 数据模型类
+  └─ 变更 ➔ 在第9个统计卡片与趋势总结之间插入阅读时长分布圆形图表
+- `lib/engine/localization_engine.dart`
+  └─ 新增 ➔ `reading_time_distribution` 多语言文案
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+
+---
+
+### [2026-07-04] 优化：统计卡片布局改为三列等高网格
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/memory_page.dart`
+  └─ 变更 ➔ 将 `_buildOverviewRow()` 和 `_buildStatsGrid()` 合并为 `_buildMetricGrid()`
+  └─ 变更 ➔ 采用 GridView 实现 3 列等高网格布局，确保所有卡片在行内高度一致
+  └─ 删除 ➔ 冗余的 `_buildOverviewCard()` 占位方法
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+
+---
+
+### [2026-07-04] 优化：回忆页面改造为阅读统计界面
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/memory_page.dart`
+  └─ 依赖/调用 ➔ `lib/engine/localization_engine.dart`
+  └─ 变更 ➔ 用现代化阅读统计卡片、周期切换与图表展示替换原有日历占位页
+  └─ 变更 ➔ 总阅读时长卡片标题加粗，图形切换按钮置于右侧，总阅读时长下方依次显示：总时长统计、日均时长、上一周期变化率
+  └─ 变更 ➔ 顶部日期显示改为真实当前日期和当前周期范围
+- `lib/engine/localization_engine.dart`
+  └─ 新增 ➔ 阅读统计相关文案键值
+  └─ 新增 ➔ `vs_previous_period` 多语言文案键值
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+
+---
+
+### [2026-07-04] 优化：书架与PDF相关交互改为气泡弹窗
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/bookshelf_page.dart`
+  └─ 依赖/调用 ➔ `lib/features/shell/controller/bookshelf_controller.dart`
+  └─ 打开 ➔ `lib/features/shell/ui/book_viewer_page.dart`
+  └─ 变更 ➔ 书架顶部“更多”菜单与书籍长按菜单改为锚点悬浮气泡弹窗（Popover）
+- `lib/features/image_to_pdf/ui/image_to_pdf_page.dart`
+  └─ 变更 ➔ 图片长按删除确认由全屏弹窗改为锚点悬浮气泡弹窗
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+
+---
+
+### [2026-07-03] 新增：书架随机读书
 **【AI 架构依赖树 (Architecture Context)】**
 - `lib/features/shell/ui/bookshelf_page.dart`
   └─ 依赖/调用 ➔ `lib/features/shell/controller/bookshelf_controller.dart`
