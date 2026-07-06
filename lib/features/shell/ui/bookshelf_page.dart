@@ -406,9 +406,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
                 overflow: TextOverflow.ellipsis,
                 softWrap: true,
                 textAlign: TextAlign.left,
-                style: const TextStyle(
+                style: CupertinoTheme.of(context).textTheme.textStyle.copyWith(
                   fontSize: 15,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w700,
+                  color: CupertinoColors.label.resolveFrom(context),
+                  height: 1.25,
                 ),
               ),
             ],
@@ -457,9 +459,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       softWrap: true,
-                      style: const TextStyle(
+                      style: CupertinoTheme.of(context).textTheme.textStyle.copyWith(
                         fontSize: 15,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w700,
+                        color: CupertinoColors.label.resolveFrom(context),
+                        height: 1.25,
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -588,6 +592,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
                           style: CupertinoTheme.of(context).textTheme.textStyle.copyWith(
                                 fontSize: 15,
                                 fontWeight: FontWeight.w700,
+                                color: CupertinoColors.label.resolveFrom(context),
+                                height: 1.25,
                               ),
                         ),
                         const SizedBox(height: 4),
@@ -759,7 +765,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 0),
+              padding: const EdgeInsets.only(left: 6, right: 0),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 crossAxisAlignment: CrossAxisAlignment.center,
@@ -768,7 +774,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
                     LocalizationEngine.text('recently_reading'),
                     style: CupertinoTheme.of(context).textTheme.textStyle.copyWith(
                           fontSize: 16,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w800,
+                          color: CupertinoColors.label.resolveFrom(context),
                         ),
                   ),
                   GestureDetector(
@@ -776,9 +783,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
                     child: Text(
                       '${LocalizationEngine.text('view_all')} >',
                       style: CupertinoTheme.of(context).textTheme.textStyle.copyWith(
-                            fontSize: 14,
-                            fontWeight: FontWeight.normal,
-                            color: CupertinoColors.inactiveGray,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: CupertinoColors.inactiveGray.resolveFrom(context),
                           ),
                     ),
                   ),

@@ -169,4 +169,39 @@ void main() {
     expect(find.textContaining('PDF'), findsAtLeastNWidgets(1));
     expect(find.textContaining('1.5 MB'), findsOneWidget);
   });
+
+  testWidgets('BookshelfPage shows recent reading title with bold matching size', (tester) async {
+    final controller = BookshelfController();
+    controller.books.value = [
+      const BookModel(
+        id: 'book-3',
+        title: 'Recent Book',
+        path: '/tmp/recent-book.pdf',
+        type: 'pdf',
+      ),
+    ];
+
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: BookshelfPage(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final recentTitle = find.text('最近阅读');
+    final viewAllText = find.textContaining('查看全部');
+
+    expect(recentTitle, findsOneWidget);
+    expect(viewAllText, findsOneWidget);
+
+    final recentTitleWidget = tester.widget<Text>(recentTitle);
+    final viewAllWidget = tester.widget<Text>(viewAllText);
+
+    expect(recentTitleWidget.style?.fontSize, 16);
+    expect(viewAllWidget.style?.fontSize, 16);
+    expect(recentTitleWidget.style?.fontWeight, FontWeight.w800);
+    expect(viewAllWidget.style?.fontWeight, FontWeight.w800);
+  });
 }

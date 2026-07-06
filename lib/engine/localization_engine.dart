@@ -589,9 +589,9 @@ class LocalizationEngine {
       'zh': '尚未有最近阅读记录，先添加一本书籍开始阅读吧。',
       'en': 'No recent reads yet. Add a book to get started.',
     },
-    'greeting_with_name': {
-      'zh': '下午好，',
-      'en': 'Good afternoon,',
+    'greeting_title': {
+      'zh': '下午好，万志豪！',
+      'en': 'Good afternoon, Wanzhihau!',
     },
     'greeting_subtitle': {
       'zh': '今天继续阅读吧',

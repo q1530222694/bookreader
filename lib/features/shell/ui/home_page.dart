@@ -52,35 +52,52 @@ class _HomePageState extends State<HomePage> {
 
   Widget _greetingSection(BuildContext context) {
     final theme = CupertinoTheme.of(context);
-    final textStyle = theme.textTheme.textStyle;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  LocalizationEngine.text('greeting_with_name'),
-                  style: textStyle.copyWith(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  LocalizationEngine.text('greeting_subtitle'),
-                  style: theme.textTheme.textStyle.copyWith(color: CupertinoColors.secondaryLabel.resolveFrom(context)),
-                ),
-              ],
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: CupertinoColors.systemGrey6.resolveFrom(context).withOpacity(0.55),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    LocalizationEngine.text('greeting_title'),
+                    style: theme.textTheme.textStyle.copyWith(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                      color: CupertinoColors.label.resolveFrom(context),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    LocalizationEngine.text('greeting_subtitle'),
+                    style: theme.textTheme.textStyle.copyWith(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          CupertinoButton(
-            padding: EdgeInsets.zero,
-            minSize: 36,
-            onPressed: () {},
-            child: const Icon(CupertinoIcons.bell),
-          ),
-        ],
+            const SizedBox(width: 8),
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              minSize: 36,
+              onPressed: () {},
+              child: const Icon(CupertinoIcons.bell),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -111,14 +128,15 @@ class _HomePageState extends State<HomePage> {
               ],
             ),
             child: Padding(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(12),
                     child: SizedBox(
-                      width: 84,
-                      height: 112,
+                      width: 90,
+                      height: 120,
                       child: book == null
                           ? Container(color: CupertinoColors.systemGrey)
                           : (book.coverBytes != null
@@ -126,7 +144,7 @@ class _HomePageState extends State<HomePage> {
                               : Container(color: CupertinoColors.systemGrey)),
                     ),
                   ),
-                  const SizedBox(width: 14),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -135,7 +153,12 @@ class _HomePageState extends State<HomePage> {
                           book?.title ?? LocalizationEngine.text('no_recently_reading'),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.textStyle.copyWith(fontWeight: FontWeight.w700),
+                          style: theme.textTheme.textStyle.copyWith(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                            color: CupertinoColors.label.resolveFrom(context),
+                            height: 1.25,
+                          ),
                         ),
                         const SizedBox(height: 8),
                         Row(
@@ -245,16 +268,33 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
             ),
-            // 三个统计卡片（横向排列）
+            // 三个统计卡片（根据屏幕宽度自适应排列）
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  _buildStatCard(context, '32 小时', LocalizationEngine.text('monthly_reading')),
-                  _buildStatCard(context, '382 小时', LocalizationEngine.text('yearly_reading')),
-                  _buildStatCard(context, '126 天', LocalizationEngine.text('streak_days')),
-                ],
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final isWide = constraints.maxWidth >= 360;
+                  final cards = [
+                    _buildStatCard(context, '32 小时', LocalizationEngine.text('monthly_reading')),
+                    _buildStatCard(context, '382 小时', LocalizationEngine.text('yearly_reading')),
+                    _buildStatCard(context, '126 天', LocalizationEngine.text('streak_days')),
+                  ];
+
+                  if (isWide) {
+                    return Row(
+                      children: cards
+                          .map((card) => Expanded(child: card))
+                          .toList(),
+                    );
+                  }
+
+                  return Column(
+                    children: cards.map((card) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: card,
+                    )).toList(),
+                  );
+                },
               ),
             ),
           ],
@@ -267,40 +307,38 @@ class _HomePageState extends State<HomePage> {
   Widget _buildStatCard(BuildContext context, String value, String label) {
     final theme = CupertinoTheme.of(context);
 
-    return Expanded(
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 6),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: theme.scaffoldBackgroundColor,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(color: CupertinoColors.systemGrey.withOpacity(0.04), blurRadius: 6, offset: const Offset(0, 3)),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              value,
-              style: theme.textTheme.textStyle.copyWith(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: CupertinoColors.label.resolveFrom(context),
-              ),
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 6),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.scaffoldBackgroundColor,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(color: CupertinoColors.systemGrey.withOpacity(0.04), blurRadius: 6, offset: const Offset(0, 3)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            value,
+            style: theme.textTheme.textStyle.copyWith(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: CupertinoColors.label.resolveFrom(context),
             ),
-            const SizedBox(height: 6),
-            Text(
-              label,
-              style: theme.textTheme.textStyle.copyWith(
-                fontSize: 11,
-                color: CupertinoColors.secondaryLabel.resolveFrom(context),
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            label,
+            style: theme.textTheme.textStyle.copyWith(
+              fontSize: 11,
+              color: CupertinoColors.secondaryLabel.resolveFrom(context),
             ),
-          ],
-        ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
       ),
     );
   }
@@ -358,7 +396,7 @@ class _HomePageState extends State<HomePage> {
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: CupertinoColors.secondarySystemBackground.resolveFrom(context),
+              color: CupertinoColors.systemGrey6.resolveFrom(context).withOpacity(0.45),
               borderRadius: BorderRadius.circular(12),
             ),
             child: ValueListenableBuilder<List<DailySentenceModel>>(
