@@ -1,4 +1,35 @@
-﻿### [2026-07-06] 优化：主页阅读进度条增加百分比显示
+﻿### [2026-07-06] 优化：首页布局重构，中间展示阅读数据，下方为快捷功能
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/home_page.dart`
+  └─ 变更 ➔ 首页布局重构为三层结构：(1)顶部问候区 + 最近阅读卡片，(2)中间阅读数据展示区（大号总阅读时长 + 三个统计卡片），(3)下方快捷功能 + 每日一句
+  └─ 新增 ➔ `_readingDataSection()` 方法：展示大号总阅读时长卡片与三个统计卡片（本月/今年/累计）
+  └─ 新增 ➔ `_buildStatCard()` 辅助方法：构建单个统计卡片（值 + 标签）
+  └─ 变更 ➔ 移除原有 `_statsGrid()` 方法，其功能已整合到 `_readingDataSection()` 中
+  └─ 依赖/调用 ➔ `lib/features/shell/controller/bookshelf_controller.dart`
+  └─ 打开 ➔ `lib/features/shell/ui/book_viewer_page.dart`
+- `lib/engine/localization_engine.dart`
+  └─ 新增 ➔ `monthly_reading` 文案：'本月阅读' / 'This Month'
+  └─ 新增 ➔ `yearly_reading` 文案：'今年阅读' / 'This Year'
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+- 无新增 Config Key
+
+---
+
+### [2026-07-06] 优化：主页阅读进度条增加百分比显示
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/home_page.dart`
+  └─ 变更 ➔ 在首页"最近阅读"卡片的阅读进度条右侧增加百分比展示
+  └─ 变更 ➔ 同时补充卡片顶部标题区域，便于与现有首页文案结构保持一致
+- `test/home_page_test.dart`
+  └─ 新增 ➔ 回归测试，覆盖首页进度百分比展示
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+
+---
+### [2026-07-06] 优化：主页阅读进度条增加百分比显示
 **【AI 架构依赖树 (Architecture Context)】**
 - `lib/features/shell/ui/home_page.dart`
   └─ 变更 ➔ 在首页“最近阅读”卡片的阅读进度条右侧增加百分比展示

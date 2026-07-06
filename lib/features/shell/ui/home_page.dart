@@ -192,50 +192,116 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _statsGrid(BuildContext context) {
+  // 中间阅读数据展示区域（包括大号时长卡片 + 三个统计卡片）
+  Widget _readingDataSection(BuildContext context) {
     final theme = CupertinoTheme.of(context);
 
     return ValueListenableBuilder<List<BookModel>>(
       valueListenable: _controller.books,
       builder: (context, books, child) {
-        final totalBooks = books.length;
-        final completed = books.where((b) => b.progress >= 0.999).length;
-        final avgProgress = totalBooks > 0 ? (books.map((b) => b.progress).reduce((a, b) => a + b) / totalBooks) : 0.0;
-
-        final items = [
-          {'label': LocalizationEngine.text('today_reading'), 'value': '0h 0m'},
-          {'label': LocalizationEngine.text('today_books'), 'value': '$totalBooks'},
-          {'label': LocalizationEngine.text('total_pages'), 'value': '${(avgProgress * 100).toStringAsFixed(0)}%'},
-          {'label': LocalizationEngine.text('streak_days'), 'value': '$completed'},
-        ];
-
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: items.map((it) {
-              return Expanded(
-                child: Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 6),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: theme.scaffoldBackgroundColor,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(it['value'] as String, style: theme.textTheme.textStyle.copyWith(fontWeight: FontWeight.w700)),
-                      const SizedBox(height: 6),
-                      Text(it['label'] as String, style: theme.textTheme.textStyle.copyWith(color: CupertinoColors.secondaryLabel.resolveFrom(context))),
-                    ],
-                  ),
+        return Column(
+          children: [
+            // 大号总阅读时长卡片
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: theme.scaffoldBackgroundColor,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(color: CupertinoColors.systemGrey.withOpacity(0.06), blurRadius: 12, offset: const Offset(0, 6)),
+                  ],
                 ),
-              );
-            }).toList(),
-          ),
+                padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Text(
+                      LocalizationEngine.text('reading_stats'),
+                      style: theme.textTheme.textStyle.copyWith(
+                        fontSize: 14,
+                        color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    // 大号时长显示
+                    Text(
+                      '18 小时 45 分钟',
+                      style: theme.textTheme.textStyle.copyWith(
+                        fontSize: 36,
+                        fontWeight: FontWeight.w700,
+                        color: CupertinoColors.label.resolveFrom(context),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      LocalizationEngine.text('today_reading'),
+                      style: theme.textTheme.textStyle.copyWith(
+                        fontSize: 12,
+                        color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            // 三个统计卡片（横向排列）
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _buildStatCard(context, '32 小时', LocalizationEngine.text('monthly_reading')),
+                  _buildStatCard(context, '382 小时', LocalizationEngine.text('yearly_reading')),
+                  _buildStatCard(context, '126 天', LocalizationEngine.text('streak_days')),
+                ],
+              ),
+            ),
+          ],
         );
       },
+    );
+  }
+
+  // 辅助方法：构建单个统计卡片
+  Widget _buildStatCard(BuildContext context, String value, String label) {
+    final theme = CupertinoTheme.of(context);
+
+    return Expanded(
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 6),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: theme.scaffoldBackgroundColor,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(color: CupertinoColors.systemGrey.withOpacity(0.04), blurRadius: 6, offset: const Offset(0, 3)),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              value,
+              style: theme.textTheme.textStyle.copyWith(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: CupertinoColors.label.resolveFrom(context),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: theme.textTheme.textStyle.copyWith(
+                fontSize: 11,
+                color: CupertinoColors.secondaryLabel.resolveFrom(context),
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -344,8 +410,10 @@ class _HomePageState extends State<HomePage> {
         child: ListView(
           padding: const EdgeInsets.only(top: 8, bottom: 18),
           children: [
+            // 顶部问候区域
             _greetingSection(context),
             const SizedBox(height: 6),
+            // 最近阅读卡片
             ValueListenableBuilder<List<BookModel>>(
               valueListenable: _controller.books,
               builder: (context, books, child) {
@@ -353,8 +421,11 @@ class _HomePageState extends State<HomePage> {
                 return _recentReadingCard(context, latest);
               },
             ),
-            _statsGrid(context),
+            // 中间：阅读数据展示区域（大号时长 + 三个统计卡片）
+            _readingDataSection(context),
+            // 下方：快捷功能
             _quickFunctions(context),
+            // 底部：每日一句
             _dailySentence(context),
           ],
         ),

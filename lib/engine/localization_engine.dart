@@ -621,6 +621,14 @@ class LocalizationEngine {
       'zh': '我的收藏',
       'en': 'Favorites',
     },
+    'monthly_reading': {
+      'zh': '本月阅读',
+      'en': 'This Month',
+    },
+    'yearly_reading': {
+      'zh': '今年阅读',
+      'en': 'This Year',
+    },
     'font_family': {
       'zh': '字体',
       'en': 'Font Family',
