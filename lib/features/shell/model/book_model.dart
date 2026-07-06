@@ -8,6 +8,9 @@ class BookModel {
   final String type;
   final Uint8List? coverBytes;
   final double progress;
+  final DateTime? lastReadAt;
+  final bool isFavorite;
+  final int? fileSizeBytes;
 
   const BookModel({
     required this.id,
@@ -16,5 +19,33 @@ class BookModel {
     required this.type,
     this.coverBytes,
     this.progress = 0.0,
+    this.lastReadAt,
+    this.isFavorite = false,
+    this.fileSizeBytes,
   });
+
+  /// Returns a copy with the provided fields replaced.
+  BookModel copyWith({
+    String? id,
+    String? title,
+    String? path,
+    String? type,
+    Uint8List? coverBytes,
+    double? progress,
+    DateTime? lastReadAt,
+    bool? isFavorite,
+    int? fileSizeBytes,
+  }) {
+    return BookModel(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      path: path ?? this.path,
+      type: type ?? this.type,
+      coverBytes: coverBytes ?? this.coverBytes,
+      progress: progress ?? this.progress,
+      lastReadAt: lastReadAt ?? this.lastReadAt,
+      isFavorite: isFavorite ?? this.isFavorite,
+      fileSizeBytes: fileSizeBytes ?? this.fileSizeBytes,
+    );
+  }
 }

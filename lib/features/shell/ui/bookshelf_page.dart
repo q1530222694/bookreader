@@ -1,7 +1,5 @@
-import 'package:flutter/cupertino.dart';
+import 'dart:io';
 
-import '../../../engine/localization_engine.dart';
-import '../controller/bookshelf_controller.dart';
 import 'package:flutter/cupertino.dart';
 
 import '../../../engine/localization_engine.dart';
@@ -150,10 +148,16 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   void _openBook(BookModel book) {
+    _controller.updateBookLastRead(book.id, DateTime.now());
     Navigator.push(
       context,
       CupertinoPageRoute(
-        builder: (context) => BookViewerPage(title: book.title, filePath: book.path),
+        builder: (context) => BookViewerPage(
+          title: book.title,
+          filePath: book.path,
+          bookId: book.id,
+          controller: _controller,
+        ),
       ),
     );
   }
@@ -350,6 +354,29 @@ class _BookshelfPageState extends State<BookshelfPage> {
     );
   }
 
+  String _bookTitle(BookModel book) {
+    final title = book.title.trim();
+    if (title.isNotEmpty) {
+      return title;
+    }
+    return book.path.split(Platform.pathSeparator).last;
+  }
+
+  String _formatFileSize(int? bytes) {
+    if (bytes == null || bytes <= 0) {
+      return '-';
+    }
+    const units = ['B', 'KB', 'MB', 'GB'];
+    var size = bytes.toDouble();
+    var index = 0;
+    while (size >= 1024 && index < units.length - 1) {
+      size /= 1024;
+      index += 1;
+    }
+    final precision = size >= 100 || index == 0 ? 0 : 1;
+    return '${size.toStringAsFixed(precision)} ${units[index]}';
+  }
+
   Widget _buildBookItem(BookModel book) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -374,7 +401,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
               _buildBookCover(book),
               const SizedBox(height: 12),
               Text(
-                book.title,
+                _bookTitle(book),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 softWrap: true,
@@ -426,7 +453,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      book.title,
+                      _bookTitle(book),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       softWrap: true,
@@ -488,6 +515,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   Widget _buildGridCard(BookModel book) {
+    // calculate thumbnail and card heights so card is thumbnail height + 2px
+    const double thumbWidth = 70.0;
+    const double thumbAspect = 3.0 / 4.0;
+    final double thumbHeight = thumbWidth / thumbAspect;
+    final double cardHeight = thumbHeight + 2.0;
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () => _openBook(book),
@@ -497,62 +530,67 @@ class _BookshelfPageState extends State<BookshelfPage> {
         anchorPosition: details.globalPosition,
       ),
       child: Container(
-        height: 130,
-        padding: const EdgeInsets.all(16),
+        height: cardHeight,
+        padding: const EdgeInsets.fromLTRB(6, 3, 6, 3),
         decoration: BoxDecoration(
           color: CupertinoColors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(18),
           boxShadow: [
             BoxShadow(
-              color: CupertinoColors.systemGrey.withOpacity(0.06),
+              color: CupertinoColors.systemGrey.withOpacity(0.08),
               blurRadius: 10,
-              offset: const Offset(0, 6),
+              offset: const Offset(0, 4),
             ),
           ],
         ),
         child: Stack(
           children: [
             Positioned(
-              top: 12,
-              right: 12,
+              top: 0,
+              right: 0,
               child: Builder(
                 builder: (buttonContext) {
                   return GestureDetector(
                     onTap: () => _showBookActions(buttonContext, book),
-                    child: const Icon(CupertinoIcons.ellipsis, size: 18, color: CupertinoColors.inactiveGray),
+                    child: const Padding(
+                      padding: EdgeInsets.only(top: 0, right: 0),
+                      child: Icon(CupertinoIcons.ellipsis, size: 16, color: CupertinoColors.inactiveGray),
+                    ),
                   );
                 },
               ),
             ),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: SizedBox(
-                    width: 48,
-                    height: 68,
-                    child: _buildBookThumbnail(book),
+            Padding(
+              padding: const EdgeInsets.only(right: 18),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 70,
+                    child: AspectRatio(
+                      aspectRatio: 3 / 4,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: _buildBookThumbnail(book),
+                      ),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 36),
+                  const SizedBox(width: 10),
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text(
-                          book.title,
+                          _bookTitle(book),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: CupertinoTheme.of(context).textTheme.textStyle.copyWith(
-                                fontSize: 16,
+                                fontSize: 15,
                                 fontWeight: FontWeight.w700,
                               ),
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 4),
                         Text(
                           _formatMeta(book),
                           style: const TextStyle(
@@ -560,21 +598,20 @@ class _BookshelfPageState extends State<BookshelfPage> {
                             fontSize: 12,
                           ),
                         ),
-                        const SizedBox(height: 12),
-                        _buildProgressBar(context, book.progress),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 4),
                         Text(
-                          '${(book.progress * 100).toStringAsFixed(0)}%',
+                          '已读 ${(book.progress * 100).toStringAsFixed(0)}%',
                           style: const TextStyle(
-                            color: CupertinoColors.inactiveGray,
+                            color: CupertinoColors.systemBlue,
                             fontSize: 12,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),
@@ -583,18 +620,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   String _formatMeta(BookModel book) {
-    // Provide metadata strings matching screenshot for known titles
-    final map = {
-      '高效能人士的七个习惯': 'PDF · 12.4 MB',
-      '原则': 'EPUB · 1.2 MB',
-      '穷查理宝典': 'PDF · 3.1 MB',
-      '思考，快与慢': 'EPUB · 1.8 MB',
-      '人类简史': 'PDF · 2.7 MB',
-      '未来简史': 'PDF · 2.9 MB',
-    };
-    final raw = map[book.title];
-    if (raw != null) return raw.replaceFirst(RegExp(r'^[A-Z]+'), _localizedFileType(book.type));
-    return '${_localizedFileType(book.type)} · -';
+    return '${_localizedFileType(book.type)} · ${_formatFileSize(book.fileSizeBytes)}';
   }
 
   String _localizedFileType(String type) {
@@ -606,11 +632,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
     return val;
   }
 
-  Widget _buildStatsCards(BuildContext context) {
+  Widget _buildStatsCards(BuildContext context, List<BookModel> books) {
     final theme = CupertinoTheme.of(context);
     final textStyle = theme.textTheme.textStyle.copyWith(fontSize: 13);
+    final allCount = books.length;
+    final favCount = books.where((book) => book.isFavorite).length;
+    final readingCount = books.where((book) => book.progress > 0 && book.progress < 1).length;
+    final finishedCount = books.where((book) => book.progress >= 1.0).length;
 
-    // build four items with icons
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Container(
@@ -620,21 +649,50 @@ class _BookshelfPageState extends State<BookshelfPage> {
           borderRadius: BorderRadius.circular(14),
         ),
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Expanded(
-              child: _buildStatCell(context, CupertinoIcons.book, CupertinoColors.systemBlue, '128', LocalizationEngine.text('bookshelf_all_label')),
+            Flexible(
+              fit: FlexFit.loose,
+              child: _buildStatCell(
+                context,
+                CupertinoIcons.book,
+                CupertinoColors.systemBlue,
+                allCount.toString(),
+                LocalizationEngine.text('bookshelf_all_label'),
+              ),
             ),
             const SizedBox(width: 8),
-            Expanded(
-              child: _buildStatCell(context, CupertinoIcons.star_fill, CupertinoColors.systemYellow, '24', LocalizationEngine.text('bookshelf_favorites_label')),
+            Flexible(
+              fit: FlexFit.loose,
+              child: _buildStatCell(
+                context,
+                CupertinoIcons.star_fill,
+                CupertinoColors.systemYellow,
+                favCount.toString(),
+                LocalizationEngine.text('bookshelf_favorites_label'),
+              ),
             ),
             const SizedBox(width: 8),
-            Expanded(
-              child: _buildStatCell(context, CupertinoIcons.clock, CupertinoColors.systemGreen, '18', LocalizationEngine.text('bookshelf_reading_label')),
+            Flexible(
+              fit: FlexFit.loose,
+              child: _buildStatCell(
+                context,
+                CupertinoIcons.clock,
+                CupertinoColors.systemGreen,
+                readingCount.toString(),
+                LocalizationEngine.text('bookshelf_reading_label'),
+              ),
             ),
             const SizedBox(width: 8),
-            Expanded(
-              child: _buildStatCell(context, CupertinoIcons.check_mark, CupertinoColors.systemPurple, '96', LocalizationEngine.text('bookshelf_finished_label')),
+            Flexible(
+              fit: FlexFit.loose,
+              child: _buildStatCell(
+                context,
+                CupertinoIcons.check_mark,
+                CupertinoColors.systemPurple,
+                finishedCount.toString(),
+                LocalizationEngine.text('bookshelf_finished_label'),
+              ),
             ),
           ],
         ),
@@ -644,29 +702,45 @@ class _BookshelfPageState extends State<BookshelfPage> {
 
   Widget _buildStatCell(BuildContext context, IconData icon, Color bgColor, String value, String label) {
     final textStyle = CupertinoTheme.of(context).textTheme.textStyle;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: bgColor,
-            borderRadius: BorderRadius.circular(999),
+    return IntrinsicWidth(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 26,
+                  height: 26,
+                  decoration: BoxDecoration(
+                    color: bgColor,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(icon, color: CupertinoColors.white, size: 16),
+                ),
+                const SizedBox(width: 6),
+                Text(value, style: textStyle.copyWith(fontWeight: FontWeight.w700)),
+              ],
+            ),
           ),
-          child: Icon(icon, color: CupertinoColors.white, size: 20),
-        ),
-        const SizedBox(height: 8),
-        Text(value, style: textStyle.copyWith(fontWeight: FontWeight.w700)),
-        const SizedBox(height: 4),
-        Text(label, style: textStyle.copyWith(color: CupertinoColors.inactiveGray, fontSize: 12)),
-      ],
+          const SizedBox(height: 8),
+          Text(label, style: textStyle.copyWith(color: CupertinoColors.inactiveGray, fontSize: 12)),
+        ],
+      ),
     );
   }
 
   Widget _buildRecentReading(BuildContext context, List<BookModel> books) {
-    final recent = books.isEmpty ? [] : books.take(6).toList();
-    final displayBooks = recent.length == 1 ? List.generate(4, (_) => recent.first) : recent;
+    final sortedBooks = List<BookModel>.from(books)
+      ..sort((a, b) {
+        final aTime = a.lastReadAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bTime = b.lastReadAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return bTime.compareTo(aTime);
+      });
+    final displayBooks = sortedBooks.isEmpty ? <BookModel>[] : sortedBooks.take(6).toList();
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -899,7 +973,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildStatsCards(context),
+                      _buildStatsCards(context, books),
                       const SizedBox(height: 12),
                       _buildRecentReading(context, books),
                       const SizedBox(height: 8),
@@ -1000,7 +1074,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                                         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                                           crossAxisCount: 2,
-                                          childAspectRatio: 0.64,
+                                          childAspectRatio: 1.72,
                                           crossAxisSpacing: 12,
                                           mainAxisSpacing: 12,
                                         ),

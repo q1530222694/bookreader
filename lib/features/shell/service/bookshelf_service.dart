@@ -23,9 +23,12 @@ class BookshelfService {
     }
 
     final id = DateTime.now().millisecondsSinceEpoch.toString();
-    final rawTitle = file.uri.pathSegments.last;
-    final title = rawTitle.replaceAll(RegExp(r'\.[^.]+$'), '').trim();
+    final rawName = file.uri.pathSegments.isNotEmpty
+        ? file.uri.pathSegments.last
+        : file.path.split(Platform.pathSeparator).last;
+    final title = rawName.replaceAll(RegExp(r'\.[^.]+$'), '').trim();
     final normalizedTitle = title.isEmpty ? '未命名 PDF' : title;
+    final fileSizeBytes = await file.length();
 
     final coverBytes = await _generatePdfCover(file.path);
 
@@ -36,6 +39,8 @@ class BookshelfService {
       type: 'pdf',
       coverBytes: coverBytes,
       progress: 0.0,
+      isFavorite: false,
+      fileSizeBytes: fileSizeBytes,
     );
 
     _books.add(book);
@@ -46,6 +51,30 @@ class BookshelfService {
   /// Get all imported books.
   List<BookModel> listBooks() {
     return List<BookModel>.unmodifiable(_books);
+  }
+
+  /// Update the reading progress of a book by its id.
+  void updateBookProgress(String bookId, double progress) {
+    final index = _books.indexWhere((book) => book.id == bookId);
+    if (index < 0) {
+      return;
+    }
+
+    final nextProgress = progress.clamp(0.0, 1.0);
+    final updatedBook = _books[index].copyWith(progress: nextProgress);
+    _books[index] = updatedBook;
+    booksNotifier.value = List<BookModel>.unmodifiable(_books);
+  }
+
+  void updateBookLastRead(String bookId, DateTime lastReadAt) {
+    final index = _books.indexWhere((book) => book.id == bookId);
+    if (index < 0) {
+      return;
+    }
+
+    final updatedBook = _books[index].copyWith(lastReadAt: lastReadAt);
+    _books[index] = updatedBook;
+    booksNotifier.value = List<BookModel>.unmodifiable(_books);
   }
 
   /// Generate cover bytes from the first page of the imported PDF.

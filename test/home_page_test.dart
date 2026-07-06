@@ -5,13 +5,10 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('HomePage shows the latest three books in a recent reading section', (tester) async {
+  testWidgets('HomePage shows the reading progress percentage for the current book', (tester) async {
     final controller = BookshelfController();
     controller.books.value = [
-      const BookModel(id: 'book-1', title: 'Book One', path: '/tmp/book1.pdf', type: 'pdf'),
-      const BookModel(id: 'book-2', title: 'Book Two', path: '/tmp/book2.pdf', type: 'pdf'),
-      const BookModel(id: 'book-3', title: 'Book Three', path: '/tmp/book3.pdf', type: 'pdf'),
-      const BookModel(id: 'book-4', title: 'Book Four', path: '/tmp/book4.pdf', type: 'pdf'),
+      const BookModel(id: 'book-1', title: 'Book One', path: '/tmp/book1.pdf', type: 'pdf', progress: 0.37),
     ];
 
     addTearDown(controller.dispose);
@@ -23,9 +20,7 @@ void main() {
     );
 
     expect(find.text('最近阅读'), findsOneWidget);
-    expect(find.text('Book Two'), findsOneWidget);
-    expect(find.text('Book Three'), findsOneWidget);
-    expect(find.text('Book Four'), findsOneWidget);
-    expect(find.text('Book One'), findsNothing);
+    expect(find.text('阅读进度'), findsOneWidget);
+    expect(find.text('37%'), findsWidgets);
   });
 }

@@ -1,15 +1,22 @@
 import 'package:flutter/cupertino.dart';
 import 'package:pdfx/pdfx.dart';
+import 'package:photo_view/photo_view.dart';
+
+import '../controller/bookshelf_controller.dart';
 
 /// BookViewerPage displays the first page of a PDF book.
 class BookViewerPage extends StatefulWidget {
   final String title;
   final String filePath;
+  final String bookId;
+  final BookshelfController? controller;
 
   const BookViewerPage({
     super.key,
     required this.title,
     required this.filePath,
+    required this.bookId,
+    this.controller,
   });
 
   @override
@@ -18,19 +25,39 @@ class BookViewerPage extends StatefulWidget {
 
 class _BookViewerPageState extends State<BookViewerPage> {
   String? _errorText;
-  late final PdfController _pdfController;
+  PdfController? _pdfController;
 
   @override
   void initState() {
     super.initState();
-    _pdfController = PdfController(
-      document: PdfDocument.openFile(widget.filePath),
-    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _initializePdf();
+    });
+  }
+
+  Future<void> _initializePdf() async {
+    final documentFuture = PdfDocument.openFile(widget.filePath);
+    try {
+      if (!mounted) {
+        await (await documentFuture).close();
+        return;
+      }
+      setState(() {
+        _pdfController = PdfController(document: documentFuture);
+        _errorText = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _errorText = '打开 PDF 失败：$error';
+      });
+    }
   }
 
   @override
   void dispose() {
-    _pdfController.dispose();
+    _pdfController?.dispose();
     super.dispose();
   }
 
@@ -41,22 +68,63 @@ class _BookViewerPageState extends State<BookViewerPage> {
     });
   }
 
+  void _syncProgress(int page) {
+    if (widget.controller == null || _pdfController == null) {
+      return;
+    }
+
+    final totalPages = _pdfController!.pagesCount;
+    if (totalPages == null || totalPages <= 0) {
+      return;
+    }
+
+    final progress = (page / totalPages).clamp(0.0, 1.0);
+    widget.controller!.updateBookProgress(widget.bookId, progress);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final pageIndicator = _pdfController == null
+        ? const Text(
+            '--/--',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          )
+        : PdfPageNumber(
+            controller: _pdfController!,
+            builder: (_, __, page, pagesCount) {
+              return Text(
+                '$page/${pagesCount ?? 0}',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              );
+            },
+          );
+
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(middle: Text(widget.title, style: TextStyle(color: CupertinoTheme.of(context).primaryColor))),
       child: SafeArea(
         child: Column(
           children: [
             Expanded(
-              child: PdfView(
-                controller: _pdfController,
-                onDocumentError: (error) => _handleError(error),
+              child: _pdfController == null
+                  ? const Center(child: CupertinoActivityIndicator())
+                  : PdfView(
+                      controller: _pdfController!,
+                      onDocumentError: (error) => _handleError(error),
                 onDocumentLoaded: (_) {
-                  if (!mounted) return;
+                  if (!mounted || _pdfController == null) return;
+                  _syncProgress(_pdfController!.page);
                   setState(() {
                     _errorText = null;
                   });
+                },
+                onPageChanged: (page) {
+                  _syncProgress(page);
                 },
                 builders: PdfViewBuilders<DefaultBuilderOptions>(
                   options: const DefaultBuilderOptions(),
@@ -125,8 +193,8 @@ class _BookViewerPageState extends State<BookViewerPage> {
                 children: [
                   CupertinoButton(
                     padding: EdgeInsets.zero,
-                    onPressed: () {
-                      _pdfController.previousPage(
+                    onPressed: _pdfController == null ? null : () {
+                      _pdfController!.previousPage(
                         duration: const Duration(milliseconds: 200),
                         curve: Curves.ease,
                       );
@@ -135,24 +203,32 @@ class _BookViewerPageState extends State<BookViewerPage> {
                   ),
                   Expanded(
                     child: Center(
-                      child: PdfPageNumber(
-                        controller: _pdfController,
-                        builder: (_, __, page, pagesCount) {
-                          return Text(
-                            '$page/${pagesCount ?? 0}',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
+                      child: _pdfController == null
+                          ? const Text(
+                              '--/--',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            )
+                          : PdfPageNumber(
+                              controller: _pdfController!,
+                              builder: (_, __, page, pagesCount) {
+                                return Text(
+                                  '$page/${pagesCount ?? 0}',
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                );
+                              },
                             ),
-                          );
-                        },
-                      ),
                     ),
                   ),
                   CupertinoButton(
                     padding: EdgeInsets.zero,
-                    onPressed: () {
-                      _pdfController.nextPage(
+                    onPressed: _pdfController == null ? null : () {
+                      _pdfController!.nextPage(
                         duration: const Duration(milliseconds: 200),
                         curve: Curves.ease,
                       );

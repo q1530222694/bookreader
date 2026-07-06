@@ -1,4 +1,90 @@
-﻿### [2026-07-05] 新增：主页最近阅读模块
+﻿### [2026-07-06] 优化：主页阅读进度条增加百分比显示
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/home_page.dart`
+  └─ 变更 ➔ 在首页“最近阅读”卡片的阅读进度条右侧增加百分比展示
+  └─ 变更 ➔ 同时补充卡片顶部标题区域，便于与现有首页文案结构保持一致
+- `test/home_page_test.dart`
+  └─ 新增 ➔ 回归测试，覆盖首页进度百分比展示
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+
+---
+
+### [2026-07-06] 修复：书架导入后书名与文件大小显示缺失
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/bookshelf_service.dart`
+  └─ 变更 ➔ 导入 PDF 时保存真实文件名与文件大小到书籍元数据
+- `lib/features/shell/model/book_model.dart`
+  └─ 变更 ➔ 新增 `fileSizeBytes` 字段并支持 `copyWith()` 更新
+- `lib/features/shell/ui/bookshelf_page.dart`
+  └─ 变更 ➔ 书架卡片改为展示真实书名和文件大小，而不是硬编码占位文本
+- `test/bookshelf_page_test.dart`
+  └─ 新增 ➔ 回归测试，覆盖导入后标题和文件大小显示
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+
+---
+
+### [2026-07-06] 修复：书架顶部统计显示真实数据
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/bookshelf_page.dart`
+  └─ 变更 ➔ 书架顶部统计卡片改为显示真实书籍数量、收藏数量、在读数量和已读数量
+  └─ 依赖/调用 ➔ `lib/features/shell/controller/bookshelf_controller.dart`
+- `lib/features/shell/controller/bookshelf_controller.dart`
+  └─ 依赖/调用 ➔ `lib/features/shell/service/bookshelf_service.dart`
+- `lib/features/shell/service/bookshelf_service.dart`
+  └─ 维护 ➔ 书架书籍列表及统计状态数据
+- `lib/features/shell/model/book_model.dart`
+  └─ 变更 ➔ 新增 `isFavorite` 字段并支持 `copyWith()` 更新
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+
+---
+### [2026-07-06] 修复：书架最近阅读重复显示与阅读进度不同步
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/bookshelf_page.dart`
+  └─ 变更 ➔ 将“全部书籍”卡片重构为紧凑横向 Book Card，封面左置、文字右置、右上角 More 按钮，移除进度条
+  └─ 依赖/调用 ➔ `lib/features/shell/controller/bookshelf_controller.dart`
+  └─ 打开 ➔ `lib/features/shell/ui/book_viewer_page.dart`
+- `lib/features/shell/ui/book_viewer_page.dart`
+  └─ 依赖/调用 ➔ `lib/features/shell/controller/bookshelf_controller.dart`
+  └─ 变更 ➔ 在 PDF 翻页时同步当前阅读进度到书架数据
+- `lib/features/shell/service/bookshelf_service.dart`
+  └─ 维护 ➔ 书架列表与阅读进度的统一更新
+- `lib/features/shell/model/book_model.dart`
+  └─ 变更 ➔ 增加 `copyWith()` 支持局部更新进度
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+
+---
+
+### [2026-07-06] 修复：书架最近阅读重复显示与阅读进度不同步
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/bookshelf_page.dart`
+  └─ 变更 ➔ 移除单本书在“最近阅读”区域被重复渲染 4 次的逻辑
+  └─ 依赖/调用 ➔ `lib/features/shell/controller/bookshelf_controller.dart`
+  └─ 打开 ➔ `lib/features/shell/ui/book_viewer_page.dart`
+- `lib/features/shell/ui/home_page.dart`
+  └─ 依赖/调用 ➔ `lib/features/shell/controller/bookshelf_controller.dart`
+  └─ 打开 ➔ `lib/features/shell/ui/book_viewer_page.dart`
+- `lib/features/shell/ui/book_viewer_page.dart`
+  └─ 依赖/调用 ➔ `lib/features/shell/controller/bookshelf_controller.dart`
+  └─ 变更 ➔ 在 PDF 翻页时同步当前阅读进度到书架数据
+- `lib/features/shell/service/bookshelf_service.dart`
+  └─ 维护 ➔ 书架列表与阅读进度的统一更新
+- `lib/features/shell/model/book_model.dart`
+  └─ 变更 ➔ 增加 `copyWith()` 支持局部更新进度
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+
+---
+
+### [2026-07-05] 新增：主页最近阅读模块
 **【AI 架构依赖树 (Architecture Context)】**
 - `lib/features/shell/ui/home_page.dart`
   └─ 依赖/调用 ➔ `lib/features/shell/controller/bookshelf_controller.dart`

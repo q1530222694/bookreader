@@ -40,7 +40,12 @@ class _HomePageState extends State<HomePage> {
   void _openBook(BookModel book) {
     Navigator.of(context).push(
       CupertinoPageRoute(
-        builder: (context) => BookViewerPage(title: book.title, filePath: book.path),
+        builder: (context) => BookViewerPage(
+          title: book.title,
+          filePath: book.path,
+          bookId: book.id,
+          controller: _controller,
+        ),
       ),
     );
   }
@@ -82,84 +87,108 @@ class _HomePageState extends State<HomePage> {
 
   Widget _recentReadingCard(BuildContext context, BookModel? book) {
     final theme = CupertinoTheme.of(context);
+    final progressValue = (book?.progress ?? 0.0).clamp(0.0, 1.0);
+    final progressPercent = '${(progressValue * 100).toStringAsFixed(0)}%';
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Container(
-        decoration: BoxDecoration(
-          color: theme.scaffoldBackgroundColor,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(color: CupertinoColors.systemGrey.withOpacity(0.06), blurRadius: 12, offset: const Offset(0, 6)),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: SizedBox(
-                  width: 84,
-                  height: 112,
-                  child: book == null
-                      ? Container(color: CupertinoColors.systemGrey)
-                      : (book.coverBytes != null
-                          ? Image.memory(book.coverBytes!, fit: BoxFit.cover)
-                          : Container(color: CupertinoColors.systemGrey)),
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      book?.title ?? LocalizationEngine.text('no_recently_reading'),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.textStyle.copyWith(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      LocalizationEngine.text('reading_progress_label',),
-                      style: theme.textTheme.textStyle.copyWith(color: CupertinoColors.secondaryLabel.resolveFrom(context)),
-                    ),
-                    const SizedBox(height: 8),
-                    // progress bar (custom, avoid Material dependency)
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: Container(
-                        height: 8,
-                        color: CupertinoColors.systemGrey.resolveFrom(context).withOpacity(0.18),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: FractionallySizedBox(
-                            widthFactor: (book?.progress ?? 0).clamp(0.0, 1.0),
-                            child: Container(color: theme.primaryColor),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        CupertinoButton.filled(
-                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-                          onPressed: book == null ? null : () => _openBook(book!),
-                          child: Text(LocalizationEngine.text('continue_reading')),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(child: Container()),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Text(
+            LocalizationEngine.text('recently_reading'),
+            style: theme.textTheme.textStyle.copyWith(fontSize: 16, fontWeight: FontWeight.w700),
           ),
         ),
-      ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Container(
+            decoration: BoxDecoration(
+              color: theme.scaffoldBackgroundColor,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(color: CupertinoColors.systemGrey.withOpacity(0.06), blurRadius: 12, offset: const Offset(0, 6)),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: SizedBox(
+                      width: 84,
+                      height: 112,
+                      child: book == null
+                          ? Container(color: CupertinoColors.systemGrey)
+                          : (book.coverBytes != null
+                              ? Image.memory(book.coverBytes!, fit: BoxFit.cover)
+                              : Container(color: CupertinoColors.systemGrey)),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          book?.title ?? LocalizationEngine.text('no_recently_reading'),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.textStyle.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                LocalizationEngine.text('reading_progress_label'),
+                                style: theme.textTheme.textStyle.copyWith(color: CupertinoColors.secondaryLabel.resolveFrom(context)),
+                              ),
+                            ),
+                            Text(
+                              progressPercent,
+                              style: theme.textTheme.textStyle.copyWith(color: theme.primaryColor, fontWeight: FontWeight.w600),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        // progress bar (custom, avoid Material dependency)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: Container(
+                            height: 8,
+                            color: CupertinoColors.systemGrey.resolveFrom(context).withOpacity(0.18),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: FractionallySizedBox(
+                                widthFactor: progressValue,
+                                child: Container(color: theme.primaryColor),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            CupertinoButton.filled(
+                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                              onPressed: book == null ? null : () => _openBook(book!),
+                              child: Text(LocalizationEngine.text('continue_reading')),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(child: Container()),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 

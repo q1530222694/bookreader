@@ -83,6 +83,16 @@ class BookshelfController {
     errorText.value = message;
   }
 
+  void updateBookProgress(String bookId, double progress) {
+    _service.updateBookProgress(bookId, progress);
+    books.value = _service.listBooks();
+  }
+
+  void updateBookLastRead(String bookId, DateTime lastReadAt) {
+    _service.updateBookLastRead(bookId, lastReadAt);
+    books.value = _service.listBooks();
+  }
+
   void removeBook(String bookId) {
     _service.removeBook(bookId);
     books.value = _service.listBooks();
