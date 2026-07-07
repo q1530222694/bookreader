@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/cupertino.dart';
 
 import '../../../engine/localization_engine.dart';
+import '../../../engine/settings_engine.dart';
 
 /// MemoryPage displays a modern reading statistics experience for the shell module.
 class MemoryPage extends StatefulWidget {
@@ -281,6 +282,7 @@ class _MemoryPageState extends State<MemoryPage> {
   }
 
   Widget _buildChartCard(CupertinoThemeData theme, _PeriodData data) {
+    final textColor = theme.textTheme.textStyle.color ?? CupertinoColors.label;
     final labels = data.labels;
     final values = data.values;
     final selectedIndex = _selectedPoint.clamp(0, values.length - 1);
@@ -314,8 +316,10 @@ class _MemoryPageState extends State<MemoryPage> {
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      data.totalDuration,
-                      style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w800),
+                                      _formatDurationForLocale(data.totalDuration),
+                                      style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: textColor),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 8),
                     Text(
@@ -326,6 +330,24 @@ class _MemoryPageState extends State<MemoryPage> {
                     Text(
                       '${LocalizationEngine.text('vs_previous_period')}: ${data.changeRate}',
                       style: const TextStyle(fontSize: 14, color: CupertinoColors.systemGrey),
+                    ),
+                    const SizedBox(height: 12),
+                    // 将图表下方的选中数据移到“总阅读时长”区域下方，保持在同一行显示
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            labels[selectedIndex],
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: textColor),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          values[selectedIndex].toStringAsFixed(0) + LocalizationEngine.text('hours_short'),
+                          style: const TextStyle(fontSize: 13, color: CupertinoColors.systemGrey),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -350,25 +372,6 @@ class _MemoryPageState extends State<MemoryPage> {
             accentColor: theme.primaryColor,
           ),
           const SizedBox(height: 14),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    labels[selectedIndex],
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    values[selectedIndex].toStringAsFixed(0) + LocalizationEngine.text('hours_short'),
-                    style: const TextStyle(fontSize: 13, color: CupertinoColors.systemGrey),
-                  ),
-                ],
-              ),
-            ],
-          ),
         ],
       ),
     );
@@ -392,77 +395,82 @@ class _MemoryPageState extends State<MemoryPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            LocalizationEngine.text('reading_time_distribution'),
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Stack(
-                alignment: Alignment.center,
-                children: [
-                  SizedBox(
-                    width: 140,
-                    height: 140,
-                    child: CustomPaint(
-                      painter: _DonutChartPainter(
-                        data: distributionData,
-                      ),
-                    ),
-                  ),
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        LocalizationEngine.text('reading_time_distribution'),
-                        style: const TextStyle(fontSize: 10, color: CupertinoColors.systemGrey),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '18h 45m',
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(width: 20),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: distributionData.map((item) {
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: Row(
+          // 把“阅读时长分布”标签放在环形图上方并加粗
+          Builder(builder: (context) {
+            final textColor = theme.textTheme.textStyle.color ?? CupertinoColors.label;
+            return Text(
+              LocalizationEngine.text('reading_time_distribution'),
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: textColor),
+            );
+          }),
+          const SizedBox(height: 12),
+          // 主题色与文本色
+          Builder(builder: (context) {
+            final textColor = theme.textTheme.textStyle.color ?? CupertinoColors.label;
+            final accent = theme.primaryColor;
+            return Row(
+              children: [
+                Column(
+                  children: [
+                    SizedBox(
+                      width: 140,
+                      height: 140,
+                      child: Stack(
+                        alignment: Alignment.center,
                         children: [
-                          Container(
-                            width: 12,
-                            height: 12,
-                            decoration: BoxDecoration(
-                              color: item.color,
-                              borderRadius: BorderRadius.circular(3),
+                          CustomPaint(
+                            size: const Size(140, 140),
+                            painter: _DonutChartPainter(
+                              data: distributionData,
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              item.label,
-                              style: const TextStyle(fontSize: 12, color: CupertinoColors.systemGrey),
-                            ),
-                          ),
+                          // 中心只显示时长数值，标签已移至上方
                           Text(
-                            '${item.percentage}%',
-                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                            '18h 45m',
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
                           ),
                         ],
                       ),
-                    );
-                  }).toList(),
+                    ),
+                  ],
                 ),
-              ),
-            ],
-          ),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: distributionData.map((item) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 12,
+                              height: 12,
+                              decoration: BoxDecoration(
+                                color: item.color,
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                item.label,
+                                style: TextStyle(fontSize: 12, color: textColor),
+                              ),
+                            ),
+                            Text(
+                              '${item.percentage}%',
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: accent),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ],
+            );
+          }),
         ],
       ),
     );
@@ -628,6 +636,22 @@ class _MemoryPageState extends State<MemoryPage> {
 
   String _formatDate(DateTime value) {
     return '${value.year}/${value.month.toString().padLeft(2, '0')}/${value.day.toString().padLeft(2, '0')}';
+  }
+
+  String _formatDurationForLocale(String duration) {
+    // 如果是中文语言，输出形如 “XX小时XX分钟” 的格式，默认回退原始字符串
+    if (SettingsEngine.language == SettingsEngine.languageChinese) {
+      if (duration.contains('小时') || duration.contains('分钟')) return duration;
+      final hourMatch = RegExp(r"(\d+)h").firstMatch(duration);
+      final minMatch = RegExp(r"(\d+)m").firstMatch(duration);
+      final hours = hourMatch?.group(1);
+      final mins = minMatch?.group(1);
+      var out = '';
+      if (hours != null) out += '${hours}小时';
+      if (mins != null) out += '${mins}分钟';
+      if (out.isNotEmpty) return out;
+    }
+    return duration;
   }
 }
 

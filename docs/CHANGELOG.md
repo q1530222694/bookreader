@@ -1,4 +1,52 @@
-﻿### [2026-07-06] 优化：首页布局重构，中间展示阅读数据，下方为快捷功能
+﻿### [2026-07-07] 优化：主页顶部标题与操作按钮布局
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/home_page.dart`
+  └─ 依赖/调用 ➔ `lib/features/shell/controller/settings_controller.dart`
+  └─ 依赖/调用 ➔ `lib/engine/settings_engine.dart`
+  └─ 变更 ➔ 将首页标题移动至导航栏左侧，并在右侧新增语言切换与主题模式切换按钮
+  └─ 变更 ➔ 语言按钮在中文/英文之间切换，主题按钮仅显示图标并切换浅/深色模式
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+- 无新增 Config Key
+
+---
+
+### [2026-07-07] 修复：书架“更多”菜单宽度自适应最长文本
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/bookshelf_page.dart`
+  └─ 变更 ➔ 调整书架页面“更多”弹窗宽度为基于最长菜单项文本动态计算，避免固定宽度过宽
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+- 无新增 Config Key
+
+---
+
+### [2026-07-07] 修复：书架暗色模式统计卡片与书架卡片背景
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/bookshelf_page.dart`
+  └─ 变更 ➔ 将书架统计框和全部书籍网格卡片背景从硬编码白色改为主题背景色，修复暗色模式白底问题
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+- 无新增 Config Key
+
+---
+
+### [2026-07-07] 优化：主页继续阅读与问候卡片间距收紧为 2 像素
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/home_page.dart`
+  └─ 变更 ➔ 将“问候卡片”与“继续阅读”卡片之间的间距收紧为 2 像素，保持两段内容的视觉连续性
+  └─ 变更 ➔ 通过统一的 `_sectionGap` 常量与列表分隔器共同控制主页相关卡片间距，避免额外视觉留白
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+- 无新增 Config Key
+
+---
+
+### [2026-07-06] 优化：首页布局重构，中间展示阅读数据，下方为快捷功能
 **【AI 架构依赖树 (Architecture Context)】**
 - `lib/features/shell/ui/home_page.dart`
   └─ 变更 ➔ 首页布局重构为三层结构：(1)顶部问候区 + 最近阅读卡片，(2)中间阅读数据展示区（大号总阅读时长 + 三个统计卡片），(3)下方快捷功能 + 每日一句
@@ -338,3 +386,28 @@
 **【全局状态/鉴权变动 (State & Auth)】**
 - 无新增权限/配置项
 
+
+---
+
+### [2026-07-07] 更新：重置并同步当前文件依赖关系
+**【AI 架构依赖树 (Architecture Context)】**
+- `docs/不同文件的依赖关系.md`
+  └─ 重置 ➔ 更新为当前 `lib/` 代码实际依赖关系
+- `lib/core/theme/font_manager.dart`
+  └─ 依赖 ➔ `lib/engine/settings_engine.dart`
+- `lib/engine/localization_engine.dart`
+  └─ 依赖 ➔ `lib/engine/settings_engine.dart`
+- `lib/engine/permission_engine.dart`
+  └─ 依赖 ➔ `lib/engine/config.dart`
+- `lib/engine/settings_engine.dart`
+  └─ 依赖 ➔ `lib/engine/config.dart`
+- `lib/engine/theme_engine.dart`
+  └─ 依赖 ➔ `lib/core/theme/font_manager.dart`
+- `lib/features/shell/ui/shell_page.dart`
+  └─ 依赖 ➔ `lib/features/shell/ui/bookshelf_page.dart`
+  └─ 依赖 ➔ `lib/features/shell/ui/home_page.dart`
+  └─ 依赖 ➔ `lib/features/shell/ui/memory_page.dart`
+  └─ 依赖 ➔ `lib/features/shell/ui/profile_page.dart`
+  └─ 依赖 ➔ `lib/features/shell/ui/tools_page.dart`
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项

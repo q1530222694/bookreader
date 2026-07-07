@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
 
@@ -50,6 +51,23 @@ class _BookshelfPageState extends State<BookshelfPage> {
     return const Offset(0, 0);
   }
 
+  double _calculateMenuWidth(BuildContext context, List<String> labels,
+      {double minWidth = 120.0, double horizontalPadding = 32.0, double maxWidth = double.infinity}) {
+    final textStyle = CupertinoTheme.of(context).textTheme.textStyle.copyWith(fontSize: 17);
+    final textDirection = Directionality.of(context);
+    var maxTextWidth = 0.0;
+    for (final label in labels) {
+      final painter = TextPainter(
+        text: TextSpan(text: label, style: textStyle),
+        textDirection: textDirection,
+        maxLines: 1,
+      )..layout();
+      maxTextWidth = math.max(maxTextWidth, painter.width);
+    }
+    return maxTextWidth + horizontalPadding
+        .clamp(minWidth, maxWidth.isFinite ? maxWidth : double.infinity);
+  }
+
   void _showMoreOptions(BuildContext context, {Offset? anchorPosition}) {
     final overlayState = Overlay.of(context, rootOverlay: true);
 
@@ -60,8 +78,18 @@ class _BookshelfPageState extends State<BookshelfPage> {
         final mediaQuery = MediaQuery.of(overlayContext);
         final screenWidth = mediaQuery.size.width;
         final screenHeight = mediaQuery.size.height;
-        final menuWidth = 200.0;
-        final menuHeight = 184.0;
+        final labels = [
+          LocalizationEngine.text('bookshelf_import_single'),
+          LocalizationEngine.text('bookshelf_import_multiple'),
+          LocalizationEngine.text('bookshelf_random_read'),
+        ];
+        final menuWidth = _calculateMenuWidth(
+          overlayContext,
+          labels,
+          minWidth: 120.0,
+          maxWidth: screenWidth - 24.0,
+        );
+        final menuHeight = labels.length * 46.0 + (labels.length - 1) * 1.0;
         final safeLeft = (targetPosition.dx - menuWidth / 2).clamp(12.0, screenWidth - menuWidth - 12.0);
         final safeTop = (targetPosition.dy + 8.0).clamp(12.0, screenHeight - menuHeight - 12.0);
 
@@ -176,8 +204,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
         final mediaQuery = MediaQuery.of(overlayContext);
         final screenWidth = mediaQuery.size.width;
         final screenHeight = mediaQuery.size.height;
-        final menuWidth = 180.0;
-        final menuHeight = 72.0;
+        final labels = [LocalizationEngine.text('bookshelf_delete')];
+        final menuWidth = _calculateMenuWidth(
+          overlayContext,
+          labels,
+          minWidth: 110.0,
+          maxWidth: screenWidth - 24.0,
+        );
+        final menuHeight = 46.0;
         final safeLeft = (targetPosition.dx - menuWidth / 2).clamp(12.0, screenWidth - menuWidth - 12.0);
         final safeTop = (targetPosition.dy + 8.0).clamp(12.0, screenHeight - menuHeight - 12.0);
 
@@ -233,11 +267,26 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   List<BookModel> _filterBooks(List<BookModel> books) {
+    // First filter by selected category (all/pdf/epub/txt/other)
+    var filtered = books;
+    final category = _selectedCategory.trim().toLowerCase();
+    if (category.isNotEmpty && category != 'all') {
+      if (category == 'other') {
+        filtered = filtered.where((b) {
+          final t = b.type.toLowerCase();
+          return t != 'pdf' && t != 'epub' && t != 'txt';
+        }).toList();
+      } else {
+        filtered = filtered.where((b) => b.type.toLowerCase() == category).toList();
+      }
+    }
+
+    // Then apply search keyword filter
     final keyword = _searchText.trim().toLowerCase();
     if (keyword.isEmpty) {
-      return books;
+      return filtered;
     }
-    return books.where((book) {
+    return filtered.where((book) {
       final title = book.title.toLowerCase();
       final path = book.path.toLowerCase();
       return title.contains(keyword) || path.contains(keyword);
@@ -525,6 +574,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final double thumbHeight = thumbWidth / thumbAspect;
     final double cardHeight = thumbHeight + 2.0;
 
+    final theme = CupertinoTheme.of(context);
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () => _openBook(book),
@@ -537,7 +587,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         height: cardHeight,
         padding: const EdgeInsets.fromLTRB(6, 3, 6, 3),
         decoration: BoxDecoration(
-          color: CupertinoColors.white,
+          color: theme.scaffoldBackgroundColor,
           borderRadius: BorderRadius.circular(18),
           boxShadow: [
             BoxShadow(
@@ -651,7 +701,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: CupertinoColors.white,
+          color: theme.scaffoldBackgroundColor,
           borderRadius: BorderRadius.circular(14),
         ),
         child: Row(

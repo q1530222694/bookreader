@@ -1,10 +1,12 @@
 import 'package:flutter/cupertino.dart';
 
 import '../../../engine/localization_engine.dart';
+import '../../../engine/settings_engine.dart';
 import '../controller/bookshelf_controller.dart';
+import '../controller/settings_controller.dart';
 import '../model/book_model.dart';
-import '../service/daily_sentence_service.dart';
 import '../model/daily_sentence_model.dart';
+import '../service/daily_sentence_service.dart';
 import 'book_viewer_page.dart';
 import 'daily_sentence_page.dart';
 
@@ -19,6 +21,8 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  static const double _sectionGap = 10.0;
+
   late final BookshelfController _controller;
   late final bool _ownsController;
 
@@ -54,47 +58,33 @@ class _HomePageState extends State<HomePage> {
     final theme = CupertinoTheme.of(context);
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: CupertinoColors.systemGrey6.resolveFrom(context).withOpacity(0.55),
+          color: theme.scaffoldBackgroundColor,
           borderRadius: BorderRadius.circular(14),
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    LocalizationEngine.text('greeting_title'),
-                    style: theme.textTheme.textStyle.copyWith(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w800,
-                      color: CupertinoColors.label.resolveFrom(context),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    LocalizationEngine.text('greeting_subtitle'),
-                    style: theme.textTheme.textStyle.copyWith(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: CupertinoColors.secondaryLabel.resolveFrom(context),
-                    ),
-                  ),
-                ],
+            Text(
+              LocalizationEngine.text('greeting_title'),
+              style: theme.textTheme.textStyle.copyWith(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: CupertinoColors.label.resolveFrom(context),
               ),
             ),
-            const SizedBox(width: 8),
-            CupertinoButton(
-              padding: EdgeInsets.zero,
-              minSize: 36,
-              onPressed: () {},
-              child: const Icon(CupertinoIcons.bell),
+            const SizedBox(height: 4),
+            Text(
+              LocalizationEngine.text('greeting_subtitle'),
+              style: theme.textTheme.textStyle.copyWith(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: CupertinoColors.secondaryLabel.resolveFrom(context),
+              ),
             ),
           ],
         ),
@@ -107,111 +97,110 @@ class _HomePageState extends State<HomePage> {
     final progressValue = (book?.progress ?? 0.0).clamp(0.0, 1.0);
     final progressPercent = '${(progressValue * 100).toStringAsFixed(0)}%';
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: Text(
-            LocalizationEngine.text('recently_reading'),
-            style: theme.textTheme.textStyle.copyWith(fontSize: 16, fontWeight: FontWeight.w700),
-          ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Container(
+        decoration: BoxDecoration(
+          color: theme.scaffoldBackgroundColor,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(color: CupertinoColors.systemGrey.withOpacity(0.06), blurRadius: 12, offset: const Offset(0, 6)),
+          ],
         ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Container(
-            decoration: BoxDecoration(
-              color: theme.scaffoldBackgroundColor,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(color: CupertinoColors.systemGrey.withOpacity(0.06), blurRadius: 12, offset: const Offset(0, 6)),
-              ],
-            ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: SizedBox(
-                      width: 90,
-                      height: 120,
-                      child: book == null
-                          ? Container(color: CupertinoColors.systemGrey)
-                          : (book.coverBytes != null
-                              ? Image.memory(book.coverBytes!, fit: BoxFit.cover)
-                              : Container(color: CupertinoColors.systemGrey)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: SizedBox(
+                  width: 80,
+                  height: 108,
+                  child: book == null
+                      ? Container(color: CupertinoColors.systemGrey)
+                      : (book.coverBytes != null
+                          ? Image.memory(book.coverBytes!, fit: BoxFit.cover)
+                          : Container(color: CupertinoColors.systemGrey)),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      book?.title ?? LocalizationEngine.text('no_recently_reading'),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.textStyle.copyWith(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: CupertinoColors.label.resolveFrom(context),
+                        height: 1.2,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    const SizedBox(height: 6),
+                    Row(
                       children: [
+                        Expanded(
+                          child: Text(
+                            LocalizationEngine.text('reading_progress_label'),
+                            style: theme.textTheme.textStyle.copyWith(
+                              fontSize: 11,
+                              color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                            ),
+                          ),
+                        ),
                         Text(
-                          book?.title ?? LocalizationEngine.text('no_recently_reading'),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
+                          progressPercent,
                           style: theme.textTheme.textStyle.copyWith(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w700,
-                            color: CupertinoColors.label.resolveFrom(context),
-                            height: 1.25,
+                            fontSize: 11,
+                            color: theme.primaryColor,
+                            fontWeight: FontWeight.w600,
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                LocalizationEngine.text('reading_progress_label'),
-                                style: theme.textTheme.textStyle.copyWith(color: CupertinoColors.secondaryLabel.resolveFrom(context)),
-                              ),
-                            ),
-                            Text(
-                              progressPercent,
-                              style: theme.textTheme.textStyle.copyWith(color: theme.primaryColor, fontWeight: FontWeight.w600),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        // progress bar (custom, avoid Material dependency)
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(6),
-                          child: Container(
-                            height: 8,
-                            color: CupertinoColors.systemGrey.resolveFrom(context).withOpacity(0.18),
-                            child: Align(
-                              alignment: Alignment.centerLeft,
-                              child: FractionallySizedBox(
-                                widthFactor: progressValue,
-                                child: Container(color: theme.primaryColor),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            CupertinoButton.filled(
-                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-                              onPressed: book == null ? null : () => _openBook(book!),
-                              child: Text(LocalizationEngine.text('continue_reading')),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(child: Container()),
-                          ],
                         ),
                       ],
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 6),
+                    // progress bar (custom, avoid Material dependency)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: Container(
+                        height: 7,
+                        color: CupertinoColors.systemGrey.resolveFrom(context).withOpacity(0.18),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: FractionallySizedBox(
+                            widthFactor: progressValue,
+                            child: Container(color: theme.primaryColor),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        CupertinoButton.filled(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          minSize: 28,
+                          onPressed: book == null ? null : () => _openBook(book!),
+                          child: Text(
+                            LocalizationEngine.text('continue_reading'),
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(child: Container()),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
+            ],
           ),
         ),
-      ],
+      ),
     );
   }
 
@@ -222,12 +211,13 @@ class _HomePageState extends State<HomePage> {
     return ValueListenableBuilder<List<BookModel>>(
       valueListenable: _controller.books,
       builder: (context, books, child) {
-        return Column(
-          children: [
-            // 大号总阅读时长卡片
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Container(
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Column(
+            children: [
+              // 大号总阅读时长卡片
+              Container(
+                width: double.infinity,
                 decoration: BoxDecoration(
                   color: theme.scaffoldBackgroundColor,
                   borderRadius: BorderRadius.circular(16),
@@ -267,11 +257,9 @@ class _HomePageState extends State<HomePage> {
                   ],
                 ),
               ),
-            ),
-            // 三个统计卡片（根据屏幕宽度自适应排列）
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: LayoutBuilder(
+              const SizedBox(height: 12),
+              // 三个统计卡片（根据屏幕宽度自适应排列）
+              LayoutBuilder(
                 builder: (context, constraints) {
                   final isWide = constraints.maxWidth >= 360;
                   final cards = [
@@ -283,21 +271,28 @@ class _HomePageState extends State<HomePage> {
                   if (isWide) {
                     return Row(
                       children: cards
-                          .map((card) => Expanded(child: card))
+                          .map((card) => Expanded(
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                                  child: card,
+                                ),
+                              ))
                           .toList(),
                     );
                   }
 
                   return Column(
-                    children: cards.map((card) => Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: card,
-                    )).toList(),
+                    children: cards
+                        .map((card) => Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: SizedBox(width: double.infinity, child: card),
+                            ))
+                        .toList(),
                   );
                 },
               ),
-            ),
-          ],
+            ],
+          ),
         );
       },
     );
@@ -308,7 +303,8 @@ class _HomePageState extends State<HomePage> {
     final theme = CupertinoTheme.of(context);
 
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 6),
+      width: double.infinity,
+      margin: EdgeInsets.zero,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: theme.scaffoldBackgroundColor,
@@ -396,7 +392,7 @@ class _HomePageState extends State<HomePage> {
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: CupertinoColors.systemGrey6.resolveFrom(context).withOpacity(0.45),
+              color: CupertinoTheme.of(context).scaffoldBackgroundColor,
               borderRadius: BorderRadius.circular(12),
             ),
             child: ValueListenableBuilder<List<DailySentenceModel>>(
@@ -440,34 +436,99 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Widget _buildLanguageButton(BuildContext context) {
+    return ValueListenableBuilder<String>(
+      valueListenable: SettingsController.language,
+      builder: (context, language, child) {
+        final isEnglish = language == SettingsEngine.languageEnglish;
+        return CupertinoButton(
+          padding: EdgeInsets.zero,
+          minSize: 36,
+          onPressed: () {
+            SettingsController.setLanguage(
+              isEnglish ? SettingsEngine.languageChinese : SettingsEngine.languageEnglish,
+            );
+          },
+          child: const Icon(CupertinoIcons.globe),
+        );
+      },
+    );
+  }
+
+  Widget _buildThemeButton(BuildContext context) {
+    return ValueListenableBuilder<String>(
+      valueListenable: SettingsController.appearance,
+      builder: (context, appearance, child) {
+        final isDark = appearance == SettingsEngine.appearanceDark;
+        return CupertinoButton(
+          padding: EdgeInsets.zero,
+          minSize: 36,
+          onPressed: () {
+            SettingsController.setAppearance(
+              isDark ? SettingsEngine.appearanceLight : SettingsEngine.appearanceDark,
+            );
+          },
+          child: Icon(isDark ? CupertinoIcons.moon_fill : CupertinoIcons.sun_max),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return CupertinoPageScaffold(
-      navigationBar: CupertinoNavigationBar(middle: Text(LocalizationEngine.text('home'))),
-      child: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.only(top: 8, bottom: 18),
-          children: [
-            // 顶部问候区域
-            _greetingSection(context),
-            const SizedBox(height: 6),
-            // 最近阅读卡片
-            ValueListenableBuilder<List<BookModel>>(
-              valueListenable: _controller.books,
-              builder: (context, books, child) {
-                final latest = books.isNotEmpty ? books.last : null;
-                return _recentReadingCard(context, latest);
-              },
-            ),
-            // 中间：阅读数据展示区域（大号时长 + 三个统计卡片）
-            _readingDataSection(context),
-            // 下方：快捷功能
-            _quickFunctions(context),
-            // 底部：每日一句
-            _dailySentence(context),
-          ],
-        ),
-      ),
+    final theme = CupertinoTheme.of(context);
+
+    return ValueListenableBuilder<String>(
+      valueListenable: SettingsController.language,
+      builder: (context, language, child) {
+        return ValueListenableBuilder<String>(
+          valueListenable: SettingsController.appearance,
+          builder: (context, appearance, child) {
+            return CupertinoPageScaffold(
+              navigationBar: CupertinoNavigationBar(
+                leading: Text(
+                  LocalizationEngine.text('home'),
+                  style: theme.textTheme.navTitleTextStyle.copyWith(fontWeight: FontWeight.w700),
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildLanguageButton(context),
+                    _buildThemeButton(context),
+                  ],
+                ),
+              ),
+              child: SafeArea(
+                child: ListView(
+                  padding: const EdgeInsets.only(top: 8, bottom: 18),
+                  children: [
+                    // 顶部问候区域
+                    _greetingSection(context),
+                    const SizedBox(height: 16),
+                    // 最近阅读卡片
+                    ValueListenableBuilder<List<BookModel>>(
+                      valueListenable: _controller.books,
+                      builder: (context, books, child) {
+                        final latest = books.isNotEmpty ? books.last : null;
+                        return _recentReadingCard(context, latest);
+                      },
+                    ),
+                    SizedBox(height: _sectionGap),
+                    // 中间：阅读数据展示区域（大号时长 + 三个统计卡片）
+                    _readingDataSection(context),
+                    SizedBox(height: _sectionGap),
+                    // 下方：快捷功能
+                    _quickFunctions(context),
+                    SizedBox(height: _sectionGap),
+                    // 底部：每日一句
+                    _dailySentence(context),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }

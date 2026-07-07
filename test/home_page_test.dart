@@ -23,5 +23,7 @@ void main() {
     expect(find.text('阅读进度'), findsOneWidget);
     expect(find.text('37%'), findsWidgets);
     expect(find.text('下午好，万志豪！'), findsOneWidget);
+    expect(find.byIcon(CupertinoIcons.globe), findsOneWidget);
+    expect(find.byIcon(CupertinoIcons.sun_max), findsOneWidget);
   });
 }
