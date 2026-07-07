@@ -1,4 +1,23 @@
-﻿### [2026-07-07] 优化：主页顶部标题与操作按钮布局
+﻿### [2026-07-07] 优化：主页阅读统计卡片文案与布局
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/home_page.dart`
+  └─ 变更 ➔ 将首页三个阅读统计卡片高度收紧，并将标签置于数值上方
+  └─ 变更 ➔ 第三个统计卡片改为使用 `cumulative_reading` 文案，确保中文环境下显示为“累计阅读”
+  └─ 依赖/调用 ➔ `lib/engine/localization_engine.dart`
+- `lib/engine/localization_engine.dart`
+  └─ 依赖/调用 ➔ `lib/engine/settings_engine.dart`
+  └─ 变更 ➔ 保证主页统计文案在中英文环境下正确显示
+- `lib/features/shell/ui/home_page.dart`
+  └─ 变更 ➔ 将“阅读统计”标题置于卡片左上角并加粗，主数据字号缩小且靠左贴边
+  └─ 变更 ➔ 在阅读统计卡片右侧新增“连续阅读”块，包含火花图标、标题与 18 天数值
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+- 无新增 Config Key
+
+---
+
+### [2026-07-07] 优化：主页顶部标题与操作按钮布局
 **【AI 架构依赖树 (Architecture Context)】**
 - `lib/features/shell/ui/home_page.dart`
   └─ 依赖/调用 ➔ `lib/features/shell/controller/settings_controller.dart`
