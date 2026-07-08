@@ -46,6 +46,19 @@ class DailySentenceService {
     await _saveSentences(current);
   }
 
+  /// Update an existing daily sentence and persist the updated list.
+  Future<void> updateSentence(DailySentenceModel sentence) async {
+    final current = List<DailySentenceModel>.from(sentencesNotifier.value);
+    final index = current.indexWhere((item) => item.id == sentence.id);
+    if (index < 0) {
+      return;
+    }
+
+    current[index] = sentence;
+    sentencesNotifier.value = current;
+    await _saveSentences(current);
+  }
+
   Future<File> _dataFile() async {
     final directory = await getApplicationDocumentsDirectory();
     return File('${directory.path}/$_storageFileName');

@@ -3,6 +3,7 @@ import 'package:flutter/cupertino.dart';
 import '../../../engine/localization_engine.dart';
 import '../controller/daily_sentence_controller.dart';
 import '../model/daily_sentence_model.dart';
+import 'daily_sentence_edit_page.dart';
 
 /// DailySentencePage displays the list of saved daily sentences and allows adding new entries.
 class DailySentencePage extends StatefulWidget {
@@ -23,41 +24,7 @@ class _DailySentencePageState extends State<DailySentencePage> {
     super.dispose();
   }
 
-  void _showAddSentenceSheet() {
-    showCupertinoModalPopup<void>(
-      context: context,
-      builder: (context) {
-        return CupertinoActionSheet(
-          title: Text(LocalizationEngine.text('daily_sentence')),
-          message: CupertinoTextField(
-            controller: _textController,
-            maxLines: 6,
-            placeholder: LocalizationEngine.text('enter_content'),
-          ),
-          actions: [
-            CupertinoActionSheetAction(
-              onPressed: () async {
-                await _controller.addSentence(_textController.text);
-                if (_controller.errorText.value == null) {
-                  Navigator.of(context).pop();
-                  _textController.clear();
-                }
-              },
-              child: Text(LocalizationEngine.text('save')),
-            ),
-          ],
-          cancelButton: CupertinoActionSheetAction(
-            onPressed: () {
-              if (mounted) {
-                Navigator.of(context).pop();
-              }
-            },
-            child: Text(LocalizationEngine.text('cancel')),
-          ),
-        );
-      },
-    );
-  }
+  // 使用独立页面 `DailySentenceEditPage` 进行添加/编辑，不再使用底部 action sheet
 
   @override
   Widget build(BuildContext context) {
@@ -67,7 +34,11 @@ class _DailySentencePageState extends State<DailySentencePage> {
         middle: Text(LocalizationEngine.text('daily_sentence'), style: TextStyle(color: CupertinoTheme.of(context).primaryColor)),
         trailing: CupertinoButton(
           padding: EdgeInsets.zero,
-          onPressed: _showAddSentenceSheet,
+          onPressed: () {
+            Navigator.of(context).push(
+              CupertinoPageRoute(builder: (context) => const DailySentenceEditPage()),
+            );
+          },
           child: const Icon(CupertinoIcons.add),
         ),
       ),
@@ -101,37 +72,61 @@ class _DailySentencePageState extends State<DailySentencePage> {
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(color: CupertinoColors.separator.resolveFrom(context)),
                         ),
-                        child: CupertinoButton(
+                        child: Padding(
                           padding: const EdgeInsets.all(16),
-                          onPressed: () {
-                            showCupertinoDialog<void>(
-                              context: context,
-                              builder: (context) {
-                                return CupertinoAlertDialog(
-                                  title: Text(LocalizationEngine.text('view_full')),
-                                  content: Text(item.content),
-                                  actions: [
-                                    CupertinoDialogAction(
-                                      onPressed: () {
-                                        Navigator.of(context).pop();
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () {
+                                    showCupertinoDialog<void>(
+                                      context: context,
+                                      builder: (context) {
+                                        return CupertinoAlertDialog(
+                                          title: Text(LocalizationEngine.text('view_full')),
+                                          content: Text(item.content),
+                                          actions: [
+                                            CupertinoDialogAction(
+                                              onPressed: () {
+                                                Navigator.of(context).pop();
+                                              },
+                                              child: Text(LocalizationEngine.text('cancel')),
+                                            ),
+                                          ],
+                                        );
                                       },
-                                      child: Text(LocalizationEngine.text('cancel')),
+                                    );
+                                  },
+                                  child: Text(
+                                    item.content,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: CupertinoColors.label.resolveFrom(context),
                                     ),
-                                  ],
-                                );
-                              },
-                            );
-                          },
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              item.content,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: CupertinoColors.label.resolveFrom(context),
+                                  ),
+                                ),
                               ),
-                            ),
+                              const SizedBox(width: 8),
+                              CupertinoButton(
+                                padding: const EdgeInsets.all(6),
+                                minSize: 36,
+                                onPressed: () {
+                                  Navigator.of(context).push(
+                                    CupertinoPageRoute(
+                                      builder: (context) => DailySentenceEditPage(sentence: item),
+                                    ),
+                                  );
+                                },
+                                child: Icon(
+                                  CupertinoIcons.pencil,
+                                  size: 18,
+                                  color: CupertinoTheme.of(context).primaryColor,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       );

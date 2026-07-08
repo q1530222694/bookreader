@@ -1,5 +1,8 @@
 import 'package:flutter/cupertino.dart';
 
+import '../controller/daily_sentence_controller.dart';
+import 'daily_sentence_edit_page.dart';
+
 import '../../../engine/localization_engine.dart';
 import '../../../engine/settings_engine.dart';
 import '../controller/bookshelf_controller.dart';
@@ -331,38 +334,28 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
               const SizedBox(height: 12),
-              // 三个统计卡片（根据屏幕宽度自适应排列）
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final isWide = constraints.maxWidth >= 360;
-                  final cards = [
-                    _buildStatCard(context, '32 小时', LocalizationEngine.text('monthly_reading')),
-                    _buildStatCard(context, '382 小时', LocalizationEngine.text('yearly_reading')),
-                    _buildStatCard(context, '126 天', LocalizationEngine.text('cumulative_reading')),
-                  ];
-
-                  if (isWide) {
-                    return Row(
-                      children: cards
-                          .map((card) => Expanded(
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                                  child: card,
-                                ),
-                              ))
-                          .toList(),
-                    );
-                  }
-
-                  return Column(
-                    children: cards
-                        .map((card) => Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: SizedBox(width: double.infinity, child: card),
-                            ))
-                        .toList(),
-                  );
-                },
+              // 三个统计卡片固定并排显示，确保宽高一致且不随屏幕变化换行
+              Row(
+                children: [
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: _buildStatCard(context, '32 小时', LocalizationEngine.text('monthly_reading')),
+                    ),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: _buildStatCard(context, '382 小时', LocalizationEngine.text('yearly_reading')),
+                    ),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 4),
+                      child: _buildStatCard(context, '126 天', LocalizationEngine.text('cumulative_reading')),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -377,8 +370,9 @@ class _HomePageState extends State<HomePage> {
 
     return Container(
       width: double.infinity,
+      constraints: const BoxConstraints(minHeight: 46),
       margin: EdgeInsets.zero,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: theme.scaffoldBackgroundColor,
         borderRadius: BorderRadius.circular(12),
@@ -449,6 +443,67 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Future<void> _quickAddDailySentence(BuildContext context) async {
+    final textController = TextEditingController();
+    final sentenceController = DailySentenceController();
+    final theme = CupertinoTheme.of(context);
+
+    await showCupertinoDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return CupertinoAlertDialog(
+          title: Text(
+            LocalizationEngine.text('daily_sentence'),
+            style: TextStyle(color: CupertinoColors.label.resolveFrom(context)),
+          ),
+          content: Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: CupertinoTextField(
+              controller: textController,
+              autofocus: true,
+              maxLines: 6,
+              placeholder: LocalizationEngine.text('enter_content'),
+              style: TextStyle(color: CupertinoColors.label.resolveFrom(context)),
+              placeholderStyle: TextStyle(color: CupertinoColors.placeholderText.resolveFrom(context)),
+              decoration: BoxDecoration(
+                color: theme.barBackgroundColor,
+                border: Border.all(color: CupertinoColors.separator.resolveFrom(context)),
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(
+                LocalizationEngine.text('cancel'),
+                style: TextStyle(color: CupertinoColors.label.resolveFrom(context)),
+              ),
+            ),
+            CupertinoDialogAction(
+              isDefaultAction: true,
+              onPressed: () async {
+                final content = textController.text.trim();
+                if (content.isNotEmpty) {
+                  await sentenceController.addSentence(content);
+                }
+                if (Navigator.of(dialogContext).canPop()) {
+                  Navigator.of(dialogContext).pop();
+                }
+              },
+              child: Text(
+                LocalizationEngine.text('save'),
+                style: TextStyle(color: theme.primaryColor),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    sentenceController.dispose();
+  }
+
   Widget _dailySentence(BuildContext context) {
     final theme = CupertinoTheme.of(context);
 
@@ -457,25 +512,24 @@ class _HomePageState extends State<HomePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 0),
-            child: Text(
-              LocalizationEngine.text('daily_sentence'),
-              style: theme.textTheme.textStyle.copyWith(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: CupertinoColors.label.resolveFrom(context),
-              ),
+          Text(
+            LocalizationEngine.text('daily_sentence'),
+            style: theme.textTheme.textStyle.copyWith(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: CupertinoColors.label.resolveFrom(context),
             ),
           ),
           const SizedBox(height: 8),
           Container(
-            padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+            constraints: const BoxConstraints(minHeight: 70, maxHeight: 88),
             decoration: BoxDecoration(
               color: theme.scaffoldBackgroundColor,
               borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: CupertinoColors.separator.resolveFrom(context)),
               boxShadow: [
-                BoxShadow(color: CupertinoColors.systemGrey.withOpacity(0.06), blurRadius: 12, offset: const Offset(0, 6)),
+                BoxShadow(color: CupertinoColors.systemGrey.withOpacity(0.04), blurRadius: 6, offset: const Offset(0, 3)),
               ],
             ),
             child: ValueListenableBuilder<List<DailySentenceModel>>(
@@ -483,31 +537,28 @@ class _HomePageState extends State<HomePage> {
               builder: (context, sentences, child) {
                 final latest = sentences.isNotEmpty ? sentences.last.content : '知识改变命运，阅读点亮人生。';
                 return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
                       child: Text(
                         latest,
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.textStyle.copyWith(
                           fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          color: CupertinoColors.label.resolveFrom(context),
                           height: 1.5,
+                          color: CupertinoColors.label.resolveFrom(context),
                         ),
                       ),
                     ),
+                    const SizedBox(width: 8),
                     CupertinoButton(
-                      padding: EdgeInsets.zero,
+                      padding: const EdgeInsets.all(6),
                       minSize: 36,
-                      onPressed: () {
-                        Navigator.of(context).push(
-                          CupertinoPageRoute(
-                            builder: (context) => const DailySentencePage(),
-                          ),
-                        );
-                      },
-                      child: Icon(CupertinoIcons.chevron_right, color: CupertinoColors.secondaryLabel.resolveFrom(context)),
+                      onPressed: () => _quickAddDailySentence(context),
+                      child: Icon(
+                        CupertinoIcons.add_circled_solid,
+                        size: 20,
+                        color: CupertinoTheme.of(context).primaryColor,
+                      ),
                     ),
                   ],
                 );

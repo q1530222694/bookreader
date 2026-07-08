@@ -66,7 +66,11 @@ class _ShellPageState extends State<ShellPage> {
                     ? CupertinoColors.systemPink
                     : themeColor == SettingsEngine.themeColorOrange
                         ? CupertinoColors.systemOrange
-                        : CupertinoColors.activeBlue;
+                        : themeColor == SettingsEngine.themeColorPurple
+                            ? CupertinoColors.systemIndigo
+                            : themeColor == SettingsEngine.themeColorRed
+                                ? CupertinoColors.systemRed
+                                : CupertinoColors.activeBlue;
 
             return ValueListenableBuilder<String>(
               valueListenable: SettingsController.fontFamily,

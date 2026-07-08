@@ -2,13 +2,31 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- 启用 App Sandbox（必需） -->
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
+	
+	<!-- 允许 JIT 编译（Flutter 需要） -->
 	<key>com.apple.security.cs.allow-jit</key>
 	<true/>
+	
+	<!-- 允许网络连接（必需） -->
 	<key>com.apple.security.network.server</key>
 	<true/>
+	
+	<!-- 【图片转PDF修复】允许读取用户通过文件选择器选中的文件（仅读取） -->
+	<!-- 该权限使得 file_picker 能够访问用户手动选择的图片文件 -->
 	<key>com.apple.security.files.user-selected.read-only</key>
+	<true/>
+	
+	<!-- 【图片转PDF修复】允许读写下载文件夹和文档文件夹 -->
+	<!-- 这使得应用可以在用户常用位置保存转换后的 PDF 文件 -->
+	<key>com.apple.security.files.downloads.read-write</key>
+	<true/>
+	
+	<!-- 【图片转PDF修复】允许读写文档文件夹 -->
+	<!-- 支持在 ~/Documents 等位置保存导出记录和 PDF 文件 -->
+	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
 </dict>
 </plist>

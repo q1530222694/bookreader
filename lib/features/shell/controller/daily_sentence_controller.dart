@@ -29,6 +29,21 @@ class DailySentenceController {
     errorText.value = null;
   }
 
+  /// Update an existing daily sentence entry.
+  Future<void> updateSentence(String id, String content) async {
+    if (content.trim().isEmpty) {
+      errorText.value = '内容不能为空';
+      return;
+    }
+
+    final sentence = DailySentenceModel(
+      id: id,
+      content: content.trim(),
+    );
+    await _service.updateSentence(sentence);
+    errorText.value = null;
+  }
+
   /// Dispose controller notifiers.
   void dispose() {
     errorText.dispose();

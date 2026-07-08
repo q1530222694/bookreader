@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>账号生成器</title>
+    <style>
+        body { width: 100%; padding: 15px; font-family: Arial, sans-serif; margin: 0; box-sizing: border-box; }
+        
+        .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
+        .header-title { font-size: 16px; font-weight: bold; color: #24292e; }
+        .switch-container { display: flex; align-items: center; gap: 8px; }
+        .switch-text { font-size: 12px; color: #666; font-weight: bold; }
+        
+        .switch { position: relative; display: inline-block; width: 36px; height: 20px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 20px; }
+        .slider:before { position: absolute; content: ""; height: 14px; width: 14px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: #28a745; }
+        input:checked + .slider:before { transform: translateX(16px); }
+
+        .form-group { margin-bottom: 10px; }
+        label { display: block; margin-bottom: 5px; font-size: 12px; font-weight: bold; color: #333; }
+        .input-group { display: flex; gap: 5px; }
+        input[type="text"] { flex: 1; padding: 6px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; width: 100%; box-sizing: border-box; }
+        button { padding: 5px 10px; cursor: pointer; border: none; background: #007bff; color: white; border-radius: 4px; font-size: 12px; }
+        button:hover { background: #0056b3; }
+        .copy-btn { background: #28a745; white-space: nowrap; }
+        .copy-btn:hover { background: #218838; }
+        
+        #generateBtn { width: 100%; margin-bottom: 15px; padding: 10px; background: #24292e; font-size: 14px; border-radius: 4px; }
+        #generateBtn:hover { background: #1b1f23; }
+
+        /* 新增：后缀勾选框样式 */
+        .suffix-container { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; margin-top: -5px; padding: 6px 10px; background: #f8f9fa; border-radius: 4px; border: 1px solid #eee; }
+        .suffix-container span { font-size: 12px; font-weight: bold; color: #333; }
+        .suffix-container label { display: flex; align-items: center; gap: 3px; font-size: 12px; margin: 0; font-weight: normal; cursor: pointer; color: #24292e; }
+        .suffix-container input[type="radio"] { cursor: pointer; margin: 0; }
+        #clearSuffixBtn { padding: 3px 8px; background: #6c757d; color: white; border: none; border-radius: 4px; font-size: 11px; cursor: pointer; margin-left: auto; }
+        #clearSuffixBtn:hover { background: #5a6268; }
+        
+        .logout-btn-group { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+        .action-btn { width: 100%; padding: 10px; font-size: 14px; border-radius: 4px; font-weight: bold; cursor: pointer; color: white; border: none; }
+        #logoutBtn { background: #dc3545; }
+        #logoutBtn:hover { background: #c82333; }
+        #logoutMsBtn { background: #0078d4; }
+        #logoutMsBtn:hover { background: #005a9e; }
+        
+        .history-container { margin-top: 20px; border-top: 1px solid #eee; padding-top: 15px; }
+        .history-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .history-title { font-size: 14px; font-weight: bold; color: #24292e; }
+        #viewAllBtn { background: #6c757d; padding: 3px 8px; font-size: 11px; }
+        #viewAllBtn:hover { background: #5a6268; }
+        
+        .history-list { overflow-y: auto; border: 1px solid #eee; border-radius: 4px; padding: 5px; background: #f8f9fa; }
+        .history-item { padding: 8px; border-bottom: 1px solid #e9ecef; font-size: 12px; }
+        .history-item:last-child { border-bottom: none; }
+        .history-time { color: #6a737d; font-size: 11px; margin-bottom: 4px; }
+        .history-details { line-height: 1.6; color: #24292e; }
+        .history-ops { margin-top: 5px; display: flex; gap: 5px; flex-wrap: wrap; }
+        .mini-copy-btn { padding: 2px 6px; font-size: 11px; background: #6c757d; margin-bottom: 2px; }
+        .mini-copy-btn:hover { background: #5a6268; }
+
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); }
+        .modal-content { background-color: #fff; margin: 15% auto; padding: 15px; width: 90%; border-radius: 8px; box-sizing: border-box; max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
+        #clearBtn { background: #dc3545; padding: 3px 8px; font-size: 11px; }
+        #clearBtn:hover { background: #bd2130; }
+        #closeModalBtn { background: #343a40; padding: 3px 8px; font-size: 11px; margin-left: 5px; }
+        #closeModalBtn:hover { background: #23272b; }
+    </style>
+</head>
+<body>
+    <div class="header-bar">
+        <span class="header-title">配置面板</span>
+        <div class="switch-container">
+            <span class="switch-text" id="switchStatusText">自动填充: 开启</span>
+            <label class="switch">
+                <input type="checkbox" id="autofillToggle">
+                <span class="slider"></span>
+            </label>
+        </div>
+    </div>
+
+    <button id="generateBtn">生成账号并同步填写</button>
+
+    <div class="form-group"><label>邮箱前缀</label><div class="input-group"><input type="text" id="emailPrefix" readonly><button class="copy-btn" data-target="emailPrefix">复制</button></div></div>
+    
+    <div class="suffix-container">
+        <span>后缀选项:</span>
+        <label><input type="radio" name="accountSuffix" value="01"> 01</label>
+        <label><input type="radio" name="accountSuffix" value="02"> 02</label>
+        <button id="clearSuffixBtn" type="button">清除后缀</button>
+    </div>
+
+    <div class="form-group"><label>Github 密码</label><div class="input-group"><input type="text" id="password" readonly><button class="copy-btn" data-target="password">复制</button></div></div>
+    <div class="form-group"><label>邮箱账号</label><div class="input-group"><input type="text" id="email" readonly><button class="copy-btn" data-target="email">复制</button></div></div>
+    <div class="form-group"><label>Github 用户名</label><div class="input-group"><input type="text" id="username" readonly><button class="copy-btn" data-target="username">复制</button></div></div>
+
+    <div class="logout-btn-group">
+        <button id="logoutBtn" class="action-btn">一键退出 GitHub</button>
+        <button id="logoutMsBtn" class="action-btn">一键退出 Microsoft</button>
+    </div>
+    
+    <div class="history-container">
+        <div class="history-header">
+            <span class="history-title">最新生成记录</span>
+            <button id="viewAllBtn">查看全部历史</button>
+        </div>
+        <div id="latestHistory" class="history-list" style="max-height: none; background: transparent; border: none; padding: 0;"></div>
+    </div>
+
+    <div id="historyModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span class="history-title">历史记录 (最多100条)</span>
+                <div>
+                    <button id="clearBtn">清空记录</button>
+                    <button id="closeModalBtn">关闭</button>
+                </div>
+            </div>
+            <div id="historyList" class="history-list" style="flex: 1; max-height: 350px;"></div>
+        </div>
+    </div>
+
+    <script src="sidepanel.js"></script>
+</body>
+</html>

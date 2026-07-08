@@ -142,14 +142,6 @@ class LocalizationEngine {
       'zh': '快捷入口',
       'en': 'Quick Access',
     },
-    'welcome_back': {
-      'zh': '欢迎回来！',
-      'en': 'Welcome back!',
-    },
-    'placeholder_description': {
-      'zh': '先设置基本入口，后续功能再补齐。',
-      'en': 'Set up the basics first, features will follow.',
-    },
     'premium': {
       'zh': '开通高级会员',
       'en': 'Activate Premium',
@@ -352,6 +344,10 @@ class LocalizationEngine {
     'save': {
       'zh': '保存',
       'en': 'Save',
+    },
+    'edit': {
+      'zh': '编辑',
+      'en': 'Edit',
     },
     'cancel': {
       'zh': '取消',
@@ -661,6 +657,14 @@ class LocalizationEngine {
       'zh': '选择一个主题配色，应用于整个界面。',
       'en': 'Choose a theme color applied across the app.',
     },
+    'theme_color_purple': {
+      'zh': '紫色',
+      'en': 'Purple',
+    },
+    'theme_color_red': {
+      'zh': '红色',
+      'en': 'Red',
+    },
     'startup_page': {
       'zh': '启动页',
       'en': 'Startup Page',
@@ -688,6 +692,74 @@ class LocalizationEngine {
     'startup_page_profile': {
       'zh': '我的',
       'en': 'Profile',
+    },
+    'splash_settings': {
+      'zh': '启动页设置',
+      'en': 'Splash Settings',
+    },
+    'splash_content_type': {
+      'zh': '内容类型',
+      'en': 'Content Type',
+    },
+    'splash_image_settings': {
+      'zh': '图片设置',
+      'en': 'Image Settings',
+    },
+    'splash_current_image': {
+      'zh': '当前图片',
+      'en': 'Current Image',
+    },
+    'splash_change_image': {
+      'zh': '点击更换图片',
+      'en': 'Tap to change image',
+    },
+    'splash_display_duration': {
+      'zh': '显示时长',
+      'en': 'Display Duration',
+    },
+    'splash_duration_1s': {
+      'zh': '1秒',
+      'en': '1s',
+    },
+    'splash_duration_3s': {
+      'zh': '3秒',
+      'en': '3s',
+    },
+    'splash_duration_5s': {
+      'zh': '5秒',
+      'en': '5s',
+    },
+    'splash_duration_always': {
+      'zh': '一直显示',
+      'en': 'Always',
+    },
+    'splash_entry_mode': {
+      'zh': '进入方式',
+      'en': 'Entry Mode',
+    },
+    'splash_auto_home': {
+      'zh': '自动进入主页',
+      'en': 'Auto enter home',
+    },
+    'splash_wait_click': {
+      'zh': '等待点击进入',
+      'en': 'Wait for tap',
+    },
+    'splash_jump_page': {
+      'zh': '启动后跳转页面',
+      'en': 'Target Page',
+    },
+    'splash_preview_title': {
+      'zh': '探索阅读的世界',
+      'en': 'Explore the World of Reading',
+    },
+    'splash_preview_subtitle': {
+      'zh': '让每一次阅读都更有价值',
+      'en': 'Make every reading session more valuable',
+    },
+    'splash_skip': {
+      'zh': '3s 跳过',
+      'en': 'Skip in 3s',
     },
     'startup_content': {
       'zh': '启动页内容',

@@ -1,13 +1,11 @@
 import 'package:flutter/cupertino.dart';
 
 import '../../../engine/localization_engine.dart';
-import '../../../engine/settings_engine.dart';
-import '../../../shared/ui/app_text_styles.dart';
-import 'appearance_page.dart';
-import 'language_page.dart';
-import '../controller/settings_controller.dart';
 
-/// SettingsPage provides language and appearance switching UI.
+/// SettingsPage provides the global settings entry surface.
+///
+/// Language and appearance options are intentionally hidden here because they are
+/// already exposed in the outer settings area of the app.
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
 
@@ -22,100 +20,7 @@ class SettingsPage extends StatelessWidget {
       child: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(16),
-          children: [
-            _SectionHeader(title: LocalizationEngine.text('language')),
-            _SettingOption(
-              label: LocalizationEngine.text('language_settings_title'),
-              selected: false,
-              onTap: () {
-                Navigator.of(context).push(
-                  CupertinoPageRoute(builder: (context) => const LanguagePage()),
-                );
-              },
-            ),
-            const SizedBox(height: 24),
-            _SectionHeader(title: LocalizationEngine.text('appearance')),
-            _SettingOption(
-              label: LocalizationEngine.text('app_appearance'),
-              selected: false,
-              onTap: () {
-                Navigator.of(context).push(
-                  CupertinoPageRoute(builder: (context) => const AppearancePage()),
-                );
-              },
-            ),
-            // Theme color and font family settings moved to "My -> Theme Color".
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  final String title;
-
-  const _SectionHeader({required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(
-        title,
-        style: AppTextStyles.sectionTitle(context),
-      ),
-    );
-  }
-}
-
-class _SettingOption extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _SettingOption({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return CupertinoButton(
-      padding: EdgeInsets.zero,
-      onPressed: onTap,
-      child: Container(
-        width: double.infinity,
-        margin: const EdgeInsets.symmetric(vertical: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        decoration: BoxDecoration(
-          color: CupertinoColors.secondarySystemBackground.resolveFrom(context),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: selected
-                ? CupertinoTheme.of(context).primaryColor
-                : CupertinoColors.separator.resolveFrom(context),
-          ),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  label,
-                  style: AppTextStyles.menuItem(context, selected: selected),
-                ),
-              ),
-            ),
-            if (selected)
-              Icon(
-                CupertinoIcons.check_mark_circled_solid,
-                color: CupertinoTheme.of(context).primaryColor,
-              ),
-          ],
+          children: const [],
         ),
       ),
     );

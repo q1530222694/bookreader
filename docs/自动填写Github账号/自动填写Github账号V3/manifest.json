@@ -1,0 +1,51 @@
+{
+  "manifest_version": 3,
+  "name": "GitHub 账号生成器",
+  "version": "1.9",
+  "description": "侧边栏生成账号密码，核弹级清理 GitHub/Microsoft 登录凭证并自动填充网页",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "sidePanel",
+    "cookies",
+    "scripting"
+  ],
+  "host_permissions": [
+    "*://github.com/*",
+    "*://*.github.com/*",
+    "*://microsoft.com/*",
+    "*://*.microsoft.com/*",
+    "*://live.com/*",
+    "*://*.live.com/*",
+    "*://microsoftonline.com/*",
+    "*://*.microsoftonline.com/*",
+    "*://office.com/*",
+    "*://*.office.com/*",
+    "*://*.msauth.net/*",
+    "*://*.msftauth.net/*",
+    "*://*.xboxlive.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "点击打开账号生成器"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://github.com/signup*",
+        "*://github.com/login*",
+        "*://github.com/settings/*",
+        "*://kfz.wanwangwang.xyz/*",
+        "*://*.live.com/*",
+        "*://*.microsoft.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

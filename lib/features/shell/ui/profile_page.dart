@@ -279,7 +279,7 @@ class ProfilePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final backgroundColor = CupertinoColors.systemBackground.resolveFrom(context);
-    final cardColor = CupertinoColors.secondarySystemBackground.resolveFrom(context);
+    final cardColor = CupertinoTheme.of(context).scaffoldBackgroundColor;
     final labelColor = CupertinoColors.label.resolveFrom(context);
 
     return CupertinoPageScaffold(
@@ -317,46 +317,34 @@ class ProfilePage extends StatelessWidget {
                         ],
                       ),
                       padding: const EdgeInsets.all(20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      child: Row(
                         children: [
-                          Text(
-                            LocalizationEngine.text('welcome_back'),
-                            style: AppTextStyles.body(context).copyWith(fontWeight: FontWeight.w600),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            LocalizationEngine.text('placeholder_description'),
-                            style: AppTextStyles.secondary(context),
-                          ),
-                          const SizedBox(height: 18),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: CupertinoButton.filled(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 14,
-                                  ),
-                                  onPressed: () {
-                                    Navigator.of(context).push(
-                                      CupertinoPageRoute(builder: (context) => const MembershipPage()),
-                                    );
-                                  },
-                                  child: Text(LocalizationEngine.text('premium')),
-                                ),
+                          Expanded(
+                            child: CupertinoButton.filled(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 14,
                               ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: CupertinoButton(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 14,
-                                  ),
-                                  onPressed: () {},
-                                  color: CupertinoColors.systemGrey5.resolveFrom(context),
-                                  child: Text(LocalizationEngine.text('sync')),
-                                ),
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  CupertinoPageRoute(builder: (context) => const MembershipPage()),
+                                );
+                              },
+                              child: Text(LocalizationEngine.text('premium')),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: CupertinoButton(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 14,
                               ),
-                            ],
+                              onPressed: () {},
+                              color: CupertinoTheme.of(context).scaffoldBackgroundColor,
+                              child: Text(
+                                LocalizationEngine.text('sync'),
+                                style: TextStyle(color: labelColor),
+                              ),
+                            ),
                           ),
                         ],
                       ),
@@ -466,7 +454,7 @@ class _ProfileSettingItem extends StatelessWidget {
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         decoration: BoxDecoration(
-          color: CupertinoColors.secondarySystemBackground.resolveFrom(context),
+          color: CupertinoTheme.of(context).scaffoldBackgroundColor,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: CupertinoColors.separator.resolveFrom(context)),
         ),

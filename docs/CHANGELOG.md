@@ -1,4 +1,61 @@
-﻿### [2026-07-07] 优化：主页阅读统计卡片文案与布局
+﻿### [2026-07-08] 优化：设置页隐藏语言与外观入口
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/settings_page.dart`
+  └─ 变更 ➔ 从设置页主列表中隐藏“语言设置”和“外观设置”入口，保留页面路由能力，避免与外层已展示入口重复
+  └─ 依赖/调用 ➔ `lib/features/shell/ui/language_page.dart`
+  └─ 依赖/调用 ➔ `lib/features/shell/ui/appearance_page.dart`
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+- 无新增 Config Key
+
+---
+
+### [2026-07-08] 新增：应用外观设置中的启动页设置子页面
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/appearance_page.dart`
+  └─ 变更 ➔ 将原先分散的启动页、启动页内容和显示时长配置收敛为一个“启动页设置”入口
+  └─ 依赖/调用 ➔ `lib/features/shell/ui/splash_settings_page.dart`
+- `lib/features/shell/ui/splash_settings_page.dart`
+  └─ 新增 ➔ 提供启动页预览、内容类型、图片设置、显示时长、进入方式与跳转页面的统一配置界面
+  └─ 依赖/调用 ➔ `lib/features/shell/controller/settings_controller.dart`
+  └─ 依赖/调用 ➔ `lib/engine/settings_engine.dart`
+- `lib/engine/localization_engine.dart`
+  └─ 变更 ➔ 新增 `splash_settings` 多语言文案
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+- 无新增 Config Key
+
+---
+
+### [2026-07-08] 优化：设置页隐藏语言与外观入口
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/settings_page.dart`
+  └─ 变更 ➔ 从设置页主列表中隐藏“语言设置”和“外观设置”入口，保留页面路由能力，避免与外层已展示入口重复
+  └─ 依赖/调用 ➔ `lib/features/shell/ui/language_page.dart`
+  └─ 依赖/调用 ➔ `lib/features/shell/ui/appearance_page.dart`
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+- 无新增 Config Key
+
+---
+
+### [2026-07-08] 优化：我的页面移除占位欢迎文案
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/profile_page.dart`
+  └─ 变更 ➔ 移除“我的”页面账户设置卡片中的欢迎/占位描述文案，保留会员与同步按钮入口
+  └─ 依赖/调用 ➔ `lib/engine/localization_engine.dart`
+  └─ 依赖/调用 ➔ `lib/features/membership/ui/membership_page.dart`
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+- 无新增 Config Key
+
+---
+
+### [2026-07-07] 优化：主页阅读统计卡片文案与布局
 **【AI 架构依赖树 (Architecture Context)】**
 - `lib/features/shell/ui/home_page.dart`
   └─ 变更 ➔ 将首页三个阅读统计卡片高度收紧，并将标签置于数值上方

@@ -1,10 +1,12 @@
 import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
+import 'package:open_filex/open_filex.dart';
 
 import '../controller/image_to_pdf_controller.dart';
 import '../model/export_record_model.dart';
 import '../service/filepicker_diagnostics.dart';
+import '../../shell/service/bookshelf_service.dart';
 
 /// ImageToPdfPage 纯UI层，负责显示界面和处理用户交互
 class ImageToPdfPage extends StatefulWidget {
@@ -206,6 +208,8 @@ class _ImageToPdfPageState extends State<ImageToPdfPage> {
   }
 
   /// 构建图片预览项
+  /// 【桌面端布局修复】外层 Container 设置固定宽度 80，防止横向 ListView 无限宽度导致的渲染崩溃
+  /// 内层序号标签通过 Column.crossAxisAlignment.stretch 实现等宽，移除 width: double.infinity
   Widget _buildImagePreviewItem(String imagePath, int index) {
     return GestureDetector(
       onLongPressStart: (details) => _showImageDeletePopover(
@@ -214,6 +218,7 @@ class _ImageToPdfPageState extends State<ImageToPdfPage> {
         anchorPosition: details.globalPosition,
       ),
       child: Container(
+        width: 80, // 【FIX】设置固定宽度，防止 ListView 中的无限宽度崩溃
         margin: const EdgeInsets.only(right: 12),
         decoration: BoxDecoration(
           border: Border.all(color: CupertinoColors.systemGrey4),
@@ -221,6 +226,7 @@ class _ImageToPdfPageState extends State<ImageToPdfPage> {
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch, // 【FIX】使用 stretch 而不是 double.infinity
           children: [
             // 图片缩略图
             ClipRRect(
@@ -250,7 +256,7 @@ class _ImageToPdfPageState extends State<ImageToPdfPage> {
             ),
             // 序号标签
             Container(
-              width: double.infinity,
+              // 【FIX】移除 width: double.infinity，由外层 Column.crossAxisAlignment.stretch 实现等宽
               padding: const EdgeInsets.symmetric(vertical: 4),
               decoration: const BoxDecoration(
                 color: CupertinoColors.systemGrey6,
@@ -329,17 +335,28 @@ class _ImageToPdfPageState extends State<ImageToPdfPage> {
           // 操作按钮
           Row(
             children: [
-              // 打开按钮
+              // 查看 PDF 按钮
               Expanded(
                 child: CupertinoButton(
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   onPressed: () async {
                     final file = File(record.filePath);
                     if (await file.exists()) {
-                      // 这里可以集成打开PDF的功能
-                      _statusMessage = '点击打开：${record.fileName}';
+                      // 【完善】使用 OpenFilex 打开 PDF 文件
+                      final result = await OpenFilex.open(record.filePath);
+                      if (result.type != ResultType.done) {
+                        if (mounted) {
+                          setState(() {
+                            _statusMessage = '无法打开PDF: ${result.message}';
+                          });
+                        }
+                      }
                     } else {
-                      _statusMessage = 'PDF文件不存在';
+                      if (mounted) {
+                        setState(() {
+                          _statusMessage = 'PDF文件不存在: ${record.filePath}';
+                        });
+                      }
                     }
                   },
                   child: const Text('查看'),
@@ -347,14 +364,43 @@ class _ImageToPdfPageState extends State<ImageToPdfPage> {
               ),
               const SizedBox(width: 8),
 
-              // 添加到书架按钮
+              // 加入书架按钮
               if (!record.addedToShelf)
                 Expanded(
                   child: CupertinoButton(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     onPressed: () async {
-                      // TODO: 实现添加到书架功能
-                      _statusMessage = '已添加到书架：${record.fileName}';
+                      // 【完善】打通与 Controller 的调用链
+                      final result = await ImageToPdfController.addExportedPdfToShelf(
+                        record,
+                        (file) async {
+                          // 【已完善】真实的业务入库逻辑：调用 BookshelfService.importPdf()
+                          try {
+                            final bookshelfService = BookshelfService();
+                            await bookshelfService.importPdf(file);
+                            return true;
+                          } catch (e) {
+                            debugPrint('添加到书架失败: $e');
+                            return false;
+                          }
+                        },
+                      );
+
+                      if (mounted && result) {
+                        // 【完善】成功时更新 UI 状态
+                        setState(() {
+                          // 查找并更新对应的导出记录状态
+                          final recordIndex = _exportRecords.indexWhere((r) => r.id == record.id);
+                          if (recordIndex >= 0) {
+                            _exportRecords[recordIndex] = record.copyWith(addedToShelf: true);
+                          }
+                          _statusMessage = '已添加到书架: ${record.fileName}';
+                        });
+                      } else if (mounted) {
+                        setState(() {
+                          _statusMessage = '添加到书架失败';
+                        });
+                      }
                     },
                     child: const Text('加入书架'),
                   ),

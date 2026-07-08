@@ -20,6 +20,8 @@ class SettingsEngine {
   static const String themeColorGreen = 'green';
   static const String themeColorPink = 'pink';
   static const String themeColorOrange = 'orange';
+  static const String themeColorPurple = 'purple';
+  static const String themeColorRed = 'red';
 
   static const String fontFamilyKey = 'app.fontFamily';
   static const String fontFamilySystem = 'system';
