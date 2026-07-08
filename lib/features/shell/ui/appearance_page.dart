@@ -232,7 +232,7 @@ class _AppearanceModeCard extends StatelessWidget {
         padding: EdgeInsets.zero,
         onPressed: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
           decoration: BoxDecoration(
             color: selected
                 ? primaryColor.withOpacity(0.12)
@@ -249,17 +249,23 @@ class _AppearanceModeCard extends StatelessWidget {
                   style: AppTextStyles.body(context).copyWith(
                     color: selected ? primaryColor : CupertinoColors.secondaryLabel.resolveFrom(context),
                     fontWeight: FontWeight.w700,
+                    fontSize: 13,
                   ),
                 )
               else if (icon != null)
-                Icon(icon, color: selected ? primaryColor : CupertinoColors.secondaryLabel.resolveFrom(context)),
-              const SizedBox(height: 8),
+                Icon(
+                  icon,
+                  size: 16,
+                  color: selected ? primaryColor : CupertinoColors.secondaryLabel.resolveFrom(context),
+                ),
+              const SizedBox(height: 6),
               Text(
                 label,
                 textAlign: TextAlign.center,
                 style: AppTextStyles.body(context).copyWith(
                   color: selected ? primaryColor : CupertinoColors.label.resolveFrom(context),
                   fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                  fontSize: 13,
                 ),
               ),
             ],
@@ -294,7 +300,7 @@ class _ThemeColorTile extends StatelessWidget {
       onPressed: onTap,
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
         decoration: BoxDecoration(
           color: CupertinoColors.secondarySystemBackground.resolveFrom(context),
           borderRadius: BorderRadius.circular(16),
@@ -304,18 +310,18 @@ class _ThemeColorTile extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 34,
-              height: 34,
+              width: 28,
+              height: 28,
               decoration: BoxDecoration(
                 color: color,
                 shape: BoxShape.circle,
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 6),
             Text(
               label,
               textAlign: TextAlign.center,
-              style: AppTextStyles.secondary(context),
+              style: AppTextStyles.secondary(context).copyWith(fontSize: 12),
             ),
           ],
         ),
