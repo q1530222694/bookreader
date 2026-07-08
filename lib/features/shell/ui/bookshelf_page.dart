@@ -946,11 +946,18 @@ class _BookshelfPageState extends State<BookshelfPage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = CupertinoTheme.of(context);
+    final headerColor = CupertinoColors.label.resolveFrom(context);
+
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         leading: Text(
           LocalizationEngine.text('bookshelf'),
-          style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: CupertinoColors.black),
+          style: theme.textTheme.textStyle.copyWith(
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+            color: headerColor,
+          ),
         ),
         middle: const SizedBox.shrink(),
         trailing: Row(
@@ -1003,14 +1010,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
                   },
                 );
               },
-              child: const Icon(CupertinoIcons.search, color: CupertinoColors.black),
+              child: Icon(CupertinoIcons.search, size: 20, color: headerColor),
             ),
             const SizedBox(width: 16),
             Builder(
               builder: (buttonContext) {
                 return GestureDetector(
                   onTap: () => _showMoreOptions(buttonContext),
-                  child: const Icon(CupertinoIcons.ellipsis, color: CupertinoColors.black),
+                  child: Icon(CupertinoIcons.ellipsis, size: 20, color: headerColor),
                 );
               },
             ),

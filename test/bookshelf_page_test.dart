@@ -1,3 +1,4 @@
+import 'package:bookreader/engine/localization_engine.dart';
 import 'package:bookreader/features/shell/controller/bookshelf_controller.dart';
 import 'package:bookreader/features/shell/model/book_model.dart';
 import 'package:bookreader/features/shell/ui/bookshelf_page.dart';
@@ -13,6 +14,25 @@ void main() {
     );
 
     expect(find.byIcon(CupertinoIcons.search), findsOneWidget);
+  });
+
+  testWidgets('BookshelfPage uses a compact header size matching the home page title', (tester) async {
+    await tester.pumpWidget(
+      const CupertinoApp(
+        home: BookshelfPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final titleText = LocalizationEngine.text('bookshelf');
+    final titleWidget = tester.widget<Text>(find.text(titleText));
+    expect(titleWidget.style?.fontSize, 20);
+
+    final searchIcon = tester.widget<Icon>(find.byIcon(CupertinoIcons.search));
+    expect(searchIcon.size, 20);
+
+    final moreIcon = tester.widget<Icon>(find.byIcon(CupertinoIcons.ellipsis));
+    expect(moreIcon.size, 20);
   });
 
   testWidgets('BookshelfPage shows random reading action in more menu', (tester) async {
