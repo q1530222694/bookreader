@@ -48,7 +48,7 @@ class TxtToEpubController {
       }
 
       // 选择单个文件
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['txt'],
         allowMultiple: false,

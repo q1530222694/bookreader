@@ -31,7 +31,7 @@ class ExcelToPdfController {
       final hasPermission = await _requestStoragePermission();
       if (!hasPermission) return null;
 
-      final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['xls', 'xlsx'], allowMultiple: false);
+      final result = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: ['xls', 'xlsx'], allowMultiple: false);
       if (result == null || result.files.isEmpty) return null;
       return result.files.first.path;
     } catch (e) {

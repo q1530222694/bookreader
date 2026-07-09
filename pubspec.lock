@@ -105,6 +105,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.9"
+  dbus:
+    dependency: transitive
+    description:
+      name: dbus
+      sha256: "0ce9b0a839e6dee59a37a623d2fc26a35bbbe6404213e419b0d6411023d62645"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.7.14"
   docs_gee:
     dependency: "direct main"
     description:
@@ -141,10 +149,10 @@ packages:
     dependency: "direct main"
     description:
       name: file_picker
-      sha256: a7965f87b5894605771d8fffd29236f7d697f73bd254d1e599e7075cb7b1f8bf
+      sha256: f13a03000d942e476bc1ff0a736d2e9de711d2f89a95cd4c1d88f861c3348387
       url: "https://pub.dev"
     source: hosted
-    version: "7.1.0+1"
+    version: "11.0.2"
   fixnum:
     dependency: transitive
     description:

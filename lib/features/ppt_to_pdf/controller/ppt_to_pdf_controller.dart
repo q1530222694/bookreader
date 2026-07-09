@@ -32,7 +32,7 @@ class PptToPdfController {
       final hasPermission = await _requestStoragePermission();
       if (!hasPermission) return null;
 
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['ppt', 'pptx'],
         allowMultiple: false,

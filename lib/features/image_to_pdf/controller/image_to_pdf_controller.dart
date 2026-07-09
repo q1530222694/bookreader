@@ -64,7 +64,7 @@ class ImageToPdfController {
       }
 
       // 注意：千万不要在这里加 withData: true，否则选择多图时直接 OOM 崩溃
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.image,
         allowMultiple: true,
       );

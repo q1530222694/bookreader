@@ -2,6 +2,16 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Flutter: Run macOS",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "macos",
+      "toolArgs": ["--no-pub"],
+      "preLaunchTask": "Flutter Pub Get Offline",
+      "cwd": "${workspaceFolder}"
+    },
+    {
       "name": "Flutter: Run Windows Offline",
       "request": "launch",
       "type": "dart",
