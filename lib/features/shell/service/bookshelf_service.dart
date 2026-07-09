@@ -27,16 +27,20 @@ class BookshelfService {
         ? file.uri.pathSegments.last
         : file.path.split(Platform.pathSeparator).last;
     final title = rawName.replaceAll(RegExp(r'\.[^.]+$'), '').trim();
-    final normalizedTitle = title.isEmpty ? '未命名 PDF' : title;
+    final type = _detectBookType(file.path.toLowerCase());
+    final normalizedTitle = title.isEmpty ? '未命名 ${type.toUpperCase()}' : title;
     final fileSizeBytes = await file.length();
 
-    final coverBytes = await _generatePdfCover(file.path);
+    Uint8List? coverBytes;
+    if (type == 'pdf') {
+      coverBytes = await _generatePdfCover(file.path);
+    }
 
     final book = BookModel(
       id: id,
       title: normalizedTitle,
       path: file.path,
-      type: 'pdf',
+      type: type,
       coverBytes: coverBytes,
       progress: 0.0,
       isFavorite: false,
@@ -46,6 +50,17 @@ class BookshelfService {
     _books.add(book);
     booksNotifier.value = List<BookModel>.unmodifiable(_books);
     return book;
+  }
+
+  String _detectBookType(String pathLower) {
+    if (pathLower.endsWith('.pdf')) return 'pdf';
+    if (pathLower.endsWith('.epub')) return 'epub';
+    if (pathLower.endsWith('.txt')) return 'txt';
+    if (pathLower.endsWith('.mobi')) return 'mobi';
+    if (pathLower.endsWith('.cbz') || pathLower.endsWith('.cbr') || pathLower.endsWith('.cb7') || pathLower.endsWith('.cbt') || pathLower.endsWith('.zip')) {
+      return 'comic';
+    }
+    return 'file';
   }
 
   /// Get all imported books.

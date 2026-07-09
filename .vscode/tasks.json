@@ -1,0 +1,41 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Flutter Pub Get Offline",
+      "type": "shell",
+      "command": "D:\\flutter\\flutter\\bin\\flutter.bat",
+      "args": ["pub", "get", "--offline"],
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    },
+    {
+      "label": "Flutter Run Windows Offline",
+      "type": "shell",
+      "command": "D:\\flutter\\flutter\\bin\\flutter.bat",
+      "args": ["run", "-d", "windows", "--no-pub", "-t", "lib/main.dart"],
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    }
+  ]
+}

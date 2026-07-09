@@ -21,7 +21,7 @@ class BookshelfController {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['pdf'],
+        allowedExtensions: ['pdf', 'epub', 'txt', 'mobi', 'cbz', 'cbr', 'cb7', 'cbt'],
         allowMultiple: false,
       );
       if (result == null || result.files.isEmpty) {
@@ -50,7 +50,7 @@ class BookshelfController {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['pdf'],
+        allowedExtensions: ['pdf', 'epub', 'txt', 'mobi', 'cbz', 'cbr', 'cb7', 'cbt'],
         allowMultiple: true,
       );
       if (result == null || result.files.isEmpty) {

@@ -2,6 +2,16 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Flutter: Run Windows Offline",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "windows",
+      "toolArgs": ["--no-pub"],
+      "preLaunchTask": "Flutter Pub Get Offline",
+      "cwd": "${workspaceFolder}"
+    },
+    {
       "name": "Flutter: Run App",
       "request": "launch",
       "type": "dart",
@@ -20,7 +30,8 @@
       "request": "launch",
       "type": "dart",
       "program": "lib/main.dart",
-      "args": ["-d", "windows"]
+      "deviceId": "windows",
+      "cwd": "${workspaceFolder}"
     }
   ]
 }

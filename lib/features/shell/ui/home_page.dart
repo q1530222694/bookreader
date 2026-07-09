@@ -12,6 +12,11 @@ import '../model/daily_sentence_model.dart';
 import '../service/app_stats_service.dart';
 import '../service/daily_sentence_service.dart';
 import 'book_viewer_page.dart';
+import 'epub_viewer_page.dart';
+import 'txt_viewer_page.dart';
+import 'comic_viewer_page.dart';
+import 'mobi_viewer_page.dart';
+import 'package:open_filex/open_filex.dart';
 import 'daily_sentence_page.dart';
 
 /// HomePage displays the redesigned dashboard matching the provided mock.
@@ -45,17 +50,51 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
-  void _openBook(BookModel book) {
-    Navigator.of(context).push(
-      CupertinoPageRoute(
-        builder: (context) => BookViewerPage(
-          title: book.title,
-          filePath: book.path,
-          bookId: book.id,
-          controller: _controller,
+  Future<void> _openBook(BookModel book) async {
+    final path = book.path.toLowerCase();
+    if (path.endsWith('.pdf')) {
+      Navigator.of(context).push(
+        CupertinoPageRoute(
+          builder: (context) => BookViewerPage(
+            title: book.title,
+            filePath: book.path,
+            bookId: book.id,
+            controller: _controller,
+          ),
         ),
-      ),
-    );
+      );
+      return;
+    }
+
+    if (path.endsWith('.epub')) {
+      Navigator.of(context).push(
+        CupertinoPageRoute(builder: (_) => EpubViewerPage(title: book.title, filePath: book.path)),
+      );
+      return;
+    }
+
+    if (path.endsWith('.txt')) {
+      Navigator.of(context).push(
+        CupertinoPageRoute(builder: (_) => TxtViewerPage(title: book.title, filePath: book.path)),
+      );
+      return;
+    }
+
+    if (path.endsWith('.cbz') || path.endsWith('.cbr') || path.endsWith('.cb7') || path.endsWith('.cbt') || path.endsWith('.zip')) {
+      Navigator.of(context).push(
+        CupertinoPageRoute(builder: (_) => ComicViewerPage(title: book.title, filePath: book.path)),
+      );
+      return;
+    }
+
+    try {
+      final result = await OpenFilex.open(book.path);
+      if (result.type != ResultType.done) {
+        _controller.setError('无法打开文件：${result.message}');
+      }
+    } catch (e) {
+      _controller.setError('打开文件失败：$e');
+    }
   }
 
   Widget _greetingSection(BuildContext context) {
