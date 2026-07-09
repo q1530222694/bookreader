@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../engine/localization_engine.dart';
 import '../../../shared/ui/app_text_styles.dart';
+import '../../../shared/ui/about_page_header.dart';
 
 /// AboutPage displays product information and support links.
 class AboutPage extends StatelessWidget {
@@ -100,39 +101,7 @@ class AboutPage extends StatelessWidget {
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: cardColor,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        LocalizationEngine.text('about_app_title'),
-                        style: AppTextStyles.sectionTitle(context),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        LocalizationEngine.text('about_app_description'),
-                        style: AppTextStyles.secondary(context),
-                      ),
-                      const SizedBox(height: 14),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: CupertinoButton.filled(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              onPressed: () {},
-                              child: Text(LocalizationEngine.text('next_page')),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
+                child: AboutPageHeader(),
               ),
             ),
             SliverToBoxAdapter(

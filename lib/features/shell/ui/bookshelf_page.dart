@@ -845,18 +845,23 @@ class _BookshelfPageState extends State<BookshelfPage> {
             const SizedBox(height: 12),
             SizedBox(
               height: cardHeight,
-              child: ListView.builder(
-                itemCount: displayBooks.length,
-                scrollDirection: Axis.horizontal,
-                padding: EdgeInsets.zero,
-                itemBuilder: (context, index) {
-                  final book = displayBooks[index];
-                  return Padding(
-                    padding: EdgeInsets.only(right: index == displayBooks.length - 1 ? 0 : 12),
-                    child: _buildRecentReadingCard(context, book, normalizedWidth, cardHeight),
-                  );
-                },
-              ),
+              child: displayBooks.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: _buildEmptyRecentPlaceholder(context, width - 24, cardHeight),
+                    )
+                  : ListView.builder(
+                      itemCount: displayBooks.length,
+                      scrollDirection: Axis.horizontal,
+                      padding: EdgeInsets.zero,
+                      itemBuilder: (context, index) {
+                        final book = displayBooks[index];
+                        return Padding(
+                          padding: EdgeInsets.only(right: index == displayBooks.length - 1 ? 0 : 12),
+                          child: _buildRecentReadingCard(context, book, normalizedWidth, cardHeight),
+                        );
+                      },
+                    ),
             ),
           ],
         );
@@ -918,6 +923,79 @@ class _BookshelfPageState extends State<BookshelfPage> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyRecentPlaceholder(BuildContext context, double width, double height) {
+    final theme = CupertinoTheme.of(context);
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [theme.primaryColor.withOpacity(0.08), theme.scaffoldBackgroundColor],
+        ),
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(color: CupertinoColors.systemGrey.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 6)),
+        ],
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  LocalizationEngine.text('bookshelf_empty_title'),
+                  style: theme.textTheme.textStyle.copyWith(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: CupertinoColors.label.resolveFrom(context),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  LocalizationEngine.text('bookshelf_empty_subtitle'),
+                  style: theme.textTheme.textStyle.copyWith(
+                    fontSize: 12,
+                    color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const Spacer(),
+                SizedBox(
+                  width: 120,
+                  child: CupertinoButton.filled(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    onPressed: _controller.importPdf,
+                    child: Text(
+                      LocalizationEngine.text('bookshelf_import_button'),
+                      style: theme.textTheme.textStyle.copyWith(fontSize: 13, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: height * 0.6,
+            height: height,
+            child: Center(
+              child: Icon(
+                CupertinoIcons.book,
+                color: theme.primaryColor,
+                size: height * 0.45,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

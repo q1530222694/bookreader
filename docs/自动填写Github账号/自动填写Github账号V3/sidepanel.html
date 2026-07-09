@@ -30,7 +30,6 @@
         #generateBtn { width: 100%; margin-bottom: 15px; padding: 10px; background: #24292e; font-size: 14px; border-radius: 4px; }
         #generateBtn:hover { background: #1b1f23; }
 
-        /* 新增：后缀勾选框样式 */
         .suffix-container { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; margin-top: -5px; padding: 6px 10px; background: #f8f9fa; border-radius: 4px; border: 1px solid #eee; }
         .suffix-container span { font-size: 12px; font-weight: bold; color: #333; }
         .suffix-container label { display: flex; align-items: center; gap: 3px; font-size: 12px; margin: 0; font-weight: normal; cursor: pointer; color: #24292e; }
@@ -45,6 +44,11 @@
         #logoutMsBtn { background: #0078d4; }
         #logoutMsBtn:hover { background: #005a9e; }
         
+        /* 新增：常用邮箱区域 */
+        .common-emails-container { margin-top: 20px; border-top: 1px solid #eee; padding-top: 15px; }
+        .section-title { font-size: 14px; font-weight: bold; color: #24292e; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+        .section-subtitle { font-size: 11px; color: #6a737d; font-weight: normal; }
+
         .history-container { margin-top: 20px; border-top: 1px solid #eee; padding-top: 15px; }
         .history-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
         .history-title { font-size: 14px; font-weight: bold; color: #24292e; }
@@ -101,6 +105,28 @@
         <button id="logoutMsBtn" class="action-btn">一键退出 Microsoft</button>
     </div>
     
+    <div class="common-emails-container">
+        <div class="section-title">常用邮箱预设 <span class="section-subtitle">(修改自动保存)</span></div>
+        <div class="form-group">
+            <div class="input-group">
+                <input type="text" id="commonEmail1" placeholder="填入常用邮箱 1">
+                <button class="copy-btn" data-target="commonEmail1">复制</button>
+            </div>
+        </div>
+        <div class="form-group">
+            <div class="input-group">
+                <input type="text" id="commonEmail2" placeholder="填入常用邮箱 2">
+                <button class="copy-btn" data-target="commonEmail2">复制</button>
+            </div>
+        </div>
+        <div class="form-group">
+            <div class="input-group">
+                <input type="text" id="commonEmail3" placeholder="填入常用邮箱 3">
+                <button class="copy-btn" data-target="commonEmail3">复制</button>
+            </div>
+        </div>
+    </div>
+
     <div class="history-container">
         <div class="history-header">
             <span class="history-title">最新生成记录</span>

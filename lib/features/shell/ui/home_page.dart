@@ -9,6 +9,7 @@ import '../controller/bookshelf_controller.dart';
 import '../controller/settings_controller.dart';
 import '../model/book_model.dart';
 import '../model/daily_sentence_model.dart';
+import '../service/app_stats_service.dart';
 import '../service/daily_sentence_service.dart';
 import 'book_viewer_page.dart';
 import 'daily_sentence_page.dart';
@@ -139,7 +140,16 @@ class _HomePageState extends State<HomePage> {
                           width: 80,
                           height: 84,
                           child: book == null
-                              ? Container(color: CupertinoColors.systemGrey)
+                              ? Container(
+                                  color: theme.primaryColor.withOpacity(0.08),
+                                  child: Center(
+                                    child: Icon(
+                                      CupertinoIcons.book,
+                                      color: theme.primaryColor,
+                                      size: 36,
+                                    ),
+                                  ),
+                                )
                               : (book.coverBytes != null
                                   ? Image.memory(book.coverBytes!, fit: BoxFit.cover)
                                   : Container(color: CupertinoColors.systemGrey)),
@@ -149,77 +159,120 @@ class _HomePageState extends State<HomePage> {
                       Expanded(
                         child: SizedBox(
                           height: 84,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                book?.title ?? LocalizationEngine.text('no_recently_reading'),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.textStyle.copyWith(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                  color: CupertinoColors.label.resolveFrom(context),
-                                  height: 1.1,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                LocalizationEngine.text('reading_progress_label'),
-                                style: theme.textTheme.textStyle.copyWith(
-                                  fontSize: 10,
-                                  color: CupertinoColors.secondaryLabel.resolveFrom(context),
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  Expanded(
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(6),
-                                      child: Container(
-                                        height: 7,
-                                        color: CupertinoColors.systemGrey.resolveFrom(context).withOpacity(0.18),
-                                        child: Align(
-                                          alignment: Alignment.centerLeft,
-                                          child: FractionallySizedBox(
-                                            widthFactor: progressValue,
-                                            child: Container(color: theme.primaryColor),
+                          child: book == null
+                              ? Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      LocalizationEngine.text('bookshelf_empty_title'),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.textStyle.copyWith(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w800,
+                                        color: CupertinoColors.label.resolveFrom(context),
+                                        height: 1.1,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      LocalizationEngine.text('bookshelf_empty_subtitle'),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.textStyle.copyWith(
+                                        fontSize: 12,
+                                        color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: SizedBox(
+                                        width: 120,
+                                        child: CupertinoButton.filled(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                          minSize: 32,
+                                          onPressed: () => _controller.importPdf(),
+                                          child: Text(
+                                            LocalizationEngine.text('bookshelf_import_button'),
+                                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                                           ),
                                         ),
                                       ),
                                     ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    progressPercent,
-                                    style: theme.textTheme.textStyle.copyWith(
-                                      fontSize: 10,
-                                      color: theme.primaryColor,
-                                      fontWeight: FontWeight.w600,
+                                  ],
+                                )
+                              : Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      book?.title ?? LocalizationEngine.text('no_recently_reading'),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.textStyle.copyWith(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        color: CupertinoColors.label.resolveFrom(context),
+                                        height: 1.1,
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 3),
-                              Align(
-                                alignment: Alignment.centerLeft,
-                                child: SizedBox(
-                                  width: double.infinity,
-                                  child: CupertinoButton.filled(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                    minSize: 30,
-                                    onPressed: book == null ? null : () => _openBook(book),
-                                    child: Text(
-                                      LocalizationEngine.text('continue_reading'),
-                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      LocalizationEngine.text('reading_progress_label'),
+                                      style: theme.textTheme.textStyle.copyWith(
+                                        fontSize: 10,
+                                        color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                                      ),
                                     ),
-                                  ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      crossAxisAlignment: CrossAxisAlignment.center,
+                                      children: [
+                                        Expanded(
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(6),
+                                            child: Container(
+                                              height: 7,
+                                              color: CupertinoColors.systemGrey.resolveFrom(context).withOpacity(0.18),
+                                              child: Align(
+                                                alignment: Alignment.centerLeft,
+                                                child: FractionallySizedBox(
+                                                  widthFactor: progressValue,
+                                                  child: Container(color: theme.primaryColor),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          progressPercent,
+                                          style: theme.textTheme.textStyle.copyWith(
+                                            fontSize: 10,
+                                            color: theme.primaryColor,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: SizedBox(
+                                        width: double.infinity,
+                                        child: CupertinoButton.filled(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                          minSize: 30,
+                                          onPressed: book == null ? null : () => _openBook(book),
+                                          child: Text(
+                                            LocalizationEngine.text('continue_reading'),
+                                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                            ],
-                          ),
                         ),
                       ),
                     ],
@@ -237,128 +290,148 @@ class _HomePageState extends State<HomePage> {
   Widget _readingDataSection(BuildContext context) {
     final theme = CupertinoTheme.of(context);
 
-    return ValueListenableBuilder<List<BookModel>>(
-      valueListenable: _controller.books,
-      builder: (context, books, child) {
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Column(
-            children: [
-              // 大号总阅读时长卡片
-              Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: theme.scaffoldBackgroundColor,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(color: CupertinoColors.systemGrey.withOpacity(0.06), blurRadius: 12, offset: const Offset(0, 6)),
-                  ],
-                ),
-                padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 10),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            LocalizationEngine.text('reading_stats'),
-                            style: theme.textTheme.textStyle.copyWith(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: CupertinoColors.label.resolveFrom(context),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            '18 小时 45 分钟',
-                            style: theme.textTheme.textStyle.copyWith(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                              color: CupertinoColors.label.resolveFrom(context),
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            LocalizationEngine.text('today_reading'),
-                            style: theme.textTheme.textStyle.copyWith(
-                              fontSize: 11,
-                              color: CupertinoColors.secondaryLabel.resolveFrom(context),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SizedBox(
-                            height: 18,
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 0),
-                                  child: Icon(CupertinoIcons.sparkles, size: 12, color: theme.primaryColor),
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  LocalizationEngine.text('continuous_reading'),
-                                  style: theme.textTheme.textStyle.copyWith(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w600,
-                                    color: CupertinoColors.label.resolveFrom(context),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '18天',
-                            textAlign: TextAlign.left,
-                            style: theme.textTheme.textStyle.copyWith(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: theme.primaryColor,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              // 三个统计卡片固定并排显示，确保宽高一致且不随屏幕变化换行
-              Row(
+    return ValueListenableBuilder<String>(
+      valueListenable: SettingsController.language,
+      builder: (context, _, child) {
+        final launchCountLabel = LocalizationEngine.text('app_launch_count');
+        final launchUnit = LocalizationEngine.text('launch_unit');
+
+        return ValueListenableBuilder<List<BookModel>>(
+          valueListenable: _controller.books,
+          builder: (context, books, child) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
                 children: [
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.only(right: 4),
-                      child: _buildStatCard(context, '32 小时', LocalizationEngine.text('monthly_reading')),
+                  // 大号总阅读时长卡片
+                  Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: theme.scaffoldBackgroundColor,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(color: CupertinoColors.systemGrey.withOpacity(0.06), blurRadius: 12, offset: const Offset(0, 6)),
+                      ],
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 10),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                LocalizationEngine.text('reading_stats'),
+                                style: theme.textTheme.textStyle.copyWith(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: CupertinoColors.label.resolveFrom(context),
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Text(
+                                '18 小时 45 分钟',
+                                style: theme.textTheme.textStyle.copyWith(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w700,
+                                  color: CupertinoColors.label.resolveFrom(context),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                LocalizationEngine.text('today_reading'),
+                                style: theme.textTheme.textStyle.copyWith(
+                                  fontSize: 11,
+                                  color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SizedBox(
+                                height: 18,
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 0),
+                                      child: Icon(CupertinoIcons.sparkles, size: 12, color: theme.primaryColor),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      LocalizationEngine.text('continuous_reading'),
+                                      style: theme.textTheme.textStyle.copyWith(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
+                                        color: CupertinoColors.label.resolveFrom(context),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '18天',
+                                textAlign: TextAlign.left,
+                                style: theme.textTheme.textStyle.copyWith(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: theme.primaryColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: _buildStatCard(context, '382 小时', LocalizationEngine.text('yearly_reading')),
-                    ),
-                  ),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.only(left: 4),
-                      child: _buildStatCard(context, '126 天', LocalizationEngine.text('cumulative_reading')),
-                    ),
+                  const SizedBox(height: 12),
+                  // 四个统计卡片固定并排显示，确保宽高一致且不随屏幕变化换行
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 4),
+                          child: _buildStatCard(context, '32 小时', LocalizationEngine.text('monthly_reading')),
+                        ),
+                      ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: _buildStatCard(context, '382 小时', LocalizationEngine.text('yearly_reading')),
+                        ),
+                      ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: _buildStatCard(context, '126 天', LocalizationEngine.text('cumulative_reading')),
+                        ),
+                      ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.only(left: 4),
+                          child: ValueListenableBuilder<int>(
+                            valueListenable: AppStatsService.appLaunchCountNotifier,
+                            builder: (context, launchCount, child) {
+                              final displayValue = '$launchCount $launchUnit';
+                              return _buildStatCard(context, displayValue, launchCountLabel);
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ],
-          ),
+            );
+          },
         );
       },
     );

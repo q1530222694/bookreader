@@ -254,6 +254,10 @@ class LocalizationEngine {
       'zh': '一款简洁好用的阅读与记录应用，持续优化阅读体验。',
       'en': 'A simple and practical reading and journaling app with continuous experience improvements.',
     },
+    'about_app_mission': {
+      'zh': '专注阅读，让每一次打开都值得',
+      'en': 'Focus on reading, make every opening worthwhile.',
+    },
     'next_page': {
       'zh': '下一页',
       'en': 'Next Page',
@@ -377,6 +381,14 @@ class LocalizationEngine {
       'zh': '当前书架中暂无书籍',
       'en': 'No books in bookshelf',
     },
+    'bookshelf_empty_title': {
+      'zh': '你的书架还空着',
+      'en': 'Your bookshelf is empty',
+    },
+    'bookshelf_empty_subtitle': {
+      'zh': '去发现好书，充实你的知识库',
+      'en': 'Find great books to enrich your knowledge',
+    },
     'bookshelf_import_button': {
       'zh': '导入书籍',
       'en': 'Import Book',
@@ -476,6 +488,14 @@ class LocalizationEngine {
     'completed_books': {
       'zh': '阅读完成书籍',
       'en': 'Completed Books',
+    },
+    'app_launch_count': {
+      'zh': '打开次数',
+      'en': 'App Launches',
+    },
+    'launch_unit': {
+      'zh': '次',
+      'en': 'times',
     },
     'period_day': {
       'zh': '日',
@@ -730,7 +750,7 @@ class LocalizationEngine {
       'en': '5s',
     },
     'splash_duration_always': {
-      'zh': '一直显示',
+      'zh': '永久',
       'en': 'Always',
     },
     'splash_entry_mode': {
@@ -738,16 +758,32 @@ class LocalizationEngine {
       'en': 'Entry Mode',
     },
     'splash_auto_home': {
-      'zh': '自动进入主页',
-      'en': 'Auto enter home',
+      'zh': '自动',
+      'en': 'Auto',
     },
     'splash_wait_click': {
-      'zh': '等待点击进入',
-      'en': 'Wait for tap',
+      'zh': '点击',
+      'en': 'Tap',
     },
     'splash_jump_page': {
       'zh': '启动后跳转页面',
       'en': 'Target Page',
+    },
+    'splash_text_settings_left': {
+      'zh': '图片设置',
+      'en': 'Image Settings',
+    },
+    'splash_text_settings_right': {
+      'zh': '文字设置',
+      'en': 'Text Settings',
+    },
+    'splash_current_text': {
+      'zh': '当前文字',
+      'en': 'Current Text',
+    },
+    'splash_change_text': {
+      'zh': '点击更换文字',
+      'en': 'Tap to change text',
     },
     'splash_preview_title': {
       'zh': '探索阅读的世界',

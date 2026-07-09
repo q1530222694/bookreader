@@ -119,8 +119,8 @@ window.addEventListener('click', (event) => {
     if (historyModal && event.target === historyModal) historyModal.style.display = 'none';
 });
 
-// ==================== 🌟新增：核心后缀切换逻辑🌟 ====================
-let currentBaseAccount = null; // 用于临时隔离存储最干净的底层数据（无后缀）
+// ==================== 核心后缀切换逻辑 ====================
+let currentBaseAccount = null;
 
 function getSelectedSuffix() {
     const selected = document.querySelector('input[name="accountSuffix"]:checked');
@@ -130,20 +130,17 @@ function getSelectedSuffix() {
 function applyCurrentAccount(addToHistory = false) {
     if (!currentBaseAccount) return;
 
-    // 根据选中的单选框拼接出后缀
     const suffix = getSelectedSuffix();
     const finalPrefix = currentBaseAccount.basePrefix + suffix;
     const finalEmail = finalPrefix + "@outlook.com";
     const finalUsername = "User-" + finalPrefix;
     const finalPassword = currentBaseAccount.password;
 
-    // 1. 同步更新当前侧边栏界面
     if (document.getElementById('emailPrefix')) document.getElementById('emailPrefix').value = finalPrefix;
     if (document.getElementById('email')) document.getElementById('email').value = finalEmail;
     if (document.getElementById('username')) document.getElementById('username').value = finalUsername;
     if (document.getElementById('password')) document.getElementById('password').value = finalPassword;
 
-    // 2. 同步存储供 content.js 自动填充使用
     chrome.storage.local.set({
         githubData: { email: finalEmail, username: finalUsername, password: finalPassword },
         lastGeneratedAccount: { 
@@ -153,7 +150,6 @@ function applyCurrentAccount(addToHistory = false) {
         }
     });
 
-    // 3. 将带后缀的实际使用状态追加入历史记录（仅在刚生成时追加，防止点选后缀污染历史）
     if (addToHistory) {
         const timeStr = getNowFormatDate();
         chrome.storage.local.get(['accountHistory'], function(result) {
@@ -165,30 +161,23 @@ function applyCurrentAccount(addToHistory = false) {
     }
 }
 
-// 绑定单选框切换事件：一点即时生效
 document.querySelectorAll('input[name="accountSuffix"]').forEach(radio => {
     radio.addEventListener('change', () => applyCurrentAccount(false));
 });
 
-// 绑定清除后缀按钮事件
 const clearSuffixBtn = document.getElementById('clearSuffixBtn');
 if (clearSuffixBtn) {
     clearSuffixBtn.addEventListener('click', () => {
-        // 清除所有勾选
         document.querySelectorAll('input[name="accountSuffix"]').forEach(r => r.checked = false);
-        // 瞬间回滚为无后缀状态
         applyCurrentAccount(false);
     });
 }
-// ==================== 结束后缀逻辑 ====================
 
 // 【5. 恢复当前界面账号】
 function restoreCurrentAccount() {
     chrome.storage.local.get(['lastGeneratedAccount'], function(result) {
         if (result.lastGeneratedAccount) {
             const data = result.lastGeneratedAccount;
-            
-            // 兼容新版后缀隔离结构
             if (data.basePrefix) {
                 currentBaseAccount = { basePrefix: data.basePrefix, password: data.password };
                 const savedSuffix = data.suffix || "";
@@ -197,7 +186,6 @@ function restoreCurrentAccount() {
                 });
                 applyCurrentAccount(false);
             } 
-            // 兼容之前旧版结构
             else if (data.emailPrefix) {
                 currentBaseAccount = { basePrefix: data.emailPrefix, password: data.password };
                 applyCurrentAccount(false);
@@ -206,33 +194,54 @@ function restoreCurrentAccount() {
     });
 }
 
+// ==================== 🌟新增：常用邮箱自动保存与加载逻辑🌟 ====================
+function loadCommonEmails() {
+    chrome.storage.local.get(['commonEmailsConfig'], function(result) {
+        const emails = result.commonEmailsConfig || { e1: '', e2: '', e3: '' };
+        if (document.getElementById('commonEmail1')) document.getElementById('commonEmail1').value = emails.e1 || '';
+        if (document.getElementById('commonEmail2')) document.getElementById('commonEmail2').value = emails.e2 || '';
+        if (document.getElementById('commonEmail3')) document.getElementById('commonEmail3').value = emails.e3 || '';
+    });
+}
+
+function saveCommonEmails() {
+    const e1 = document.getElementById('commonEmail1')?.value || '';
+    const e2 = document.getElementById('commonEmail2')?.value || '';
+    const e3 = document.getElementById('commonEmail3')?.value || '';
+    chrome.storage.local.set({ commonEmailsConfig: { e1, e2, e3 } });
+}
+
+// 绑定输入框事件，只要打字/粘贴，立刻自动存入本地
+['commonEmail1', 'commonEmail2', 'commonEmail3'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', saveCommonEmails);
+});
+
+// 页面加载完毕后初始化所有数据
 document.addEventListener('DOMContentLoaded', () => {
     renderHistory();
     restoreCurrentAccount();
+    loadCommonEmails(); // 加载常用邮箱
 });
 
-// 【6. 主生成按钮逻辑】 (重写了缓存方式)
+// 【6. 主生成按钮逻辑】
 const generateBtn = document.getElementById('generateBtn');
 if (generateBtn) {
     generateBtn.addEventListener('click', () => {
         const firstLetter = generateRandomLetter();
         const remainingStr = generateRandomString(7);
         
-        // 生成纯净的底层基础数据
         currentBaseAccount = {
             basePrefix: firstLetter + remainingStr,
             password: generatePassword()
         };
         
-        // 需求核心：每次生成新账号必须清空所有后缀勾选
         document.querySelectorAll('input[name="accountSuffix"]').forEach(r => r.checked = false);
-        
-        // 应用到界面、存储并加入历史
         applyCurrentAccount(true);
     });
 }
 
-// 【7. 主界面复制按钮逻辑】
+// 【7. 主界面复制按钮逻辑 (通用版，能同时接管新加的常用邮箱按钮)】
 document.querySelectorAll('.copy-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
         const targetId = e.target.getAttribute('data-target');
@@ -258,7 +267,6 @@ if (clearBtn) {
                 if (document.getElementById('username')) document.getElementById('username').value = '';
                 if (document.getElementById('password')) document.getElementById('password').value = '';
                 
-                // 清理所有状态变量和勾选项
                 currentBaseAccount = null;
                 document.querySelectorAll('input[name="accountSuffix"]').forEach(r => r.checked = false);
                 

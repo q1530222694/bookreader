@@ -55,26 +55,33 @@ class AppearancePage extends StatelessWidget {
               valueListenable: SettingsController.appearance,
               builder: (context, appearance, child) {
                 return Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    _AppearanceModeCard(
-                      label: LocalizationEngine.text('follow_system'),
-                      icon: null,
-                      iconText: 'Auto',
-                      selected: appearance == SettingsEngine.appearanceSystem,
-                      onTap: () => SettingsController.setAppearance(SettingsEngine.appearanceSystem),
+                    Expanded(
+                      child: _AppearanceModeCard(
+                        label: LocalizationEngine.text('follow_system'),
+                        icon: null,
+                        iconText: 'Auto',
+                        selected: appearance == SettingsEngine.appearanceSystem,
+                        onTap: () => SettingsController.setAppearance(SettingsEngine.appearanceSystem),
+                      ),
                     ),
-                    _AppearanceModeCard(
-                      label: LocalizationEngine.text('dark_mode'),
-                      icon: CupertinoIcons.moon_fill,
-                      selected: appearance == SettingsEngine.appearanceDark,
-                      onTap: () => SettingsController.setAppearance(SettingsEngine.appearanceDark),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _AppearanceModeCard(
+                        label: LocalizationEngine.text('dark_mode'),
+                        icon: CupertinoIcons.moon_fill,
+                        selected: appearance == SettingsEngine.appearanceDark,
+                        onTap: () => SettingsController.setAppearance(SettingsEngine.appearanceDark),
+                      ),
                     ),
-                    _AppearanceModeCard(
-                      label: LocalizationEngine.text('light_mode'),
-                      icon: CupertinoIcons.sun_max_fill,
-                      selected: appearance == SettingsEngine.appearanceLight,
-                      onTap: () => SettingsController.setAppearance(SettingsEngine.appearanceLight),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _AppearanceModeCard(
+                        label: LocalizationEngine.text('light_mode'),
+                        icon: CupertinoIcons.sun_max_fill,
+                        selected: appearance == SettingsEngine.appearanceLight,
+                        onTap: () => SettingsController.setAppearance(SettingsEngine.appearanceLight),
+                      ),
                     ),
                   ],
                 );
@@ -132,6 +139,10 @@ class AppearancePage extends StatelessWidget {
             _SettingOption(
               label: LocalizationEngine.text('splash_settings'),
               selected: false,
+              trailing: Icon(
+                CupertinoIcons.right_chevron,
+                color: CupertinoColors.secondaryLabel.resolveFrom(context),
+              ),
               onTap: () {
                 Navigator.of(context).push(
                   CupertinoPageRoute(builder: (context) => const SplashSettingsPage()),
@@ -226,50 +237,64 @@ class _AppearanceModeCard extends StatelessWidget {
     final borderColor = selected
         ? primaryColor
         : CupertinoColors.separator.resolveFrom(context);
+    final backgroundColor = selected
+        ? primaryColor.withOpacity(0.12)
+        : CupertinoColors.secondarySystemBackground.resolveFrom(context);
+    final textColor = selected ? primaryColor : CupertinoColors.label.resolveFrom(context);
+    final secondaryColor = selected
+        ? primaryColor
+        : CupertinoColors.secondaryLabel.resolveFrom(context);
 
-    return Expanded(
-      child: CupertinoButton(
-        padding: EdgeInsets.zero,
-        onPressed: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-          decoration: BoxDecoration(
-            color: selected
-                ? primaryColor.withOpacity(0.12)
-                : CupertinoColors.secondarySystemFill.resolveFrom(context),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: borderColor),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (iconText != null)
-                Text(
-                  iconText!,
-                  style: AppTextStyles.body(context).copyWith(
-                    color: selected ? primaryColor : CupertinoColors.secondaryLabel.resolveFrom(context),
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
+    return CupertinoButton(
+      padding: EdgeInsets.zero,
+      onPressed: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+        constraints: const BoxConstraints(minHeight: 96),
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: borderColor, width: selected ? 1.6 : 1),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: primaryColor.withOpacity(0.16),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
                   ),
-                )
-              else if (icon != null)
-                Icon(
-                  icon,
-                  size: 16,
-                  color: selected ? primaryColor : CupertinoColors.secondaryLabel.resolveFrom(context),
-                ),
-              const SizedBox(height: 6),
+                ]
+              : null,
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (iconText != null)
               Text(
-                label,
-                textAlign: TextAlign.center,
+                iconText!,
                 style: AppTextStyles.body(context).copyWith(
-                  color: selected ? primaryColor : CupertinoColors.label.resolveFrom(context),
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                  color: secondaryColor,
+                  fontWeight: FontWeight.w700,
                   fontSize: 13,
                 ),
+              )
+            else if (icon != null)
+              Icon(
+                icon,
+                size: 18,
+                color: secondaryColor,
               ),
-            ],
-          ),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: AppTextStyles.body(context).copyWith(
+                color: textColor,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                fontSize: 13,
+              ),
+            ),
+          ],
         ),
       ),
     );

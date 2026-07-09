@@ -35,9 +35,14 @@ class SplashSettingsPage extends StatelessWidget {
                         children: [
                           _PreviewCard(),
                           const SizedBox(height: 20),
-                          _SectionCard(
-                            title: LocalizationEngine.text('splash_content_type'),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              Text(
+                                LocalizationEngine.text('splash_content_type'),
+                                style: AppTextStyles.sectionTitle(context),
+                              ),
+                              const SizedBox(height: 10),
                               Row(
                                 children: [
                                   Expanded(
@@ -71,43 +76,43 @@ class SplashSettingsPage extends StatelessWidget {
                             ],
                           ),
                           const SizedBox(height: 12),
-                          _SectionCard(
-                            title: LocalizationEngine.text('splash_image_settings'),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Container(
-                                    width: 54,
-                                    height: 54,
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(10),
-                                      gradient: const LinearGradient(
-                                        colors: [Color(0xFF7BA6FF), Color(0xFF4A7CFF)],
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
-                                      ),
+                                  Expanded(
+                                    child: _SettingOptionCard(
+                                      title: LocalizationEngine.text('splash_text_settings_left'),
+                                      primaryText: LocalizationEngine.text('splash_current_image'),
+                                      secondaryText: LocalizationEngine.text('splash_change_image'),
+                                      icon: CupertinoIcons.photo,
                                     ),
                                   ),
                                   const SizedBox(width: 12),
                                   Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(LocalizationEngine.text('splash_current_image'), style: AppTextStyles.body(context)),
-                                        const SizedBox(height: 2),
-                                        Text(LocalizationEngine.text('splash_change_image'), style: AppTextStyles.secondary(context)),
-                                      ],
+                                    child: _SettingOptionCard(
+                                      title: LocalizationEngine.text('splash_text_settings_right'),
+                                      primaryText: LocalizationEngine.text('splash_current_text'),
+                                      secondaryText: LocalizationEngine.text('splash_change_text'),
+                                      icon: CupertinoIcons.textformat,
+                                      useLetterBadge: true,
                                     ),
                                   ),
-                                  const Icon(CupertinoIcons.right_chevron),
                                 ],
                               ),
                             ],
                           ),
                           const SizedBox(height: 12),
-                          _SectionCard(
-                            title: LocalizationEngine.text('splash_display_duration'),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              Text(
+                                LocalizationEngine.text('splash_display_duration'),
+                                style: AppTextStyles.sectionTitle(context),
+                              ),
+                              const SizedBox(height: 10),
                               Row(
                                 children: [
                                   Expanded(
@@ -150,9 +155,14 @@ class SplashSettingsPage extends StatelessWidget {
                             ],
                           ),
                           const SizedBox(height: 12),
-                          _SectionCard(
-                            title: LocalizationEngine.text('splash_entry_mode'),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              Text(
+                                LocalizationEngine.text('splash_entry_mode'),
+                                style: AppTextStyles.sectionTitle(context),
+                              ),
+                              const SizedBox(height: 10),
                               Row(
                                 children: [
                                   Expanded(
@@ -176,9 +186,14 @@ class SplashSettingsPage extends StatelessWidget {
                             ],
                           ),
                           const SizedBox(height: 12),
-                          _SectionCard(
-                            title: LocalizationEngine.text('splash_jump_page'),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              Text(
+                                LocalizationEngine.text('splash_jump_page'),
+                                style: AppTextStyles.sectionTitle(context),
+                              ),
+                              const SizedBox(height: 10),
                               Row(
                                 children: [
                                   Expanded(child: Text(_startupPageLabel(startupPage, context), style: AppTextStyles.body(context))),
@@ -223,7 +238,7 @@ class _PreviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 190,
+      height: 140,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(24),
         gradient: const LinearGradient(
@@ -267,14 +282,17 @@ class _PreviewCard extends StatelessWidget {
           Align(
             alignment: Alignment.bottomCenter,
             child: Padding(
-              padding: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.only(bottom: 12),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: CupertinoColors.white.withOpacity(0.9),
                   borderRadius: BorderRadius.circular(999),
                 ),
-                child: Text(LocalizationEngine.text('splash_skip')),
+                child: Text(
+                  LocalizationEngine.text('splash_skip'),
+                  style: const TextStyle(fontSize: 12),
+                ),
               ),
             ),
           ),
@@ -284,36 +302,96 @@ class _PreviewCard extends StatelessWidget {
   }
 }
 
-class _SectionCard extends StatelessWidget {
+class _SettingOptionCard extends StatelessWidget {
   final String title;
-  final List<Widget> children;
+  final String primaryText;
+  final String secondaryText;
+  final IconData icon;
+  final bool useLetterBadge;
 
-  const _SectionCard({required this.title, required this.children});
+  const _SettingOptionCard({
+    required this.title,
+    required this.primaryText,
+    required this.secondaryText,
+    required this.icon,
+    this.useLetterBadge = false,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: CupertinoColors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: CupertinoColors.systemGrey.withOpacity(0.12),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+    final borderColor = CupertinoColors.separator.resolveFrom(context);
+    final innerBoxColor = CupertinoColors.tertiarySystemFill.resolveFrom(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: AppTextStyles.body(context).copyWith(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            color: CupertinoColors.label.resolveFrom(context),
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: AppTextStyles.sectionTitle(context)),
-          const SizedBox(height: 10),
-          ...children,
-        ],
-      ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          decoration: BoxDecoration(
+            color: innerBoxColor,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: borderColor, width: 0.5),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  color: CupertinoTheme.of(context).primaryColor,
+                ),
+                alignment: Alignment.center,
+                child: useLetterBadge
+                    ? Text(
+                        'Aa',
+                        style: AppTextStyles.body(context).copyWith(
+                          color: CupertinoColors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      )
+                    : Icon(icon, color: CupertinoColors.white, size: 18),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      primaryText,
+                      style: AppTextStyles.body(context).copyWith(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: CupertinoColors.label.resolveFrom(context),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      secondaryText,
+                      style: AppTextStyles.secondary(context).copyWith(fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                CupertinoIcons.right_chevron,
+                color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                size: 16,
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -330,21 +408,26 @@ class _OptionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final borderColor = selected ? CupertinoTheme.of(context).primaryColor : CupertinoColors.separator.resolveFrom(context);
+    final fillColor = selected
+        ? CupertinoTheme.of(context).primaryColor.withOpacity(0.10)
+        : CupertinoColors.secondarySystemBackground.resolveFrom(context);
+    final iconColor = selected ? CupertinoTheme.of(context).primaryColor : CupertinoColors.label.resolveFrom(context);
+
     return CupertinoButton(
       padding: EdgeInsets.zero,
       onPressed: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
         decoration: BoxDecoration(
-          color: CupertinoColors.secondarySystemBackground.resolveFrom(context),
+          color: fillColor,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: borderColor),
+          border: Border.all(color: borderColor, width: selected ? 1.2 : 1),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             if (icon != null)
-              Icon(icon, size: 16, color: selected ? CupertinoTheme.of(context).primaryColor : CupertinoColors.label.resolveFrom(context))
+              Icon(icon, size: 16, color: iconColor)
             else
               const SizedBox.shrink(),
             if (icon != null) const SizedBox(width: 6),

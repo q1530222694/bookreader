@@ -1,9 +1,39 @@
-﻿### [2026-07-08] 优化：设置页隐藏语言与外观入口
+﻿### [2026-07-09] 修复：主页应用启动次数文案随语言切换正确刷新
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/home_page.dart`
+  └─ 变更 ➔ 为启动次数统计卡片增加对语言状态的显式监听，确保中英文切换后立即刷新文案
+  └─ 依赖/调用 ➔ `lib/features/shell/controller/settings_controller.dart`
+  └─ 依赖/调用 ➔ `lib/engine/localization_engine.dart`
+  └─ 依赖/调用 ➔ `lib/features/shell/service/app_stats_service.dart`
+- `lib/engine/localization_engine.dart`
+  └─ 修复 ➔ 补齐 `period_day` 与启动次数相关多语言键，避免翻译映射缺失时回退为英文
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+- 无新增 Config Key
+
+---
+
+### [2026-07-08] 优化：设置页隐藏语言与外观入口
 **【AI 架构依赖树 (Architecture Context)】**
 - `lib/features/shell/ui/settings_page.dart`
   └─ 变更 ➔ 从设置页主列表中隐藏“语言设置”和“外观设置”入口，保留页面路由能力，避免与外层已展示入口重复
   └─ 依赖/调用 ➔ `lib/features/shell/ui/language_page.dart`
   └─ 依赖/调用 ➔ `lib/features/shell/ui/appearance_page.dart`
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+- 无新增 Config Key
+
+---
+
+### [2026-07-09] 优化：应用外观主题模式改为卡片式单选组件
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/appearance_page.dart`
+  └─ 变更 ➔ 将“主题模式”区域重构为三个等宽卡片式单选按钮，采用 `Row + Expanded` 的 Flexbox 布局并保持统一间距
+  └─ 变更 ➔ 选中态增加高亮边框、背景色和加粗文案，提升视觉反馈
+  └─ 依赖/调用 ➔ `lib/features/shell/controller/settings_controller.dart`
+  └─ 依赖/调用 ➔ `lib/engine/settings_engine.dart`
 
 **【全局状态/鉴权变动 (State & Auth)】**
 - 无新增权限/配置项
