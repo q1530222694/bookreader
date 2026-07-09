@@ -817,7 +817,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
             Padding(
               padding: const EdgeInsets.only(left: 6, right: 0),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Text(
@@ -827,17 +826,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
                           fontWeight: FontWeight.w800,
                           color: CupertinoColors.label.resolveFrom(context),
                         ),
-                  ),
-                  GestureDetector(
-                    onTap: () {},
-                    child: Text(
-                      '${LocalizationEngine.text('view_all')} >',
-                      style: CupertinoTheme.of(context).textTheme.textStyle.copyWith(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
-                            color: CupertinoColors.inactiveGray.resolveFrom(context),
-                          ),
-                    ),
                   ),
                 ],
               ),
