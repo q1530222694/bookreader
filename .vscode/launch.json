@@ -2,46 +2,25 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Flutter: Run macOS",
+      "name": "Flutter: Run Desktop (Offline)",
       "request": "launch",
       "type": "dart",
       "program": "lib/main.dart",
-      "deviceId": "macos",
       "toolArgs": ["--no-pub"],
       "preLaunchTask": "Flutter Pub Get Offline",
       "cwd": "${workspaceFolder}"
     },
     {
-      "name": "Flutter: Run Windows Offline",
+      "name": "Flutter: Run App (Standard)",
       "request": "launch",
       "type": "dart",
-      "program": "lib/main.dart",
-      "deviceId": "windows",
-      "toolArgs": ["--no-pub"],
-      "preLaunchTask": "Flutter Pub Get Offline",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Flutter: Run App",
-      "request": "launch",
-      "type": "dart",
-      "program": "lib/main.dart",
-      "args": []
+      "program": "lib/main.dart"
     },
     {
       "name": "Flutter: Run Tests",
       "request": "launch",
       "type": "dart",
-      "program": "test/",
-      "args": []
-    },
-    {
-      "name": "Flutter: Run Windows",
-      "request": "launch",
-      "type": "dart",
-      "program": "lib/main.dart",
-      "deviceId": "windows",
-      "cwd": "${workspaceFolder}"
+      "program": "test/"
     }
   ]
 }

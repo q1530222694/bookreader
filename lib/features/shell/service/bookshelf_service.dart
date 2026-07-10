@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:pdfx/pdfx.dart';
 
 import '../model/book_model.dart';
@@ -78,6 +78,20 @@ class BookshelfService {
     final nextProgress = progress.clamp(0.0, 1.0);
     final updatedBook = _books[index].copyWith(progress: nextProgress);
     _books[index] = updatedBook;
+    _scheduleBooksNotifierUpdate();
+  }
+
+  void updateBookReadingDuration(String bookId, int additionalSeconds) {
+    final index = _books.indexWhere((book) => book.id == bookId);
+    if (index < 0 || additionalSeconds <= 0) {
+      return;
+    }
+
+    final currentSeconds = _books[index].readingDurationSeconds;
+    final updatedBook = _books[index].copyWith(
+      readingDurationSeconds: currentSeconds + additionalSeconds,
+    );
+    _books[index] = updatedBook;
     booksNotifier.value = List<BookModel>.unmodifiable(_books);
   }
 
@@ -122,5 +136,11 @@ class BookshelfService {
   void removeBook(String bookId) {
     _books.removeWhere((book) => book.id == bookId);
     booksNotifier.value = List<BookModel>.unmodifiable(_books);
+  }
+
+  void _scheduleBooksNotifierUpdate() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      booksNotifier.value = List<BookModel>.unmodifiable(_books);
+    });
   }
 }

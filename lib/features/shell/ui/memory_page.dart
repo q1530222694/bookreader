@@ -4,6 +4,9 @@ import 'package:flutter/cupertino.dart';
 
 import '../../../engine/localization_engine.dart';
 import '../../../engine/settings_engine.dart';
+import '../controller/bookshelf_controller.dart';
+import '../model/book_model.dart';
+import '../model/reading_stats_model.dart';
 
 /// MemoryPage displays a modern reading statistics experience for the shell module.
 class MemoryPage extends StatefulWidget {
@@ -14,6 +17,7 @@ class MemoryPage extends StatefulWidget {
 }
 
 class _MemoryPageState extends State<MemoryPage> {
+  final BookshelfController _controller = BookshelfController();
   _ReadingPeriod _period = _ReadingPeriod.day;
   _ChartMode _chartMode = _ChartMode.bar;
   int _selectedPoint = 0;
@@ -21,61 +25,74 @@ class _MemoryPageState extends State<MemoryPage> {
   @override
   void initState() {
     super.initState();
-    _selectedPoint = _buildPeriodData().values.length - 1;
+    _selectedPoint = 0;
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = CupertinoTheme.of(context);
-    final data = _buildPeriodData();
 
-    return CupertinoPageScaffold(
-      navigationBar: CupertinoNavigationBar(
-        leading: CupertinoButton(
-          padding: EdgeInsets.zero,
-          onPressed: () => Navigator.maybePop(context),
-          child: const Icon(CupertinoIcons.back, size: 22),
-        ),
-        middle: Text(
-          LocalizationEngine.text('reading_statistics'),
-          style: TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.w600,
-            color: theme.textTheme.textStyle.color,
+    return ValueListenableBuilder<List<BookModel>>(
+      valueListenable: _controller.books,
+      builder: (context, books, child) {
+        final stats = ReadingStats.fromBooks(books);
+        final data = _buildPeriodDataFor(_period, stats);
+
+        return CupertinoPageScaffold(
+          navigationBar: CupertinoNavigationBar(
+            leading: CupertinoButton(
+              padding: EdgeInsets.zero,
+              onPressed: () => Navigator.maybePop(context),
+              child: const Icon(CupertinoIcons.back, size: 22),
+            ),
+            middle: Text(
+              LocalizationEngine.text('reading_statistics'),
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+                color: theme.textTheme.textStyle.color,
+              ),
+            ),
+            trailing: CupertinoButton(
+              padding: EdgeInsets.zero,
+              onPressed: () {},
+              child: const Icon(CupertinoIcons.share, size: 20),
+            ),
           ),
-        ),
-        trailing: CupertinoButton(
-          padding: EdgeInsets.zero,
-          onPressed: () {},
-          child: const Icon(CupertinoIcons.share, size: 20),
-        ),
-      ),
-      child: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 36),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildSegmentedControl(theme),
-              const SizedBox(height: 14),
-              _buildDateSwitcher(theme),
-              const SizedBox(height: 18),
-              _buildChartCard(theme, data),
-              const SizedBox(height: 16),
-              _buildMetricGrid(theme),
-              const SizedBox(height: 16),
-              _buildReadingTimeDistribution(theme),
-              const SizedBox(height: 16),
-              _buildTrendCard(theme),
-              const SizedBox(height: 24),
-            ],
+          child: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 36),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildSegmentedControl(theme, stats),
+                  const SizedBox(height: 14),
+                  _buildDateSwitcher(theme),
+                  const SizedBox(height: 18),
+                  _buildChartCard(theme, data),
+                  const SizedBox(height: 16),
+                  _buildMetricGrid(theme, stats),
+                  const SizedBox(height: 16),
+                  _buildReadingTimeDistribution(theme, stats),
+                  const SizedBox(height: 16),
+                  _buildTrendCard(theme, stats),
+                  const SizedBox(height: 24),
+                ],
+              ),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildSegmentedControl(CupertinoThemeData theme) {
+  Widget _buildSegmentedControl(CupertinoThemeData theme, ReadingStats stats) {
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
@@ -90,14 +107,17 @@ class _MemoryPageState extends State<MemoryPage> {
               onTap: () {
                 setState(() {
                   _period = period;
-                  _selectedPoint = _buildPeriodDataFor(period).values.length - 1;
+                  _selectedPoint =
+                      _buildPeriodDataFor(period, stats).values.length - 1;
                 });
               },
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 220),
                 padding: const EdgeInsets.symmetric(vertical: 10),
                 decoration: BoxDecoration(
-                  color: selected ? theme.primaryColor : CupertinoColors.transparent,
+                  color: selected
+                      ? theme.primaryColor
+                      : CupertinoColors.transparent,
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Center(
@@ -106,7 +126,9 @@ class _MemoryPageState extends State<MemoryPage> {
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
-                      color: selected ? CupertinoColors.white : CupertinoColors.systemGrey,
+                      color: selected
+                          ? CupertinoColors.white
+                          : CupertinoColors.systemGrey,
                     ),
                   ),
                 ),
@@ -149,67 +171,67 @@ class _MemoryPageState extends State<MemoryPage> {
     );
   }
 
-  Widget _buildMetricGrid(CupertinoThemeData theme) {
+  Widget _buildMetricGrid(CupertinoThemeData theme, ReadingStats stats) {
     final metricItems = <_StatItem>[
       _StatItem(
         LocalizationEngine.text('today_reading'),
-        '2小时45分钟',
-        LocalizationEngine.text('vs_yesterday') + ' ↑ 15%',
+        stats.formattedTodayReading,
+        stats.todayChangeLabel,
         CupertinoIcons.book_solid,
         const Color(0xFFE5F0FF),
       ),
       _StatItem(
         LocalizationEngine.text('this_week_reading'),
-        '12小时30分钟',
-        LocalizationEngine.text('vs_last_week') + ' ↑ 28%',
+        stats.formattedWeekReading,
+        stats.weekChangeLabel,
         CupertinoIcons.calendar,
         const Color(0xFFE5F6EC),
       ),
       _StatItem(
         LocalizationEngine.text('cumulative_reading'),
-        '382小时',
-        '126' + LocalizationEngine.text('days_short'),
+        stats.formattedTotalReading,
+        '${stats.activeDays}${LocalizationEngine.text('days_short')}',
         CupertinoIcons.chart_bar_fill,
         const Color(0xFFE9F4FF),
       ),
       _StatItem(
         LocalizationEngine.text('longest_reading_day'),
-        '6月17日',
-        '2h 45m',
+        stats.longestReadingDayLabel,
+        stats.longestReadingDurationLabel,
         CupertinoIcons.flame_fill,
         const Color(0xFFFFF4E5),
       ),
       _StatItem(
         LocalizationEngine.text('continuous_reading'),
-        '🔥 ' + LocalizationEngine.text('continuous_reading_label'),
-        '18' + LocalizationEngine.text('days_short'),
+        '🔥 ${stats.streakDays}${LocalizationEngine.text('days_short')}',
+        '${stats.activeDays}${LocalizationEngine.text('days_short')}',
         CupertinoIcons.sparkles,
         const Color(0xFFF3E8FF),
       ),
       _StatItem(
         LocalizationEngine.text('cumulative_reading'),
-        '382' + LocalizationEngine.text('hours_short'),
+        stats.formattedTotalReadingShort,
         '',
         CupertinoIcons.chart_bar_circle_fill,
         const Color(0xFFE8F7ED),
       ),
       _StatItem(
         LocalizationEngine.text('cumulative_reading_days'),
-        '126' + LocalizationEngine.text('days_short'),
+        '${stats.activeDays}${LocalizationEngine.text('days_short')}',
         '',
         CupertinoIcons.calendar_badge_plus,
         const Color(0xFFEFF6FF),
       ),
       _StatItem(
         LocalizationEngine.text('average_daily_reading'),
-        '1h 32m',
+        stats.formattedAverageDailyReading,
         '',
         CupertinoIcons.timer,
         const Color(0xFFF5F3FF),
       ),
       _StatItem(
         LocalizationEngine.text('completed_books'),
-        '18' + LocalizationEngine.text('books_short'),
+        '${stats.completedBooks}${LocalizationEngine.text('books_short')}',
         '',
         CupertinoIcons.book_circle_fill,
         const Color(0xFFEDEDED),
@@ -258,20 +280,30 @@ class _MemoryPageState extends State<MemoryPage> {
                       color: item.iconBackground,
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: Icon(item.iconData, size: 14, color: theme.primaryColor),
+                    child: Icon(
+                      item.iconData,
+                      size: 14,
+                      color: theme.primaryColor,
+                    ),
                   ),
                 ],
               ),
               const SizedBox(height: 10),
               Text(
                 item.value,
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               if (item.subtitle.isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Text(
                   item.subtitle,
-                  style: const TextStyle(fontSize: 10, color: CupertinoColors.systemGrey),
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: CupertinoColors.systemGrey,
+                  ),
                 ),
               ],
             ],
@@ -312,24 +344,38 @@ class _MemoryPageState extends State<MemoryPage> {
                   children: [
                     Text(
                       LocalizationEngine.text('total_reading_duration'),
-                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: CupertinoColors.systemGrey),
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: CupertinoColors.systemGrey,
+                      ),
                     ),
                     const SizedBox(height: 10),
                     Text(
-                                      _formatDurationForLocale(data.totalDuration),
-                                      style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: textColor),
+                      _formatDurationForLocale(data.totalDuration),
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w800,
+                        color: textColor,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 8),
                     Text(
                       '${LocalizationEngine.text('daily_average')}: ${data.averageDuration}',
-                      style: const TextStyle(fontSize: 14, color: CupertinoColors.systemGrey),
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: CupertinoColors.systemGrey,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       '${LocalizationEngine.text('vs_previous_period')}: ${data.changeRate}',
-                      style: const TextStyle(fontSize: 14, color: CupertinoColors.systemGrey),
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: CupertinoColors.systemGrey,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     // 将图表下方的选中数据移到“总阅读时长”区域下方，保持在同一行显示
@@ -338,14 +384,22 @@ class _MemoryPageState extends State<MemoryPage> {
                         Flexible(
                           child: Text(
                             labels[selectedIndex],
-                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: textColor),
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: textColor,
+                            ),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          values[selectedIndex].toStringAsFixed(0) + LocalizationEngine.text('hours_short'),
-                          style: const TextStyle(fontSize: 13, color: CupertinoColors.systemGrey),
+                          values[selectedIndex].toStringAsFixed(0) +
+                              LocalizationEngine.text('hours_short'),
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: CupertinoColors.systemGrey,
+                          ),
                         ),
                       ],
                     ),
@@ -355,9 +409,15 @@ class _MemoryPageState extends State<MemoryPage> {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _buildChartToggle(_ChartMode.bar, CupertinoIcons.chart_bar_fill),
+                  _buildChartToggle(
+                    _ChartMode.bar,
+                    CupertinoIcons.chart_bar_fill,
+                  ),
                   const SizedBox(width: 8),
-                  _buildChartToggle(_ChartMode.line, CupertinoIcons.graph_square_fill),
+                  _buildChartToggle(
+                    _ChartMode.line,
+                    CupertinoIcons.graph_square_fill,
+                  ),
                 ],
               ),
             ],
@@ -377,12 +437,31 @@ class _MemoryPageState extends State<MemoryPage> {
     );
   }
 
-  Widget _buildReadingTimeDistribution(CupertinoThemeData theme) {
+  Widget _buildReadingTimeDistribution(
+    CupertinoThemeData theme,
+    ReadingStats stats,
+  ) {
     final distributionData = <_DistributionItem>[
-      _DistributionItem('小时段下', 25, const Color(0xFF007AFF)),
-      _DistributionItem('1-2小时', 40, const Color(0xFF34C759)),
-      _DistributionItem('2-3小时', 20, const Color(0xFFFFA500)),
-      _DistributionItem('3小时以上', 15, const Color(0xFFFF3B30)),
+      _DistributionItem(
+        '1小时以下',
+        stats.distributionUnder1Hour,
+        const Color(0xFF007AFF),
+      ),
+      _DistributionItem(
+        '1-2小时',
+        stats.distribution1To2Hours,
+        const Color(0xFF34C759),
+      ),
+      _DistributionItem(
+        '2-3小时',
+        stats.distribution2To3Hours,
+        const Color(0xFFFFA500),
+      ),
+      _DistributionItem(
+        '3小时以上',
+        stats.distribution3HoursMore,
+        const Color(0xFFFF3B30),
+      ),
     ];
 
     return Container(
@@ -396,87 +475,107 @@ class _MemoryPageState extends State<MemoryPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // 把“阅读时长分布”标签放在环形图上方并加粗
-          Builder(builder: (context) {
-            final textColor = theme.textTheme.textStyle.color ?? CupertinoColors.label;
-            return Text(
-              LocalizationEngine.text('reading_time_distribution'),
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: textColor),
-            );
-          }),
+          Builder(
+            builder: (context) {
+              final textColor =
+                  theme.textTheme.textStyle.color ?? CupertinoColors.label;
+              return Text(
+                LocalizationEngine.text('reading_time_distribution'),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: textColor,
+                ),
+              );
+            },
+          ),
           const SizedBox(height: 12),
           // 主题色与文本色
-          Builder(builder: (context) {
-            final textColor = theme.textTheme.textStyle.color ?? CupertinoColors.label;
-            final accent = theme.primaryColor;
-            return Row(
-              children: [
-                Column(
-                  children: [
-                    SizedBox(
-                      width: 140,
-                      height: 140,
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          CustomPaint(
-                            size: const Size(140, 140),
-                            painter: _DonutChartPainter(
-                              data: distributionData,
-                            ),
-                          ),
-                          // 中心只显示时长数值，标签已移至上方
-                          Text(
-                            '18h 45m',
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: distributionData.map((item) {
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: Row(
+          Builder(
+            builder: (context) {
+              final textColor =
+                  theme.textTheme.textStyle.color ?? CupertinoColors.label;
+              final accent = theme.primaryColor;
+              return Row(
+                children: [
+                  Column(
+                    children: [
+                      SizedBox(
+                        width: 140,
+                        height: 140,
+                        child: Stack(
+                          alignment: Alignment.center,
                           children: [
-                            Container(
-                              width: 12,
-                              height: 12,
-                              decoration: BoxDecoration(
-                                color: item.color,
-                                borderRadius: BorderRadius.circular(3),
+                            CustomPaint(
+                              size: const Size(140, 140),
+                              painter: _DonutChartPainter(
+                                data: distributionData,
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                item.label,
-                                style: TextStyle(fontSize: 12, color: textColor),
-                              ),
-                            ),
+                            // 中心只显示时长数值，标签已移至上方
                             Text(
-                              '${item.percentage}%',
-                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: accent),
+                              stats.formattedDistributionTotal,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ],
                         ),
-                      );
-                    }).toList(),
+                      ),
+                    ],
                   ),
-                ),
-              ],
-            );
-          }),
+                  const SizedBox(width: 20),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: distributionData.map((item) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 12,
+                                height: 12,
+                                decoration: BoxDecoration(
+                                  color: item.color,
+                                  borderRadius: BorderRadius.circular(3),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  item.label,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: textColor,
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                '${item.percentage}%',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: accent,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildTrendCard(CupertinoThemeData theme) {
+  Widget _buildTrendCard(CupertinoThemeData theme, ReadingStats stats) {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -494,26 +593,44 @@ class _MemoryPageState extends State<MemoryPage> {
           const SizedBox(height: 12),
           Row(
             children: [
-              Icon(CupertinoIcons.graph_circle_fill, size: 18, color: CupertinoColors.systemGrey),
+              Icon(
+                CupertinoIcons.graph_circle_fill,
+                size: 18,
+                color: CupertinoColors.systemGrey,
+              ),
               const SizedBox(width: 8),
               Text(
                 LocalizationEngine.text('reading_trend'),
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: CupertinoColors.systemGrey),
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: CupertinoColors.systemGrey,
+                ),
               ),
             ],
           ),
           const SizedBox(height: 10),
           Text(
             LocalizationEngine.text('reading_trend_insight'),
-            style: const TextStyle(fontSize: 13, color: CupertinoColors.systemGrey, height: 1.4),
+            style: const TextStyle(
+              fontSize: 13,
+              color: CupertinoColors.systemGrey,
+              height: 1.4,
+            ),
           ),
           const SizedBox(height: 12),
           Wrap(
             spacing: 10,
             runSpacing: 8,
             children: [
-              _buildTrendPill('18' + LocalizationEngine.text('days_short'), LocalizationEngine.text('continuous_reading_label')),
-              _buildTrendPill('3.2' + LocalizationEngine.text('hours_short'), LocalizationEngine.text('average_daily_reading')),
+              _buildTrendPill(
+                '${stats.streakDays}${LocalizationEngine.text('days_short')}',
+                LocalizationEngine.text('continuous_reading_label'),
+              ),
+              _buildTrendPill(
+                stats.formattedAverageDailyReading,
+                LocalizationEngine.text('average_daily_reading'),
+              ),
             ],
           ),
         ],
@@ -532,9 +649,15 @@ class _MemoryPageState extends State<MemoryPage> {
         text: TextSpan(
           style: const TextStyle(fontSize: 12, color: CupertinoColors.black),
           children: [
-            TextSpan(text: value, style: const TextStyle(fontWeight: FontWeight.w700)),
+            TextSpan(
+              text: value,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
             const TextSpan(text: '  '),
-            TextSpan(text: label, style: const TextStyle(color: CupertinoColors.systemGrey)),
+            TextSpan(
+              text: label,
+              style: const TextStyle(color: CupertinoColors.systemGrey),
+            ),
           ],
         ),
       ),
@@ -561,48 +684,158 @@ class _MemoryPageState extends State<MemoryPage> {
                 ]
               : null,
         ),
-        child: Icon(icon, size: 16, color: selected ? CupertinoTheme.of(context).primaryColor : CupertinoColors.systemGrey),
+        child: Icon(
+          icon,
+          size: 16,
+          color: selected
+              ? CupertinoTheme.of(context).primaryColor
+              : CupertinoColors.systemGrey,
+        ),
       ),
     );
   }
 
-  _PeriodData _buildPeriodData() => _buildPeriodDataFor(_period);
-
-  _PeriodData _buildPeriodDataFor(_ReadingPeriod period) {
+  _PeriodData _buildPeriodDataFor(_ReadingPeriod period, ReadingStats stats) {
     switch (period) {
       case _ReadingPeriod.day:
-        return _PeriodData(
-          totalDuration: '18h 45m',
-          averageDuration: '1h 34m',
-          changeRate: '+23%',
-          labels: ['6/12', '6/13', '6/14', '6/15', '6/16', '6/17', '6/18', '6/19', '6/20', '6/21', '6/22', '6/23'],
-          values: [2.0, 1.4, 2.6, 1.8, 2.2, 2.6, 2.9, 3.1, 1.9, 2.4, 3.2, 2.7],
-        );
+        return _buildDailyPeriodData(stats);
       case _ReadingPeriod.week:
-        return _PeriodData(
-          totalDuration: '34h 12m',
-          averageDuration: '4h 52m',
-          changeRate: '+18%',
-          labels: ['第1周', '第2周', '第3周', '第4周', '第5周', '第6周', '第7周', '第8周', '第9周', '第10周', '第11周', '第12周'],
-          values: [4.6, 5.1, 4.9, 5.6, 6.1, 5.8, 6.5, 7.2, 6.3, 7.4, 8.0, 8.5],
-        );
+        return _buildWeeklyPeriodData(stats);
       case _ReadingPeriod.month:
-        return _PeriodData(
-          totalDuration: '126h 40m',
-          averageDuration: '10h 33m',
-          changeRate: '+12%',
-          labels: ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'],
-          values: [8.3, 9.4, 10.2, 10.6, 11.1, 10.8, 11.6, 12.2, 11.7, 12.9, 13.4, 14.1],
-        );
+        return _buildMonthlyPeriodData(stats);
       case _ReadingPeriod.year:
-        return _PeriodData(
-          totalDuration: '382h 00m',
-          averageDuration: '38h 12m',
-          changeRate: '+9%',
-          labels: ['2017', '2018', '2019', '2020', '2021', '2022', '2023', '2024', '2025', '2026'],
-          values: [14.2, 18.6, 22.1, 26.7, 31.4, 34.0, 37.2, 41.5, 44.8, 49.6],
-        );
+        return _buildYearlyPeriodData(stats);
     }
+  }
+
+  _PeriodData _buildDailyPeriodData(ReadingStats stats) {
+    final today = DateTime.now();
+    final labels = List<String>.generate(12, (index) {
+      final date = today.subtract(Duration(days: 11 - index));
+      return '${date.month}/${date.day}';
+    });
+    final values = List<double>.generate(12, (index) {
+      final date = today.subtract(Duration(days: 11 - index));
+      return stats.dailyMinutes[date]?.toDouble() ?? 0.0;
+    }).map((minutes) => minutes / 60.0).toList();
+    final total = values.fold(0.0, (sum, value) => sum + value);
+    final previousTotal = stats.previousDailyWindowMinutes / 60.0;
+    return _PeriodData(
+      totalDuration: _formatDuration((total * 60).round()),
+      averageDuration: _formatDuration((total * 60 / 12).round()),
+      changeRate: _formatChangeRate(total, previousTotal),
+      labels: labels,
+      values: values,
+    );
+  }
+
+  _PeriodData _buildWeeklyPeriodData(ReadingStats stats) {
+    final today = DateTime.now();
+    final currentWeekStart = DateTime(
+      today.year,
+      today.month,
+      today.day,
+    ).subtract(Duration(days: today.weekday - 1));
+    final labels = List<String>.generate(12, (index) {
+      final weekStart = currentWeekStart.subtract(
+        Duration(days: 7 * (11 - index)),
+      );
+      return '${weekStart.month}/${weekStart.day}';
+    });
+    final values = List<double>.generate(12, (index) {
+      final weekStart = currentWeekStart.subtract(
+        Duration(days: 7 * (11 - index)),
+      );
+      final weekEnd = weekStart.add(const Duration(days: 7));
+      return stats.minutesBetween(weekStart, weekEnd) / 60.0;
+    });
+    return _PeriodData(
+      totalDuration: _formatDuration((stats.weekMinutes).round()),
+      averageDuration: _formatDuration((stats.weekMinutes / 7).round()),
+      changeRate: _formatChangeRate(
+        stats.weekMinutes / 60.0,
+        stats.previousWeekMinutes / 60.0,
+      ),
+      labels: labels,
+      values: values,
+    );
+  }
+
+  _PeriodData _buildMonthlyPeriodData(ReadingStats stats) {
+    final today = DateTime.now();
+    final labels = List<String>.generate(12, (index) {
+      final monthStart = DateTime(today.year, today.month - 11 + index, 1);
+      return '${monthStart.month}月';
+    });
+    final values = List<double>.generate(12, (index) {
+      final monthStart = DateTime(today.year, today.month - 11 + index, 1);
+      final nextMonthStart = DateTime(monthStart.year, monthStart.month + 1, 1);
+      return stats.minutesBetween(monthStart, nextMonthStart) / 60.0;
+    });
+    return _PeriodData(
+      totalDuration: _formatDuration(stats.monthMinutes),
+      averageDuration: _formatDuration(
+        (stats.monthMinutes /
+                (DateTime(
+                  today.year,
+                  today.month + 1,
+                  1,
+                ).difference(DateTime(today.year, today.month, 1)).inDays))
+            .round(),
+      ),
+      changeRate: _formatChangeRate(
+        stats.monthMinutes / 60.0,
+        stats.previousMonthMinutes / 60.0,
+      ),
+      labels: labels,
+      values: values,
+    );
+  }
+
+  _PeriodData _buildYearlyPeriodData(ReadingStats stats) {
+    final today = DateTime.now();
+    final labels = List<String>.generate(10, (index) {
+      final year = today.year - 9 + index;
+      return year.toString();
+    });
+    final values = List<double>.generate(10, (index) {
+      final year = today.year - 9 + index;
+      final yearStart = DateTime(year, 1, 1);
+      final nextYearStart = DateTime(year + 1, 1, 1);
+      return stats.minutesBetween(yearStart, nextYearStart) / 60.0;
+    });
+    return _PeriodData(
+      totalDuration: _formatDuration(stats.yearMinutes),
+      averageDuration: _formatDuration((stats.yearMinutes / 365).round()),
+      changeRate: _formatChangeRate(
+        stats.yearMinutes / 60.0,
+        stats.previousYearMinutes / 60.0,
+      ),
+      labels: labels,
+      values: values,
+    );
+  }
+
+  String _formatDuration(int minutes) {
+    if (minutes <= 0) {
+      return '0${LocalizationEngine.text('minutes_short')}';
+    }
+    final hours = minutes ~/ 60;
+    final mins = minutes % 60;
+    final hourLabel = hours > 0
+        ? '${hours}${LocalizationEngine.text('hours_short')}'
+        : '';
+    final minuteLabel = '${mins}${LocalizationEngine.text('minutes_short')}';
+    return hourLabel.isNotEmpty ? '$hourLabel $minuteLabel' : minuteLabel;
+  }
+
+  String _formatChangeRate(double current, double previous) {
+    if (previous <= 0) {
+      return current <= 0 ? '0%' : '+100%';
+    }
+    final rate = ((current - previous) / previous) * 100;
+    final sign = rate >= 0 ? '+' : '';
+    return '$sign${rate.toStringAsFixed(0)}%';
   }
 
   String _labelForPeriod(_ReadingPeriod period) {
@@ -727,15 +960,23 @@ class _ReadingChart extends StatelessWidget {
             final chartRight = constraints.maxWidth - 12.0;
             final chartWidth = chartRight - chartLeft;
             final chartBottom = constraints.maxHeight - 12.0;
-            final maxValue = values.reduce(math.max);
+            final maxValue = math.max(values.isEmpty ? 0.0 : values.reduce(math.max), 1.0);
             final points = <Rect>[];
+
+            if (values.isEmpty) {
+              return const SizedBox.shrink();
+            }
 
             if (isBarChart) {
               final barWidth = math.min(chartWidth / values.length * 0.6, 34.0);
-              final spacing = math.max((chartWidth - barWidth * values.length) / (values.length + 1), 4.0);
+              final spacing = math.max(
+                (chartWidth - barWidth * values.length) / (values.length + 1),
+                4.0,
+              );
               for (var index = 0; index < values.length; index++) {
                 final x = chartLeft + spacing + index * (barWidth + spacing);
-                final height = (values[index] / maxValue) * (constraints.maxHeight - 40);
+                final height =
+                    (values[index] / maxValue) * (constraints.maxHeight - 40);
                 final y = chartBottom - height;
                 points.add(Rect.fromLTWH(x, y, barWidth, height));
               }
@@ -743,8 +984,12 @@ class _ReadingChart extends StatelessWidget {
               final step = chartWidth / math.max(values.length - 1, 1);
               for (var index = 0; index < values.length; index++) {
                 final x = chartLeft + step * index;
-                final y = chartBottom - (values[index] / maxValue) * (constraints.maxHeight - 40);
-                points.add(Rect.fromCenter(center: Offset(x, y), width: 24, height: 24));
+                final y =
+                    chartBottom -
+                    (values[index] / maxValue) * (constraints.maxHeight - 40);
+                points.add(
+                  Rect.fromCenter(center: Offset(x, y), width: 24, height: 24),
+                );
               }
             }
 
@@ -759,12 +1004,26 @@ class _ReadingChart extends StatelessWidget {
                     }
                   }
                 } else {
-                  final closestIndex = ((tapX - chartLeft) / (values.length > 1 ? chartWidth / (values.length - 1) : chartWidth)).round();
+                  final closestIndex =
+                      ((tapX - chartLeft) /
+                              (values.length > 1
+                                  ? chartWidth / (values.length - 1)
+                                  : chartWidth))
+                          .round();
                   final index = closestIndex.clamp(0, values.length - 1);
                   onSelect(index);
                 }
               },
-              child: Stack(children: points.map((rect) => Positioned.fromRect(rect: rect, child: const SizedBox())).toList()),
+              child: Stack(
+                children: points
+                    .map(
+                      (rect) => Positioned.fromRect(
+                        rect: rect,
+                        child: const SizedBox(),
+                      ),
+                    )
+                    .toList(),
+              ),
             );
           },
         ),
@@ -798,38 +1057,66 @@ class _ChartPainter extends CustomPainter {
     final chartBottom = size.height - 12.0;
     final chartWidth = chartRight - chartLeft;
     final chartHeight = chartBottom - chartTop;
-    final maxValue = values.reduce(math.max);
-    final gridPaint = Paint()..color = gridColor..style = PaintingStyle.stroke;
-    final axisPaint = Paint()..color = CupertinoColors.systemGrey4..strokeWidth = 1;
-    final fillPaint = Paint()..color = accentColor.withOpacity(0.18)..style = PaintingStyle.fill;
+    final maxValue = values.isEmpty ? 1.0 : math.max(values.reduce(math.max), 1.0);
+    final gridPaint = Paint()
+      ..color = gridColor
+      ..style = PaintingStyle.stroke;
+    final axisPaint = Paint()
+      ..color = CupertinoColors.systemGrey4
+      ..strokeWidth = 1;
+    final fillPaint = Paint()
+      ..color = accentColor.withOpacity(0.18)
+      ..style = PaintingStyle.fill;
     final linePaint = Paint()
       ..color = accentColor
       ..strokeWidth = 3
       ..style = PaintingStyle.stroke;
-    final selectedPaint = Paint()..color = accentColor..style = PaintingStyle.fill;
+    final selectedPaint = Paint()
+      ..color = accentColor
+      ..style = PaintingStyle.fill;
 
     const labelCount = 5;
     final stepValue = maxValue / (labelCount - 1);
-    final labelStyle = const TextStyle(fontSize: 10, color: CupertinoColors.systemGrey);
+    final labelStyle = const TextStyle(
+      fontSize: 10,
+      color: CupertinoColors.systemGrey,
+    );
 
     for (var i = 0; i < labelCount; i++) {
       final y = chartBottom - chartHeight / (labelCount - 1) * i;
       final labelValue = stepValue * i;
-      final formatted = labelValue % 1 == 0 ? labelValue.toInt().toString() : labelValue.toStringAsFixed(1);
+      final formatted = labelValue % 1 == 0
+          ? labelValue.toInt().toString()
+          : labelValue.toStringAsFixed(1);
       final textPainter = TextPainter(
-        text: TextSpan(text: '$formatted${LocalizationEngine.text('hours_short')}', style: labelStyle),
+        text: TextSpan(
+          text: '$formatted${LocalizationEngine.text('hours_short')}',
+          style: labelStyle,
+        ),
         textDirection: TextDirection.ltr,
         textAlign: TextAlign.right,
       )..layout(minWidth: 0, maxWidth: chartLeft - 8);
-      textPainter.paint(canvas, Offset(chartLeft - textPainter.width - 6, y - textPainter.height / 2));
+      textPainter.paint(
+        canvas,
+        Offset(chartLeft - textPainter.width - 6, y - textPainter.height / 2),
+      );
       canvas.drawLine(Offset(chartLeft, y), Offset(chartRight, y), gridPaint);
     }
 
-    canvas.drawLine(Offset(chartLeft, chartTop), Offset(chartLeft, chartBottom), axisPaint);
+    canvas.drawLine(
+      Offset(chartLeft, chartTop),
+      Offset(chartLeft, chartBottom),
+      axisPaint,
+    );
 
     if (values.isNotEmpty) {
-      final labelStyle = const TextStyle(fontSize: 10, color: CupertinoColors.systemGrey);
-      final xStep = values.length > 1 ? chartWidth / (values.length - 1) : chartWidth;
+      final labelStyle = const TextStyle(
+        fontSize: 10,
+        color: CupertinoColors.systemGrey,
+      );
+      final xStep = values.length > 1
+          ? chartWidth / (values.length - 1)
+          : chartWidth;
       for (var index = 0; index < values.length; index++) {
         if (values.length > 10 && index.isOdd) continue;
         final label = labels[index];
@@ -839,55 +1126,105 @@ class _ChartPainter extends CustomPainter {
           textAlign: TextAlign.center,
         )..layout(minWidth: 0, maxWidth: xStep + 4);
         final x = isBarChart
-            ? chartLeft + math.max((chartWidth - math.min(chartWidth / values.length * 0.6, 34.0) * values.length) / (values.length + 1), 4.0) + index * (math.min(chartWidth / values.length * 0.6, 34.0) + math.max((chartWidth - math.min(chartWidth / values.length * 0.6, 34.0) * values.length) / (values.length + 1), 4.0)) + math.min(chartWidth / values.length * 0.6, 34.0) / 2
+            ? chartLeft +
+                  math.max(
+                    (chartWidth -
+                            math.min(chartWidth / values.length * 0.6, 34.0) *
+                                values.length) /
+                        (values.length + 1),
+                    4.0,
+                  ) +
+                  index *
+                      (math.min(chartWidth / values.length * 0.6, 34.0) +
+                          math.max(
+                            (chartWidth -
+                                    math.min(
+                                          chartWidth / values.length * 0.6,
+                                          34.0,
+                                        ) *
+                                        values.length) /
+                                (values.length + 1),
+                            4.0,
+                          )) +
+                  math.min(chartWidth / values.length * 0.6, 34.0) / 2
             : chartLeft + xStep * index;
         final dx = x - textPainter.width / 2;
-        textPainter.paint(canvas, Offset(dx.clamp(chartLeft - textPainter.width / 2, chartRight - textPainter.width / 2), chartBottom + 4));
+        textPainter.paint(
+          canvas,
+          Offset(
+            dx.clamp(
+              chartLeft - textPainter.width / 2,
+              chartRight - textPainter.width / 2,
+            ),
+            chartBottom + 4,
+          ),
+        );
       }
     }
 
-    canvas.drawLine(Offset(chartLeft, chartBottom), Offset(chartRight, chartBottom), axisPaint);
+    canvas.drawLine(
+      Offset(chartLeft, chartBottom),
+      Offset(chartRight, chartBottom),
+      axisPaint,
+    );
 
     if (isBarChart) {
       final barWidth = math.min(chartWidth / values.length * 0.6, 34.0);
-      final spacing = math.max((chartWidth - barWidth * values.length) / (values.length + 1), 4.0);
+      final spacing = math.max(
+        (chartWidth - barWidth * values.length) / (values.length + 1),
+        4.0,
+      );
       for (var index = 0; index < values.length; index++) {
         final x = chartLeft + spacing + index * (barWidth + spacing);
         final barHeight = (values[index] / maxValue) * chartHeight;
-        final rect = Rect.fromLTWH(x, chartBottom - barHeight, barWidth, barHeight);
-        final color = index == selectedIndex ? accentColor : accentColor.withOpacity(0.72);
-        final barPaint = Paint()..color = color..style = PaintingStyle.fill;
-        canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(10)), barPaint);
+        final rect = Rect.fromLTWH(
+          x,
+          chartBottom - barHeight,
+          barWidth,
+          barHeight,
+        );
+        final color = index == selectedIndex
+            ? accentColor
+            : accentColor.withOpacity(0.72);
+        final barPaint = Paint()
+          ..color = color
+          ..style = PaintingStyle.fill;
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(rect, const Radius.circular(10)),
+          barPaint,
+        );
       }
     } else {
-        final points = <Offset>[];
-        for (var index = 0; index < values.length; index++) {
-          final x = chartLeft + (chartWidth / math.max(values.length - 1, 1)) * index;
-          final y = chartBottom - (values[index] / maxValue) * chartHeight;
-          points.add(Offset(x, y));
+      final points = <Offset>[];
+      for (var index = 0; index < values.length; index++) {
+        final x =
+            chartLeft + (chartWidth / math.max(values.length - 1, 1)) * index;
+        final y = chartBottom - (values[index] / maxValue) * chartHeight;
+        points.add(Offset(x, y));
+      }
+      if (points.length > 1) {
+        final fillPath = Path()..moveTo(points.first.dx, chartBottom);
+        for (final point in points) {
+          fillPath.lineTo(point.dx, point.dy);
         }
-        if (points.length > 1) {
-          final fillPath = Path()..moveTo(points.first.dx, chartBottom);
-          for (final point in points) {
-            fillPath.lineTo(point.dx, point.dy);
-          }
-          fillPath.lineTo(points.last.dx, chartBottom);
-          fillPath.close();
-          canvas.drawPath(fillPath, fillPaint);
+        fillPath.lineTo(points.last.dx, chartBottom);
+        fillPath.close();
+        canvas.drawPath(fillPath, fillPaint);
 
-          final path = Path()..moveTo(points.first.dx, points.first.dy);
-          for (final point in points.skip(1)) {
-            path.lineTo(point.dx, point.dy);
-          }
-          canvas.drawPath(path, linePaint);
+        final path = Path()..moveTo(points.first.dx, points.first.dy);
+        for (final point in points.skip(1)) {
+          path.lineTo(point.dx, point.dy);
         }
-        for (var index = 0; index < points.length; index++) {
-          final point = points[index];
-          final radius = index == selectedIndex ? 6.0 : 4.5;
-          canvas.drawCircle(point, radius, selectedPaint);
-        }
+        canvas.drawPath(path, linePaint);
+      }
+      for (var index = 0; index < points.length; index++) {
+        final point = points[index];
+        final radius = index == selectedIndex ? 6.0 : 4.5;
+        canvas.drawCircle(point, radius, selectedPaint);
       }
     }
+  }
+
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
@@ -909,7 +1246,6 @@ class _DonutChartPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = size.width / 2;
-    final innerRadius = radius * 0.55;
     const strokeWidth = 16.0;
 
     var startAngle = -math.pi / 2;

@@ -9,6 +9,7 @@ class BookModel {
   final Uint8List? coverBytes;
   final double progress;
   final DateTime? lastReadAt;
+  final int readingDurationSeconds;
   final bool isFavorite;
   final int? fileSizeBytes;
 
@@ -20,6 +21,7 @@ class BookModel {
     this.coverBytes,
     this.progress = 0.0,
     this.lastReadAt,
+    this.readingDurationSeconds = 0,
     this.isFavorite = false,
     this.fileSizeBytes,
   });
@@ -33,6 +35,7 @@ class BookModel {
     Uint8List? coverBytes,
     double? progress,
     DateTime? lastReadAt,
+    int? readingDurationSeconds,
     bool? isFavorite,
     int? fileSizeBytes,
   }) {
@@ -44,6 +47,7 @@ class BookModel {
       coverBytes: coverBytes ?? this.coverBytes,
       progress: progress ?? this.progress,
       lastReadAt: lastReadAt ?? this.lastReadAt,
+      readingDurationSeconds: readingDurationSeconds ?? this.readingDurationSeconds,
       isFavorite: isFavorite ?? this.isFavorite,
       fileSizeBytes: fileSizeBytes ?? this.fileSizeBytes,
     );

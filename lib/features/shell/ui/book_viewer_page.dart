@@ -23,13 +23,17 @@ class BookViewerPage extends StatefulWidget {
   State<BookViewerPage> createState() => _BookViewerPageState();
 }
 
-class _BookViewerPageState extends State<BookViewerPage> {
+class _BookViewerPageState extends State<BookViewerPage> with WidgetsBindingObserver {
   String? _errorText;
   PdfController? _pdfController;
+  DateTime? _sessionStart;
+  double? _lastSyncedProgress;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _startSession();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _initializePdf();
@@ -57,6 +61,8 @@ class _BookViewerPageState extends State<BookViewerPage> {
 
   @override
   void dispose() {
+    _pauseSessionAndPersist();
+    WidgetsBinding.instance.removeObserver(this);
     _pdfController?.dispose();
     super.dispose();
   }
@@ -79,32 +85,55 @@ class _BookViewerPageState extends State<BookViewerPage> {
     }
 
     final progress = (page / totalPages).clamp(0.0, 1.0);
-    widget.controller!.updateBookProgress(widget.bookId, progress);
+    if (_lastSyncedProgress != null && (progress - _lastSyncedProgress!).abs() < 0.0001) {
+      return;
+    }
+    _lastSyncedProgress = progress;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      widget.controller!.updateBookProgress(widget.bookId, progress);
+    });
+  }
+
+  void _startSession() {
+    if (_sessionStart != null) {
+      return;
+    }
+    _sessionStart = DateTime.now();
+  }
+
+  void _pauseSessionAndPersist() {
+    if (_sessionStart == null || widget.controller == null) {
+      _sessionStart = null;
+      return;
+    }
+
+    final elapsedSeconds = DateTime.now().difference(_sessionStart!).inSeconds;
+    _sessionStart = null;
+    if (elapsedSeconds <= 0) {
+      return;
+    }
+
+    widget.controller!.updateBookReadingDuration(widget.bookId, elapsedSeconds);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (!mounted) {
+      return;
+    }
+
+    if (state == AppLifecycleState.resumed) {
+      _startSession();
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive || state == AppLifecycleState.detached) {
+      _pauseSessionAndPersist();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final pageIndicator = _pdfController == null
-        ? const Text(
-            '--/--',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-            ),
-          )
-        : PdfPageNumber(
-            controller: _pdfController!,
-            builder: (_, __, page, pagesCount) {
-              return Text(
-                '$page/${pagesCount ?? 0}',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              );
-            },
-          );
-
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(middle: Text(widget.title, style: TextStyle(color: CupertinoTheme.of(context).primaryColor))),
       child: SafeArea(

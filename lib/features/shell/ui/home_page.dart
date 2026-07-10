@@ -1,13 +1,13 @@
 import 'package:flutter/cupertino.dart';
 
 import '../controller/daily_sentence_controller.dart';
-import 'daily_sentence_edit_page.dart';
 
 import '../../../engine/localization_engine.dart';
 import '../../../engine/settings_engine.dart';
 import '../controller/bookshelf_controller.dart';
 import '../controller/settings_controller.dart';
 import '../model/book_model.dart';
+import '../model/reading_stats_model.dart';
 import '../model/daily_sentence_model.dart';
 import '../service/app_stats_service.dart';
 import '../service/daily_sentence_service.dart';
@@ -15,9 +15,7 @@ import 'book_viewer_page.dart';
 import 'epub_viewer_page.dart';
 import 'txt_viewer_page.dart';
 import 'comic_viewer_page.dart';
-import 'mobi_viewer_page.dart';
 import 'package:open_filex/open_filex.dart';
-import 'daily_sentence_page.dart';
 
 /// HomePage displays the redesigned dashboard matching the provided mock.
 class HomePage extends StatefulWidget {
@@ -51,6 +49,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _openBook(BookModel book) async {
+    _controller.updateBookLastRead(book.id, DateTime.now());
     final path = book.path.toLowerCase();
     if (path.endsWith('.pdf')) {
       Navigator.of(context).push(
@@ -245,7 +244,7 @@ class _HomePageState extends State<HomePage> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      book?.title ?? LocalizationEngine.text('no_recently_reading'),
+                                      book.title,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: theme.textTheme.textStyle.copyWith(
@@ -302,7 +301,7 @@ class _HomePageState extends State<HomePage> {
                                         child: CupertinoButton.filled(
                                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                           minSize: 30,
-                                          onPressed: book == null ? null : () => _openBook(book),
+                                          onPressed: () => _openBook(book),
                                           child: Text(
                                             LocalizationEngine.text('continue_reading'),
                                             style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
@@ -323,63 +322,6 @@ class _HomePageState extends State<HomePage> {
         ),
       ),
     );
-  }
-
-  int _calculateReadingMinutes(List<BookModel> books, {required DateTime now, bool includeWithoutLastRead = true}) {
-    if (books.isEmpty) {
-      return 0;
-    }
-
-    var totalMinutes = 0;
-    for (final book in books) {
-      if (book.progress <= 0) {
-        continue;
-      }
-
-      final lastReadAt = book.lastReadAt;
-      if (lastReadAt == null) {
-        if (!includeWithoutLastRead) {
-          continue;
-        }
-        totalMinutes += (book.progress * 60).round();
-        continue;
-      }
-
-      final minutes = (book.progress * 60).round();
-      final daysSinceLastRead = now.difference(lastReadAt).inDays;
-      final recencyBoost = daysSinceLastRead <= 30 ? 15 : 0;
-      totalMinutes += minutes + recencyBoost;
-    }
-
-    return totalMinutes;
-  }
-
-  int _calculateReadingDays(List<BookModel> books) {
-    final uniqueDays = books
-        .where((book) => book.lastReadAt != null)
-        .map((book) => DateTime(book.lastReadAt!.year, book.lastReadAt!.month, book.lastReadAt!.day))
-        .toSet()
-        .length;
-    return uniqueDays;
-  }
-
-  int _calculateReadingStreakDays(List<BookModel> books, DateTime now) {
-    final uniqueDays = books
-        .where((book) => book.lastReadAt != null)
-        .map((book) => DateTime(book.lastReadAt!.year, book.lastReadAt!.month, book.lastReadAt!.day))
-        .toSet();
-
-    if (uniqueDays.isEmpty) {
-      return 0;
-    }
-
-    var streak = 0;
-    var cursor = DateTime(now.year, now.month, now.day);
-    while (uniqueDays.contains(cursor)) {
-      streak += 1;
-      cursor = cursor.subtract(const Duration(days: 1));
-    }
-    return streak;
   }
 
   String _formatReadingDuration(int minutes, String language) {
@@ -404,24 +346,12 @@ class _HomePageState extends State<HomePage> {
       builder: (context, language, child) {
         final launchCountLabel = LocalizationEngine.text('app_launch_count');
         final launchUnit = LocalizationEngine.text('launch_unit');
-        final now = DateTime.now();
 
         return ValueListenableBuilder<List<BookModel>>(
           valueListenable: _controller.books,
           builder: (context, books, child) {
-            final totalReadingMinutes = _calculateReadingMinutes(books, now: now);
-            final monthlyReadingMinutes = _calculateReadingMinutes(
-              books.where((book) => book.lastReadAt != null && book.lastReadAt!.year == now.year && book.lastReadAt!.month == now.month).toList(),
-              now: now,
-              includeWithoutLastRead: false,
-            );
-            final yearlyReadingMinutes = _calculateReadingMinutes(
-              books.where((book) => book.lastReadAt != null && book.lastReadAt!.year == now.year).toList(),
-              now: now,
-              includeWithoutLastRead: false,
-            );
-            final cumulativeReadingDays = _calculateReadingDays(books);
-            final streakDays = _calculateReadingStreakDays(books, now);
+            final stats = ReadingStats.fromBooks(books);
+            final streakDays = stats.streakDays;
 
             return Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -455,7 +385,7 @@ class _HomePageState extends State<HomePage> {
                               ),
                               const SizedBox(height: 10),
                               Text(
-                                _formatReadingDuration(totalReadingMinutes, language),
+                                _formatReadingDuration(stats.todayMinutes, language),
                                 style: theme.textTheme.textStyle.copyWith(
                                   fontSize: 18,
                                   fontWeight: FontWeight.w700,
@@ -525,11 +455,9 @@ class _HomePageState extends State<HomePage> {
                           padding: const EdgeInsets.only(right: 4),
                           child: _buildStatCard(
                             context,
-                            _formatReadingDuration(monthlyReadingMinutes, language),
+                            _formatReadingDuration(stats.monthMinutes, language),
                             LocalizationEngine.text('monthly_reading'),
                             accentColor: const Color(0xFF2F80ED),
-                            backgroundColor: const Color(0xFFEAF4FF),
-                            icon: CupertinoIcons.clock,
                           ),
                         ),
                       ),
@@ -538,11 +466,9 @@ class _HomePageState extends State<HomePage> {
                           padding: const EdgeInsets.symmetric(horizontal: 4),
                           child: _buildStatCard(
                             context,
-                            _formatReadingDuration(yearlyReadingMinutes, language),
+                            _formatReadingDuration(stats.yearMinutes, language),
                             LocalizationEngine.text('yearly_reading'),
                             accentColor: const Color(0xFF27AE60),
-                            backgroundColor: const Color(0xFFEAFBF1),
-                            icon: CupertinoIcons.calendar,
                           ),
                         ),
                       ),
@@ -551,11 +477,9 @@ class _HomePageState extends State<HomePage> {
                           padding: const EdgeInsets.symmetric(horizontal: 4),
                           child: _buildStatCard(
                             context,
-                            _formatReadingDays(cumulativeReadingDays, language),
+                            _formatReadingDays(stats.activeDays, language),
                             LocalizationEngine.text('cumulative_reading'),
                             accentColor: const Color(0xFFE67E22),
-                            backgroundColor: const Color(0xFFFFF4E8),
-                            icon: CupertinoIcons.calendar_badge_plus,
                           ),
                         ),
                       ),
@@ -571,8 +495,6 @@ class _HomePageState extends State<HomePage> {
                                 displayValue,
                                 launchCountLabel,
                                 accentColor: const Color(0xFF9B51E0),
-                                backgroundColor: const Color(0xFFF4EBFF),
-                                icon: CupertinoIcons.chart_pie,
                               );
                             },
                           ),
@@ -590,7 +512,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   // 辅助方法：构建单个统计卡片
-  Widget _buildStatCard(BuildContext context, String value, String label, {required Color accentColor, required Color backgroundColor, required IconData icon}) {
+  Widget _buildStatCard(BuildContext context, String value, String label, {required Color accentColor}) {
     final theme = CupertinoTheme.of(context);
     final parts = value.split(' ');
     final primaryText = parts.isNotEmpty ? parts.first : value;
@@ -612,16 +534,6 @@ class _HomePageState extends State<HomePage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Container(
-            width: 30,
-            height: 30,
-            decoration: BoxDecoration(
-              color: backgroundColor,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, size: 14, color: accentColor),
-          ),
-          const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

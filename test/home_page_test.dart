@@ -115,4 +115,22 @@ void main() {
     expect(find.text('累计阅读'), findsOneWidget);
     expect(find.textContaining('小时'), findsWidgets);
   });
+
+  testWidgets('HomePage stat cards do not render leading icons', (tester) async {
+    SettingsEngine.setLanguage(SettingsEngine.languageChinese);
+    final controller = BookshelfController();
+    controller.books.value = const [];
+
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: HomePage(controller: controller),
+      ),
+    );
+
+    expect(find.byIcon(CupertinoIcons.calendar), findsNothing);
+    expect(find.byIcon(CupertinoIcons.calendar_badge_plus), findsNothing);
+    expect(find.byIcon(CupertinoIcons.chart_pie), findsNothing);
+  });
 }

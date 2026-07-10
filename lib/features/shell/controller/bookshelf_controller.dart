@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'dart:math';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:file_picker/file_picker.dart';
 
 import '../model/book_model.dart';
@@ -83,8 +83,19 @@ class BookshelfController {
     errorText.value = message;
   }
 
+  void _refreshBooksAfterFrame() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      books.value = _service.listBooks();
+    });
+  }
+
   void updateBookProgress(String bookId, double progress) {
     _service.updateBookProgress(bookId, progress);
+    _refreshBooksAfterFrame();
+  }
+
+  void updateBookReadingDuration(String bookId, int additionalSeconds) {
+    _service.updateBookReadingDuration(bookId, additionalSeconds);
     books.value = _service.listBooks();
   }
 
