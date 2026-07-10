@@ -13,6 +13,24 @@ import 'comic_viewer_page.dart';
 import 'mobi_viewer_page.dart';
 import 'package:open_filex/open_filex.dart';
 
+class _BookDownloadItemData {
+  const _BookDownloadItemData({
+    required this.title,
+    required this.fileMeta,
+    required this.progress,
+    required this.timestamp,
+    required this.type,
+    this.book,
+  });
+
+  final String title;
+  final String fileMeta;
+  final double progress;
+  final String timestamp;
+  final String type;
+  final BookModel? book;
+}
+
 /// BookshelfPage provides the bookshelf UI and import actions.
 class BookshelfPage extends StatefulWidget {
   const BookshelfPage({super.key, this.controller});
@@ -29,6 +47,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   final TextEditingController _searchController = TextEditingController();
   String _searchText = '';
   bool _showCoverMode = true;
+  bool _showDownloadListMode = false;
   String _selectedCategory = 'all';
 
   @override
@@ -337,6 +356,218 @@ class _BookshelfPageState extends State<BookshelfPage> {
       final path = book.path.toLowerCase();
       return title.contains(keyword) || path.contains(keyword);
     }).toList();
+  }
+
+  static const List<_BookDownloadItemData> _mockDownloadItems = [
+    _BookDownloadItemData(
+      title: 'Flutter 开发实战',
+      fileMeta: 'PDF · 12.4 MB',
+      progress: 0.48,
+      timestamp: '刚刚',
+      type: 'pdf',
+    ),
+    _BookDownloadItemData(
+      title: '产品设计手册',
+      fileMeta: 'EPUB · 8.1 MB',
+      progress: 0.72,
+      timestamp: '2小时前',
+      type: 'epub',
+    ),
+    _BookDownloadItemData(
+      title: '高效阅读笔记',
+      fileMeta: 'TXT · 1.2 MB',
+      progress: 0.34,
+      timestamp: '昨天',
+      type: 'txt',
+    ),
+    _BookDownloadItemData(
+      title: '架构设计精要',
+      fileMeta: 'PDF · 6.8 MB',
+      progress: 0.91,
+      timestamp: '3天前',
+      type: 'pdf',
+    ),
+  ];
+
+  Widget _buildDownloadListView(List<BookModel> books) {
+    final displayItems = books.isEmpty
+        ? _mockDownloadItems
+        : books.take(4).map((book) {
+            final title = _bookTitle(book);
+            return _BookDownloadItemData(
+              title: title,
+              fileMeta: '${_localizedFileType(book.type)} · ${_formatFileSize(book.fileSizeBytes)}',
+              progress: book.progress.clamp(0.0, 1.0),
+              timestamp: book.lastReadAt != null ? '最近阅读' : LocalizationEngine.text('just_now'),
+              type: book.type,
+              book: book,
+            );
+          }).toList();
+
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
+      itemCount: displayItems.length,
+      separatorBuilder: (context, index) => Container(
+        height: 1,
+        color: CupertinoColors.systemGrey5.resolveFrom(context),
+      ),
+      itemBuilder: (context, index) {
+        return _buildDownloadListItem(context, displayItems[index]);
+      },
+    );
+  }
+
+  Widget _buildDownloadListItem(BuildContext context, _BookDownloadItemData item) {
+    final theme = CupertinoTheme.of(context);
+    final progressColor = theme.primaryColor;
+    final book = item.book;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 70,
+            child: AspectRatio(
+              aspectRatio: 3 / 4,
+              child: book != null
+                  ? _buildBookThumbnail(book)
+                  : Container(
+                      decoration: BoxDecoration(
+                        color: CupertinoColors.systemGrey6.resolveFrom(context),
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: CupertinoColors.systemGrey.withOpacity(0.16),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Center(
+                        child: Icon(
+                          CupertinoIcons.book_fill,
+                          color: progressColor,
+                          size: 28,
+                        ),
+                      ),
+                    ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: book != null ? () => _openBook(book) : null,
+              onLongPressStart: book != null
+                  ? (details) => _showBookActions(
+                        context,
+                        book,
+                        anchorPosition: details.globalPosition,
+                      )
+                  : null,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          item.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.textStyle.copyWith(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: CupertinoColors.label.resolveFrom(context),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    item.fileMeta,
+                    style: theme.textTheme.textStyle.copyWith(
+                      fontSize: 12,
+                      color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 140,
+                        child: Container(
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: CupertinoColors.systemGrey5.resolveFrom(context),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: FractionallySizedBox(
+                            alignment: Alignment.centerLeft,
+                            widthFactor: item.progress.clamp(0.0, 1.0),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: progressColor,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${(item.progress * 100).toStringAsFixed(0)}%',
+                        style: theme.textTheme.textStyle.copyWith(
+                          fontSize: 12,
+                          color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        item.timestamp,
+                        style: theme.textTheme.textStyle.copyWith(
+                          fontSize: 12,
+                          color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (book != null)
+            Builder(
+              builder: (buttonContext) {
+                return CupertinoButton(
+                  key: ValueKey('bookshelf_list_more_button_${book?.id ?? item.title}'),
+                  padding: const EdgeInsets.all(6),
+                  minSize: 0,
+                  borderRadius: BorderRadius.circular(999),
+                  color: CupertinoColors.systemGrey6.withOpacity(0.95),
+                  onPressed: () => _showBookActions(buttonContext, book),
+                  child: const Icon(CupertinoIcons.ellipsis, size: 16),
+                );
+              },
+            )
+          else
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: CupertinoColors.systemGrey6.withOpacity(0.95),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: const Icon(CupertinoIcons.ellipsis, size: 16),
+            ),
+        ],
+      ),
+    );
   }
 
   Widget _buildBookCover(BookModel book) {
@@ -745,53 +976,56 @@ class _BookshelfPageState extends State<BookshelfPage> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: theme.scaffoldBackgroundColor,
-          borderRadius: BorderRadius.circular(14),
+          color: CupertinoColors.systemBackground.resolveFrom(context),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: CupertinoColors.systemGrey5.resolveFrom(context), width: 0.8),
+          boxShadow: [
+            BoxShadow(
+              color: CupertinoColors.systemGrey.withOpacity(0.08),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Flexible(
-              fit: FlexFit.loose,
+            Expanded(
               child: _buildStatCell(
                 context,
                 CupertinoIcons.book,
-                CupertinoColors.systemBlue,
+                const Color(0xFF5DA5FF),
                 allCount.toString(),
                 LocalizationEngine.text('bookshelf_all_label'),
               ),
             ),
-            const SizedBox(width: 8),
-            Flexible(
-              fit: FlexFit.loose,
+            Container(width: 1, height: 46, color: CupertinoColors.systemGrey5.resolveFrom(context)),
+            Expanded(
               child: _buildStatCell(
                 context,
                 CupertinoIcons.star_fill,
-                CupertinoColors.systemYellow,
+                const Color(0xFFFFC857),
                 favCount.toString(),
                 LocalizationEngine.text('bookshelf_favorites_label'),
               ),
             ),
-            const SizedBox(width: 8),
-            Flexible(
-              fit: FlexFit.loose,
+            Container(width: 1, height: 46, color: CupertinoColors.systemGrey5.resolveFrom(context)),
+            Expanded(
               child: _buildStatCell(
                 context,
                 CupertinoIcons.clock,
-                CupertinoColors.systemGreen,
+                const Color(0xFF43C17C),
                 readingCount.toString(),
                 LocalizationEngine.text('bookshelf_reading_label'),
               ),
             ),
-            const SizedBox(width: 8),
-            Flexible(
-              fit: FlexFit.loose,
+            Container(width: 1, height: 46, color: CupertinoColors.systemGrey5.resolveFrom(context)),
+            Expanded(
               child: _buildStatCell(
                 context,
                 CupertinoIcons.check_mark,
-                CupertinoColors.systemPurple,
+                const Color(0xFF9B7BFF),
                 finishedCount.toString(),
                 LocalizationEngine.text('bookshelf_finished_label'),
               ),
@@ -804,32 +1038,58 @@ class _BookshelfPageState extends State<BookshelfPage> {
 
   Widget _buildStatCell(BuildContext context, IconData icon, Color bgColor, String value, String label) {
     final textStyle = CupertinoTheme.of(context).textTheme.textStyle;
-    return IntrinsicWidth(
+    final labelFontSize = 12.5;
+    final iconSize = labelFontSize * 0.9;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment: CrossAxisAlignment.center,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 26,
-                  height: 26,
-                  decoration: BoxDecoration(
-                    color: bgColor,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(icon, color: CupertinoColors.white, size: 16),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: textStyle.copyWith(
+                  color: CupertinoColors.label.resolveFrom(context),
+                  fontWeight: FontWeight.w600,
+                  fontSize: labelFontSize,
                 ),
-                const SizedBox(width: 6),
-                Text(value, style: textStyle.copyWith(fontWeight: FontWeight.w700)),
-              ],
-            ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(width: 4),
+              Container(
+                width: labelFontSize + 8,
+                height: labelFontSize + 8,
+                decoration: BoxDecoration(
+                  color: bgColor.withOpacity(0.16),
+                  borderRadius: BorderRadius.circular((labelFontSize + 8) / 2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: bgColor.withOpacity(0.24),
+                      blurRadius: 6,
+                      spreadRadius: 0.5,
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: Icon(icon, color: bgColor, size: iconSize),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
-          Text(label, style: textStyle.copyWith(color: CupertinoColors.inactiveGray, fontSize: 12)),
+          Text(
+            value,
+            style: textStyle.copyWith(
+              color: CupertinoColors.label.resolveFrom(context),
+              fontWeight: FontWeight.w700,
+              fontSize: 17,
+            ),
+          ),
         ],
       ),
     );
@@ -861,7 +1121,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: const EdgeInsets.only(left: 6, right: 0),
+              padding: const EdgeInsets.only(left: 6, right: 12),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
@@ -872,6 +1132,15 @@ class _BookshelfPageState extends State<BookshelfPage> {
                           fontWeight: FontWeight.w800,
                           color: CupertinoColors.label.resolveFrom(context),
                         ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    LocalizationEngine.text('view_all'),
+                    style: CupertinoTheme.of(context).textTheme.textStyle.copyWith(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: CupertinoTheme.of(context).primaryColor,
+                    ),
                   ),
                 ],
               ),
@@ -1037,19 +1306,22 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Widget _buildProgressBar(BuildContext context, double progress, {double height = 6}) {
     final bg = CupertinoColors.systemGrey5.resolveFrom(context);
     final fg = CupertinoTheme.of(context).primaryColor;
-    return Container(
-      height: height,
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(height / 2),
-      ),
-      child: FractionallySizedBox(
-        alignment: Alignment.centerLeft,
-        widthFactor: progress.clamp(0.0, 1.0),
-        child: Container(
-          decoration: BoxDecoration(
-            color: fg,
-            borderRadius: BorderRadius.circular(height / 2),
+    return SizedBox(
+      width: 140,
+      child: Container(
+        height: height,
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(height / 2),
+        ),
+        child: FractionallySizedBox(
+          alignment: Alignment.centerLeft,
+          widthFactor: progress.clamp(0.0, 1.0),
+          child: Container(
+            decoration: BoxDecoration(
+              color: fg,
+              borderRadius: BorderRadius.circular(height / 2),
+            ),
           ),
         ),
       ),
@@ -1201,22 +1473,18 @@ class _BookshelfPageState extends State<BookshelfPage> {
                             const SizedBox(width: 8),
                             GestureDetector(
                               onTap: () {
-                                showCupertinoModalPopup<void>(
-                                  context: context,
-                                  builder: (c) => CupertinoActionSheet(
-                                    title: Text(LocalizationEngine.text('bookshelf_filter')),
-                                    actions: [
-                                      CupertinoActionSheetAction(
-                                        onPressed: () => Navigator.of(c).pop(),
-                                        child: Text(LocalizationEngine.text('done')),
-                                      ),
-                                    ],
-                                  ),
-                                );
+                                setState(() {
+                                  _showDownloadListMode = !_showDownloadListMode;
+                                });
                               },
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                                child: Icon(CupertinoIcons.slider_horizontal_3, color: CupertinoTheme.of(context).primaryColor),
+                                child: Icon(
+                                  CupertinoIcons.slider_horizontal_3,
+                                  color: _showDownloadListMode
+                                      ? CupertinoTheme.of(context).primaryColor
+                                      : CupertinoColors.inactiveGray.resolveFrom(context),
+                                ),
                               ),
                             ),
                           ],
@@ -1245,27 +1513,29 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                       ),
                                     ),
                                   )
-                                : _showCoverMode
-                                    ? GridView.builder(
-                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                          crossAxisCount: 2,
-                                          childAspectRatio: 1.72,
-                                          crossAxisSpacing: 12,
-                                          mainAxisSpacing: 12,
-                                        ),
-                                        itemCount: filteredBooks.length,
-                                        itemBuilder: (context, index) {
-                                          return _buildGridCard(filteredBooks[index]);
-                                        },
-                                      )
-                                    : ListView.builder(
-                                        padding: const EdgeInsets.symmetric(vertical: 4),
-                                        itemCount: filteredBooks.length,
-                                        itemBuilder: (context, index) {
-                                          return _buildBookListItem(filteredBooks[index]);
-                                        },
-                                      ),
+                                : _showDownloadListMode
+                                    ? _buildDownloadListView(filteredBooks)
+                                    : _showCoverMode
+                                        ? GridView.builder(
+                                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                              crossAxisCount: 2,
+                                              childAspectRatio: 1.72,
+                                              crossAxisSpacing: 12,
+                                              mainAxisSpacing: 12,
+                                            ),
+                                            itemCount: filteredBooks.length,
+                                            itemBuilder: (context, index) {
+                                              return _buildGridCard(filteredBooks[index]);
+                                            },
+                                          )
+                                        : ListView.builder(
+                                            padding: const EdgeInsets.symmetric(vertical: 4),
+                                            itemCount: filteredBooks.length,
+                                            itemBuilder: (context, index) {
+                                              return _buildBookListItem(filteredBooks[index]);
+                                            },
+                                          ),
                       ),
                     ],
                   ),

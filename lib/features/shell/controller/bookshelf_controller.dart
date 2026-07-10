@@ -37,7 +37,7 @@ class BookshelfController {
       await _service.importPdf(File(filePath));
       books.value = _service.listBooks();
     } catch (e) {
-      errorText.value = '导入 PDF 失败：$e';
+      errorText.value = '导入书籍失败：$e';
     } finally {
       isLoading.value = false;
     }

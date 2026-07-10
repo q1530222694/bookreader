@@ -59,7 +59,7 @@ void main() {
     );
 
     expect(find.text('连续阅读'), findsOneWidget);
-    expect(find.text('18天'), findsOneWidget);
+    expect(find.text('0 天'), findsWidgets);
     expect(find.byIcon(CupertinoIcons.sparkles), findsOneWidget);
   });
 
@@ -78,5 +78,41 @@ void main() {
 
     expect(find.text('每日一句'), findsOneWidget);
     expect(find.text('知识改变命运，阅读点亮人生。'), findsOneWidget);
+  });
+
+  testWidgets('HomePage uses real bookshelf data for reading stats', (tester) async {
+    SettingsEngine.setLanguage(SettingsEngine.languageChinese);
+    final controller = BookshelfController();
+    controller.books.value = [
+      const BookModel(
+        id: 'book-1',
+        title: 'Book One',
+        path: '/tmp/book1.pdf',
+        type: 'pdf',
+        progress: 0.60,
+        lastReadAt: null,
+      ),
+      BookModel(
+        id: 'book-2',
+        title: 'Book Two',
+        path: '/tmp/book2.pdf',
+        type: 'pdf',
+        progress: 0.85,
+        lastReadAt: DateTime(2026, 7, 8),
+      ),
+    ];
+
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: HomePage(controller: controller),
+      ),
+    );
+
+    expect(find.text('本月阅读'), findsOneWidget);
+    expect(find.text('今年阅读'), findsOneWidget);
+    expect(find.text('累计阅读'), findsOneWidget);
+    expect(find.textContaining('小时'), findsWidgets);
   });
 }

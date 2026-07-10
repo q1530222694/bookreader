@@ -325,19 +325,104 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  int _calculateReadingMinutes(List<BookModel> books, {required DateTime now, bool includeWithoutLastRead = true}) {
+    if (books.isEmpty) {
+      return 0;
+    }
+
+    var totalMinutes = 0;
+    for (final book in books) {
+      if (book.progress <= 0) {
+        continue;
+      }
+
+      final lastReadAt = book.lastReadAt;
+      if (lastReadAt == null) {
+        if (!includeWithoutLastRead) {
+          continue;
+        }
+        totalMinutes += (book.progress * 60).round();
+        continue;
+      }
+
+      final minutes = (book.progress * 60).round();
+      final daysSinceLastRead = now.difference(lastReadAt).inDays;
+      final recencyBoost = daysSinceLastRead <= 30 ? 15 : 0;
+      totalMinutes += minutes + recencyBoost;
+    }
+
+    return totalMinutes;
+  }
+
+  int _calculateReadingDays(List<BookModel> books) {
+    final uniqueDays = books
+        .where((book) => book.lastReadAt != null)
+        .map((book) => DateTime(book.lastReadAt!.year, book.lastReadAt!.month, book.lastReadAt!.day))
+        .toSet()
+        .length;
+    return uniqueDays;
+  }
+
+  int _calculateReadingStreakDays(List<BookModel> books, DateTime now) {
+    final uniqueDays = books
+        .where((book) => book.lastReadAt != null)
+        .map((book) => DateTime(book.lastReadAt!.year, book.lastReadAt!.month, book.lastReadAt!.day))
+        .toSet();
+
+    if (uniqueDays.isEmpty) {
+      return 0;
+    }
+
+    var streak = 0;
+    var cursor = DateTime(now.year, now.month, now.day);
+    while (uniqueDays.contains(cursor)) {
+      streak += 1;
+      cursor = cursor.subtract(const Duration(days: 1));
+    }
+    return streak;
+  }
+
+  String _formatReadingDuration(int minutes, String language) {
+    final hours = minutes ~/ 60;
+    final mins = minutes % 60;
+    final hourLabel = language == SettingsEngine.languageEnglish ? LocalizationEngine.text('hours_short') : LocalizationEngine.text('hours_short');
+    final minuteLabel = language == SettingsEngine.languageEnglish ? 'm' : LocalizationEngine.text('minutes_short');
+    return '$hours $hourLabel $mins $minuteLabel';
+  }
+
+  String _formatReadingDays(int days, String language) {
+    final dayLabel = language == SettingsEngine.languageEnglish ? LocalizationEngine.text('days_short') : LocalizationEngine.text('days_short');
+    return '$days $dayLabel';
+  }
+
   // 中间阅读数据展示区域（包括大号时长卡片 + 三个统计卡片）
   Widget _readingDataSection(BuildContext context) {
     final theme = CupertinoTheme.of(context);
 
     return ValueListenableBuilder<String>(
       valueListenable: SettingsController.language,
-      builder: (context, _, child) {
+      builder: (context, language, child) {
         final launchCountLabel = LocalizationEngine.text('app_launch_count');
         final launchUnit = LocalizationEngine.text('launch_unit');
+        final now = DateTime.now();
 
         return ValueListenableBuilder<List<BookModel>>(
           valueListenable: _controller.books,
           builder: (context, books, child) {
+            final totalReadingMinutes = _calculateReadingMinutes(books, now: now);
+            final monthlyReadingMinutes = _calculateReadingMinutes(
+              books.where((book) => book.lastReadAt != null && book.lastReadAt!.year == now.year && book.lastReadAt!.month == now.month).toList(),
+              now: now,
+              includeWithoutLastRead: false,
+            );
+            final yearlyReadingMinutes = _calculateReadingMinutes(
+              books.where((book) => book.lastReadAt != null && book.lastReadAt!.year == now.year).toList(),
+              now: now,
+              includeWithoutLastRead: false,
+            );
+            final cumulativeReadingDays = _calculateReadingDays(books);
+            final streakDays = _calculateReadingStreakDays(books, now);
+
             return Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Column(
@@ -370,7 +455,7 @@ class _HomePageState extends State<HomePage> {
                               ),
                               const SizedBox(height: 10),
                               Text(
-                                '18 小时 45 分钟',
+                                _formatReadingDuration(totalReadingMinutes, language),
                                 style: theme.textTheme.textStyle.copyWith(
                                   fontSize: 18,
                                   fontWeight: FontWeight.w700,
@@ -417,7 +502,7 @@ class _HomePageState extends State<HomePage> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                '18天',
+                                _formatReadingDays(streakDays, language),
                                 textAlign: TextAlign.left,
                                 style: theme.textTheme.textStyle.copyWith(
                                   fontSize: 16,
@@ -438,19 +523,40 @@ class _HomePageState extends State<HomePage> {
                       Expanded(
                         child: Padding(
                           padding: const EdgeInsets.only(right: 4),
-                          child: _buildStatCard(context, '32 小时', LocalizationEngine.text('monthly_reading')),
+                          child: _buildStatCard(
+                            context,
+                            _formatReadingDuration(monthlyReadingMinutes, language),
+                            LocalizationEngine.text('monthly_reading'),
+                            accentColor: const Color(0xFF2F80ED),
+                            backgroundColor: const Color(0xFFEAF4FF),
+                            icon: CupertinoIcons.clock,
+                          ),
                         ),
                       ),
                       Expanded(
                         child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: _buildStatCard(context, '382 小时', LocalizationEngine.text('yearly_reading')),
+                          child: _buildStatCard(
+                            context,
+                            _formatReadingDuration(yearlyReadingMinutes, language),
+                            LocalizationEngine.text('yearly_reading'),
+                            accentColor: const Color(0xFF27AE60),
+                            backgroundColor: const Color(0xFFEAFBF1),
+                            icon: CupertinoIcons.calendar,
+                          ),
                         ),
                       ),
                       Expanded(
                         child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: _buildStatCard(context, '126 天', LocalizationEngine.text('cumulative_reading')),
+                          child: _buildStatCard(
+                            context,
+                            _formatReadingDays(cumulativeReadingDays, language),
+                            LocalizationEngine.text('cumulative_reading'),
+                            accentColor: const Color(0xFFE67E22),
+                            backgroundColor: const Color(0xFFFFF4E8),
+                            icon: CupertinoIcons.calendar_badge_plus,
+                          ),
                         ),
                       ),
                       Expanded(
@@ -460,7 +566,14 @@ class _HomePageState extends State<HomePage> {
                             valueListenable: AppStatsService.appLaunchCountNotifier,
                             builder: (context, launchCount, child) {
                               final displayValue = '$launchCount $launchUnit';
-                              return _buildStatCard(context, displayValue, launchCountLabel);
+                              return _buildStatCard(
+                                context,
+                                displayValue,
+                                launchCountLabel,
+                                accentColor: const Color(0xFF9B51E0),
+                                backgroundColor: const Color(0xFFF4EBFF),
+                                icon: CupertinoIcons.chart_pie,
+                              );
                             },
                           ),
                         ),
@@ -477,41 +590,83 @@ class _HomePageState extends State<HomePage> {
   }
 
   // 辅助方法：构建单个统计卡片
-  Widget _buildStatCard(BuildContext context, String value, String label) {
+  Widget _buildStatCard(BuildContext context, String value, String label, {required Color accentColor, required Color backgroundColor, required IconData icon}) {
     final theme = CupertinoTheme.of(context);
+    final parts = value.split(' ');
+    final primaryText = parts.isNotEmpty ? parts.first : value;
+    final secondaryText = parts.length > 1 ? value.substring(value.indexOf(' ')).trim() : '';
 
     return Container(
       width: double.infinity,
-      constraints: const BoxConstraints(minHeight: 46),
+      constraints: const BoxConstraints(minHeight: 68),
       margin: EdgeInsets.zero,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       decoration: BoxDecoration(
-        color: theme.scaffoldBackgroundColor,
+        color: CupertinoColors.white,
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: CupertinoColors.separator.resolveFrom(context).withOpacity(0.7)),
         boxShadow: [
-          BoxShadow(color: CupertinoColors.systemGrey.withOpacity(0.04), blurRadius: 6, offset: const Offset(0, 3)),
+          BoxShadow(color: CupertinoColors.systemGrey.withOpacity(0.06), blurRadius: 8, offset: const Offset(0, 3)),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Text(
-            label,
-            style: theme.textTheme.textStyle.copyWith(
-              fontSize: 10,
-              color: CupertinoColors.secondaryLabel.resolveFrom(context),
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: backgroundColor,
+              borderRadius: BorderRadius.circular(10),
             ),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
+            child: Icon(icon, size: 14, color: accentColor),
           ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: theme.textTheme.textStyle.copyWith(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: CupertinoColors.label.resolveFrom(context),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: theme.textTheme.textStyle.copyWith(
+                    fontSize: 9,
+                    color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(
+                      primaryText,
+                      style: theme.textTheme.textStyle.copyWith(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: CupertinoColors.label.resolveFrom(context),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (secondaryText.isNotEmpty) ...[
+                      const SizedBox(width: 2),
+                      Text(
+                        secondaryText,
+                        style: theme.textTheme.textStyle.copyWith(
+                          fontSize: 10,
+                          color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                          fontWeight: FontWeight.w500,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ],
+                ),
+              ],
             ),
           ),
         ],

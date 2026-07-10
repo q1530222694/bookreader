@@ -1,4 +1,35 @@
-﻿### [2026-07-09] 修复：主页应用启动次数文案随语言切换正确刷新
+﻿### [2026-07-10] 修改：主页阅读统计改为真实书架数据
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/home_page.dart`
+  └─ 变更 ➔ 将首页阅读统计卡片从硬编码模拟数据改为基于真实书架书籍的 `progress` 与 `lastReadAt` 计算
+  └─ 依赖/调用 ➔ `lib/features/shell/model/book_model.dart`
+  └─ 依赖/调用 ➔ `lib/engine/localization_engine.dart`
+- `lib/engine/localization_engine.dart`
+  └─ 变更 ➔ 新增 `minutes_short` 多语言键，供首页统计时格式化分钟展示
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 修改：首页阅读统计不再使用硬编码模拟值，而是根据真实书架书籍的进度和最近阅读时间动态计算
+- 新增：`minutes_short` 多语言键，用于展示分钟单位
+
+---
+
+### [2026-07-10] 优化：书架过滤按钮切换为下载样式列表 UI
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/bookshelf_page.dart`
+  └─ 变更 ➔ 将原先点击过滤按钮时弹出的 `CupertinoActionSheet` 改为切换到下载样式列表视图
+  └─ 依赖/调用 ➔ `lib/engine/localization_engine.dart`
+  └─ 依赖/调用 ➔ `lib/features/shell/controller/bookshelf_controller.dart`
+  └─ 消费 ➔ `lib/features/shell/model/book_model.dart`
+- `lib/engine/localization_engine.dart`
+  └─ 变更 ➔ 新增 `just_now` 多语言键，支持新列表项时间标签显示
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+- 无新增 Config Key
+
+---
+
+### [2026-07-09] 修复：主页应用启动次数文案随语言切换正确刷新
 **【AI 架构依赖树 (Architecture Context)】**
 - `lib/features/shell/ui/home_page.dart`
   └─ 变更 ➔ 为启动次数统计卡片增加对语言状态的显式监听，确保中英文切换后立即刷新文案

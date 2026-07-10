@@ -134,6 +134,10 @@ class LocalizationEngine {
       'zh': '最近阅读',
       'en': 'Recently Read',
     },
+    'just_now': {
+      'zh': '刚刚',
+      'en': 'Just now',
+    },
     'account_settings': {
       'zh': '账号与设置',
       'en': 'Account & Settings',
@@ -453,6 +457,10 @@ class LocalizationEngine {
       'zh': '小时',
       'en': 'h',
     },
+    'minutes_short': {
+      'zh': '分钟',
+      'en': 'm',
+    },
     'days_short': {
       'zh': '天',
       'en': 'd',
@@ -622,8 +630,8 @@ class LocalizationEngine {
       'en': 'Continue',
     },
     'import_pdf': {
-      'zh': '导入 PDF',
-      'en': 'Import PDF',
+      'zh': '导入书籍',
+      'en': 'Import Books',
     },
     'recent_files': {
       'zh': '最近文件',

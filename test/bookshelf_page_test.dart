@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:bookreader/engine/localization_engine.dart';
 import 'package:bookreader/features/shell/controller/bookshelf_controller.dart';
 import 'package:bookreader/features/shell/model/book_model.dart';
@@ -220,8 +222,148 @@ void main() {
     final viewAllWidget = tester.widget<Text>(viewAllText);
 
     expect(recentTitleWidget.style?.fontSize, 16);
-    expect(viewAllWidget.style?.fontSize, 16);
+    expect(viewAllWidget.style?.fontSize, 14);
     expect(recentTitleWidget.style?.fontWeight, FontWeight.w800);
-    expect(viewAllWidget.style?.fontWeight, FontWeight.w800);
+    expect(viewAllWidget.style?.fontWeight, FontWeight.w700);
+  });
+
+  testWidgets('BookshelfPage switches to a download-style list item when filter button is tapped', (tester) async {
+    final controller = BookshelfController();
+    controller.books.value = [
+      const BookModel(
+        id: 'book-4',
+        title: 'Flutter 实战',
+        path: '/tmp/flutter.pdf',
+        type: 'pdf',
+        progress: 0.48,
+        fileSizeBytes: 1548000,
+        lastReadAt: null,
+      ),
+    ];
+
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: BookshelfPage(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(CupertinoIcons.slider_horizontal_3));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Flutter 实战'), findsOneWidget);
+    expect(find.text('PDF · 1.5 MB'), findsOneWidget);
+    expect(find.text('48%').evaluate().isNotEmpty, isTrue);
+    expect(find.text(LocalizationEngine.text('just_now')), findsOneWidget);
+  });
+
+  testWidgets('BookshelfPage uses a fixed-width progress bar in list mode', (tester) async {
+    final controller = BookshelfController();
+    controller.books.value = [
+      const BookModel(
+        id: 'book-6',
+        title: 'Fixed Progress Book',
+        path: '/tmp/fixed-progress.pdf',
+        type: 'pdf',
+        progress: 0.48,
+        fileSizeBytes: 1548000,
+      ),
+    ];
+
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: BookshelfPage(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(CupertinoIcons.slider_horizontal_3));
+    await tester.pumpAndSettle();
+
+    expect(find.byWidgetPredicate((widget) => widget is SizedBox && widget.width == 140), findsAtLeastNWidgets(1));
+  });
+
+  testWidgets('BookshelfPage shows real statistics counts in the summary cards', (tester) async {
+    final controller = BookshelfController();
+    controller.books.value = [
+      const BookModel(
+        id: 'book-5',
+        title: 'Cover Book',
+        path: '/tmp/cover.pdf',
+        type: 'pdf',
+        progress: 0.6,
+        fileSizeBytes: 2048000,
+        isFavorite: true,
+      ),
+      const BookModel(
+        id: 'book-6',
+        title: 'Finished Book',
+        path: '/tmp/finished.pdf',
+        type: 'epub',
+        progress: 1.0,
+        fileSizeBytes: 1024000,
+      ),
+      const BookModel(
+        id: 'book-7',
+        title: 'Unread Book',
+        path: '/tmp/unread.txt',
+        type: 'txt',
+        progress: 0.0,
+        fileSizeBytes: 512000,
+      ),
+    ];
+
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: BookshelfPage(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('3'), findsWidgets);
+    expect(find.text('1'), findsWidgets);
+    expect(find.text('收藏'), findsOneWidget);
+    expect(find.text('在读'), findsOneWidget);
+    expect(find.text('已读'), findsOneWidget);
+  });
+
+  testWidgets('BookshelfPage shows a real cover and more-button actions in list mode', (tester) async {
+    final controller = BookshelfController();
+    controller.books.value = [
+      BookModel(
+        id: 'book-5',
+        title: 'Cover Book',
+        path: '/tmp/cover.pdf',
+        type: 'pdf',
+        progress: 0.6,
+        fileSizeBytes: 2048000,
+        coverBytes: Uint8List.fromList([1, 2, 3, 4]),
+      ),
+    ];
+
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: BookshelfPage(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(CupertinoIcons.slider_horizontal_3));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(Image), findsAtLeastNWidgets(1));
+
+    await tester.tap(find.byKey(const ValueKey('bookshelf_list_more_button_book-5')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('删除'), findsOneWidget);
   });
 }
