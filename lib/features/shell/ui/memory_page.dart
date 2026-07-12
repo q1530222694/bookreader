@@ -203,17 +203,10 @@ class _MemoryPageState extends State<MemoryPage> {
       ),
       _StatItem(
         LocalizationEngine.text('continuous_reading'),
-        '🔥 ${stats.streakDays}${LocalizationEngine.text('days_short')}',
+        '${stats.streakDays}${LocalizationEngine.text('days_short')}',
         '${stats.activeDays}${LocalizationEngine.text('days_short')}',
-        CupertinoIcons.sparkles,
+        CupertinoIcons.flame_fill,
         const Color(0xFFF3E8FF),
-      ),
-      _StatItem(
-        LocalizationEngine.text('cumulative_reading'),
-        stats.formattedTotalReadingShort,
-        '',
-        CupertinoIcons.chart_bar_circle_fill,
-        const Color(0xFFE8F7ED),
       ),
       _StatItem(
         LocalizationEngine.text('cumulative_reading_days'),
@@ -250,6 +243,7 @@ class _MemoryPageState extends State<MemoryPage> {
       ),
       itemBuilder: (context, index) {
         final item = metricItems[index];
+        final textColor = theme.textTheme.textStyle.color ?? CupertinoColors.label;
         return Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
@@ -291,18 +285,19 @@ class _MemoryPageState extends State<MemoryPage> {
               const SizedBox(height: 10),
               Text(
                 item.value,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w700,
+                  color: textColor,
                 ),
               ),
               if (item.subtitle.isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Text(
                   item.subtitle,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 10,
-                    color: CupertinoColors.systemGrey,
+                    color: textColor.withOpacity(0.6),
                   ),
                 ),
               ],
@@ -444,22 +439,22 @@ class _MemoryPageState extends State<MemoryPage> {
     final distributionData = <_DistributionItem>[
       _DistributionItem(
         '1小时以下',
-        stats.distributionUnder1Hour,
+        stats.distributionUnder1HourMinutes,
         const Color(0xFF007AFF),
       ),
       _DistributionItem(
         '1-2小时',
-        stats.distribution1To2Hours,
+        stats.distribution1To2HoursMinutes,
         const Color(0xFF34C759),
       ),
       _DistributionItem(
         '2-3小时',
-        stats.distribution2To3Hours,
+        stats.distribution2To3HoursMinutes,
         const Color(0xFFFFA500),
       ),
       _DistributionItem(
         '3小时以上',
-        stats.distribution3HoursMore,
+        stats.distribution3HoursMoreMinutes,
         const Color(0xFFFF3B30),
       ),
     ];
@@ -530,6 +525,13 @@ class _MemoryPageState extends State<MemoryPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: distributionData.map((item) {
+                        final totalMinutes = distributionData.fold<int>(
+                          0,
+                          (sum, entry) => sum + entry.minutes,
+                        );
+                        final percentage = totalMinutes > 0
+                            ? (item.minutes / totalMinutes) * 100
+                            : 0.0;
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 10),
                           child: Row(
@@ -553,7 +555,7 @@ class _MemoryPageState extends State<MemoryPage> {
                                 ),
                               ),
                               Text(
-                                '${item.percentage}%',
+                                '${percentage.toStringAsFixed(0)}%',
                                 style: TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w700,
@@ -710,13 +712,15 @@ class _MemoryPageState extends State<MemoryPage> {
 
   _PeriodData _buildDailyPeriodData(ReadingStats stats) {
     final today = DateTime.now();
+    final normalizedToday = DateTime(today.year, today.month, today.day);
     final labels = List<String>.generate(12, (index) {
-      final date = today.subtract(Duration(days: 11 - index));
+      final date = normalizedToday.subtract(Duration(days: 11 - index));
       return '${date.month}/${date.day}';
     });
     final values = List<double>.generate(12, (index) {
-      final date = today.subtract(Duration(days: 11 - index));
-      return stats.dailyMinutes[date]?.toDouble() ?? 0.0;
+      final date = normalizedToday.subtract(Duration(days: 11 - index));
+      final normalizedDate = DateTime(date.year, date.month, date.day);
+      return stats.dailyMinutes[normalizedDate]?.toDouble() ?? 0.0;
     }).map((minutes) => minutes / 60.0).toList();
     final total = values.fold(0.0, (sum, value) => sum + value);
     final previousTotal = stats.previousDailyWindowMinutes / 60.0;
@@ -1230,10 +1234,10 @@ class _ChartPainter extends CustomPainter {
 }
 
 class _DistributionItem {
-  const _DistributionItem(this.label, this.percentage, this.color);
+  const _DistributionItem(this.label, this.minutes, this.color);
 
   final String label;
-  final int percentage;
+  final int minutes;
   final Color color;
 }
 
@@ -1249,10 +1253,14 @@ class _DonutChartPainter extends CustomPainter {
     const strokeWidth = 16.0;
 
     var startAngle = -math.pi / 2;
-    final total = data.fold<int>(0, (sum, item) => sum + item.percentage);
+    final total = data.fold<int>(0, (sum, item) => sum + item.minutes);
+
+    if (total <= 0) {
+      return;
+    }
 
     for (final item in data) {
-      final sweepAngle = (item.percentage / total) * 2 * math.pi;
+      final sweepAngle = (item.minutes / total) * 2 * math.pi;
 
       final paint = Paint()
         ..color = item.color

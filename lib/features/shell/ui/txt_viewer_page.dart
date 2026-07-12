@@ -1,8 +1,12 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+
+import '../controller/settings_controller.dart';
+import 'reader_settings_sheet.dart';
 
 class TxtViewerPage extends StatefulWidget {
   final String title;
@@ -14,13 +18,57 @@ class TxtViewerPage extends StatefulWidget {
   State<TxtViewerPage> createState() => _TxtViewerPageState();
 }
 
-class _TxtViewerPageState extends State<TxtViewerPage> {
+class _TxtViewerPageState extends State<TxtViewerPage>
+    with TickerProviderStateMixin {
   String? _content;
+  bool _isFullscreen = true;
+  bool _showSettings = false;
+  Timer? _tapDetectionTimer;
+  late final AnimationController _settingsController;
+  late final Animation<double> _settingsAnimation;
+  late final Animation<Offset> _headerOffsetAnimation;
+  late final Animation<Offset> _sheetOffsetAnimation;
+  late final Animation<double> _overlayAnimation;
+  late final Animation<double> _contentScaleAnimation;
+  int _selectedThemeIndex = 1;
+  double _brightness = 0.8;
+  int _selectedFontIndex = 0;
+  int _selectedPageMode = 0;
 
   @override
   void initState() {
     super.initState();
+    _settingsController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 320),
+    )..addListener(_handleSettingsAnimationChanged)
+      ..addStatusListener(_handleSettingsAnimationStatusChanged);
+    _settingsAnimation = CurvedAnimation(
+      parent: _settingsController,
+      curve: Curves.easeOutBack,
+    );
+    _headerOffsetAnimation = Tween<Offset>(
+      begin: const Offset(0, -1.5),
+      end: Offset.zero,
+    ).animate(_settingsAnimation);
+    _sheetOffsetAnimation = Tween<Offset>(
+      begin: const Offset(0, 2.2),
+      end: Offset.zero,
+    ).animate(_settingsAnimation);
+    _overlayAnimation = Tween<double>(begin: 0.0, end: 0.15).animate(
+      _settingsAnimation,
+    );
+    _contentScaleAnimation = Tween<double>(begin: 1.0, end: 0.985).animate(
+      _settingsAnimation,
+    );
     _load();
+  }
+
+  @override
+  void dispose() {
+    _tapDetectionTimer?.cancel();
+    _settingsController.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -45,21 +93,276 @@ class _TxtViewerPageState extends State<TxtViewerPage> {
     }
   }
 
+  void _toggleFullscreen() {
+    setState(() {
+      _isFullscreen = !_isFullscreen;
+      _showSettings = false;
+    });
+    _settingsController.reverse();
+  }
+
+  void _handleSettingsAnimationChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  void _handleSettingsAnimationStatusChanged(AnimationStatus status) {
+    if (!mounted) return;
+    if (status == AnimationStatus.completed ||
+        status == AnimationStatus.dismissed) {
+      setState(() {});
+    }
+  }
+
+  void _toggleSettings() {
+    if (!mounted) return;
+    setState(() {
+      _showSettings = !_showSettings;
+    });
+    if (_showSettings) {
+      _settingsController.forward();
+    } else {
+      _settingsController.reverse();
+    }
+  }
+
+  void _handleCenterTap() {
+    if (_tapDetectionTimer != null) {
+      _tapDetectionTimer!.cancel();
+      _tapDetectionTimer = null;
+      return;
+    }
+
+    _tapDetectionTimer = Timer(const Duration(milliseconds: 220), () {
+      _tapDetectionTimer = null;
+      if (!mounted) return;
+      _toggleSettings();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    return CupertinoPageScaffold(
-      navigationBar: CupertinoNavigationBar(middle: Text(widget.title)),
-      child: SafeArea(
-        child: _content == null
-            ? const Center(child: CupertinoActivityIndicator())
-            : SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
-                child: SelectableText(
-                  _content!,
-                  style: const TextStyle(fontSize: 16, height: 1.5),
+    final textColor = CupertinoColors.label.resolveFrom(context);
+    final backgroundColor = CupertinoColors.systemBackground.resolveFrom(
+      context,
+    );
+    final themeColor = CupertinoTheme.of(context).primaryColor;
+
+    return ValueListenableBuilder<Color>(
+      valueListenable: SettingsController.readerBackgroundColor,
+      builder: (context, readerBackgroundColor, child) {
+        final effectiveTextColor = readerBackgroundColor.computeLuminance() > 0.6
+            ? CupertinoColors.label.resolveFrom(context)
+            : CupertinoColors.white;
+
+        return CupertinoPageScaffold(
+          backgroundColor: backgroundColor,
+          child: Stack(
+            children: [
+              Container(
+                color: readerBackgroundColor,
+                child: AnimatedBuilder(
+                  animation: _settingsAnimation,
+                  builder: (context, child) {
+                    return Transform.scale(
+                      scale: _contentScaleAnimation.value,
+                      alignment: Alignment.center,
+                      child: child,
+                    );
+                  },
+                  child: SafeArea(
+                    child: Column(
+                      children: [
+                        if (_isFullscreen)
+                          SizedBox(
+                            height: 48,
+                            child: Align(
+                              alignment: Alignment.centerRight,
+                              child: CupertinoButton(
+                                padding: EdgeInsets.zero,
+                                onPressed: _toggleFullscreen,
+                                child: Icon(
+                                  CupertinoIcons.fullscreen_exit,
+                                  color: themeColor,
+                                ),
+                              ),
+                            ),
+                          ),
+                        Expanded(
+                          child: _content == null
+                              ? const Center(child: CupertinoActivityIndicator())
+                              : SingleChildScrollView(
+                                  padding: const EdgeInsets.fromLTRB(18, 8, 18, 100),
+                                  child: SelectableText(
+                                    _content!,
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      height: 1.5,
+                                      color: effectiveTextColor,
+                                    ),
+                                  ),
+                                ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
-      ),
+              Positioned.fill(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final width = constraints.maxWidth;
+                final height = constraints.maxHeight;
+                return Stack(
+                  children: [
+                    Positioned(
+                      left: width * 0.25,
+                      top: height * 0.25,
+                      width: width * 0.5,
+                      height: height * 0.5,
+                      child: GestureDetector(
+                        key: const ValueKey('txt_reader_center_tap_target'),
+                        behavior: HitTestBehavior.translucent,
+                        onTapUp: (_) => _handleCenterTap(),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+          if (_showSettings || _settingsController.isAnimating)
+            Positioned.fill(
+              child: AnimatedBuilder(
+                animation: _settingsAnimation,
+                builder: (context, child) {
+                  return IgnorePointer(
+                    ignoring: !_showSettings && !_settingsController.isAnimating,
+                    child: GestureDetector(
+                      onTap: _toggleSettings,
+                      child: Container(
+                        color: Colors.black.withValues(
+                          alpha: _overlayAnimation.value,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: AnimatedBuilder(
+              animation: _settingsAnimation,
+              builder: (context, child) {
+                if (_settingsController.value <= 0 && !_showSettings) {
+                  return const SizedBox.shrink();
+                }
+                return SlideTransition(
+                  position: _headerOffsetAnimation,
+                  child: SafeArea(
+                    bottom: false,
+                    child: Container(
+                      width: double.infinity,
+                      color: CupertinoColors.white,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(8, 6, 8, 10),
+                        child: Row(
+                          children: [
+                            CupertinoButton(
+                              padding: EdgeInsets.zero,
+                              minimumSize: const Size(0, 0),
+                              onPressed: () => Navigator.of(context).maybePop(),
+                              child: Icon(
+                                CupertinoIcons.back,
+                                color: themeColor,
+                              ),
+                            ),
+                            Expanded(
+                              child: Text(
+                                widget.title,
+                                textAlign: TextAlign.center,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: CupertinoColors.label.resolveFrom(
+                                    context,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: themeColor.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: const Text('TXT'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: AnimatedBuilder(
+              animation: _settingsAnimation,
+              builder: (context, child) {
+                if (_settingsController.value <= 0 && !_showSettings) {
+                  return const SizedBox.shrink();
+                }
+                return SlideTransition(
+                  position: _sheetOffsetAnimation,
+                  child: Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: CupertinoColors.systemBackground.resolveFrom(context),
+                      borderRadius: BorderRadius.circular(28),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(28),
+                      child: ReaderSettingsSheet(
+                        selectedThemeIndex: _selectedThemeIndex,
+                        brightness: _brightness,
+                        selectedFontIndex: _selectedFontIndex,
+                        selectedPageMode: _selectedPageMode,
+                        selectedBackgroundColor: readerBackgroundColor,
+                        isPdfReader: false,
+                        onThemeChanged: (index) =>
+                            setState(() => _selectedThemeIndex = index),
+                        onBrightnessChanged: (value) =>
+                            setState(() => _brightness = value),
+                        onFontChanged: (index) =>
+                            setState(() => _selectedFontIndex = index),
+                        onPageModeChanged: (index) =>
+                            setState(() => _selectedPageMode = index),
+                        onBackgroundColorChanged: (color) =>
+                            SettingsController.setReaderBackgroundColor(color),
+                        onClose: _toggleSettings,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

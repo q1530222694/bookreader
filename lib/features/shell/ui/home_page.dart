@@ -19,9 +19,10 @@ import 'package:open_filex/open_filex.dart';
 
 /// HomePage displays the redesigned dashboard matching the provided mock.
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, this.controller});
+  const HomePage({super.key, this.controller, this.currentTimeProvider});
 
   final BookshelfController? controller;
+  final DateTime Function()? currentTimeProvider;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -96,6 +97,36 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  DateTime _resolveNow() => widget.currentTimeProvider?.call() ?? DateTime.now();
+
+  String _greetingTitle() {
+    final hour = _resolveNow().hour;
+    if (hour < 6) {
+      return LocalizationEngine.text('greeting_title_late_night');
+    }
+    if (hour < 12) {
+      return LocalizationEngine.text('greeting_title_morning');
+    }
+    if (hour < 18) {
+      return LocalizationEngine.text('greeting_title_afternoon');
+    }
+    return LocalizationEngine.text('greeting_title_evening');
+  }
+
+  String _greetingSubtitle() {
+    final hour = _resolveNow().hour;
+    if (hour < 6) {
+      return LocalizationEngine.text('greeting_subtitle_late_night');
+    }
+    if (hour < 12) {
+      return LocalizationEngine.text('greeting_subtitle_morning');
+    }
+    if (hour < 18) {
+      return LocalizationEngine.text('greeting_subtitle_afternoon');
+    }
+    return LocalizationEngine.text('greeting_subtitle_evening');
+  }
+
   Widget _greetingSection(BuildContext context) {
     final theme = CupertinoTheme.of(context);
 
@@ -112,7 +143,7 @@ class _HomePageState extends State<HomePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              LocalizationEngine.text('greeting_title'),
+              _greetingTitle(),
               style: theme.textTheme.textStyle.copyWith(
                 fontSize: 20,
                 fontWeight: FontWeight.w800,
@@ -121,7 +152,7 @@ class _HomePageState extends State<HomePage> {
             ),
             const SizedBox(height: 4),
             Text(
-              LocalizationEngine.text('greeting_subtitle'),
+              _greetingSubtitle(),
               style: theme.textTheme.textStyle.copyWith(
                 fontSize: 12,
                 fontWeight: FontWeight.w500,

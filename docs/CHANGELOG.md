@@ -1,4 +1,55 @@
-﻿### [2026-07-10] 修改：主页阅读统计改为真实书架数据
+﻿### [2026-07-12] 优化：阅读设置面板高度收紧并降低按钮间距
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/reader_settings_sheet.dart`
+  └─ 变更 ➔ 收紧面板内边距、标题与分组间距、主题色块尺寸、字体与翻页按钮高度，降低整体面板高度约 1/3，避免遮挡并提升紧凑度
+  └─ 变更 ➔ 主题色选项与应用“主题配色”保持一致，点击后同步更新全局主题色
+  └─ 依赖/调用 ➔ `lib/features/shell/ui/txt_viewer_page.dart`
+  └─ 依赖/调用 ➔ `lib/features/shell/ui/book_viewer_page.dart`
+  └─ 依赖/调用 ➔ `lib/features/shell/controller/settings_controller.dart`
+- `test/txt_viewer_page_test.dart`
+  └─ 变更 ➔ 新增阅读设置面板紧凑布局回归测试
+  └─ 变更 ➔ 新增主题色与全局设置同步的回归测试
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+- 无新增 Config Key
+
+---
+
+### [2026-07-12] 修改：TXT 阅读设置界面与 PDF 阅读器保持一致
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/txt_viewer_page.dart`
+  └─ 变更 ➔ 将 TXT 阅读页的设置面板改为与 PDF 阅读器一致的叠层遮罩、顶部标题栏、圆角抽屉和收起/展开动画
+  └─ 依赖/调用 ➔ `lib/features/shell/ui/reader_settings_sheet.dart`
+- `test/txt_viewer_page_test.dart`
+  └─ 变更 ➔ 增加 TXT 设置面板的回归测试，确认其使用与 PDF 相同的圆角抽屉展示结构
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+- 无新增 Config Key
+
+---
+
+### [2026-07-12] 新增：TXT 阅读页进入全屏后支持中间触发设置面板
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/txt_viewer_page.dart`
+  └─ 变更 ➔ 默认进入全屏阅读体验，点击阅读内容区域可弹出底部设置面板，并支持主题、亮度、字体和翻页方式切换
+  └─ 依赖/调用 ➔ `lib/features/shell/ui/reader_settings_sheet.dart`
+  └─ 依赖/调用 ➔ `lib/engine/localization_engine.dart`
+- `lib/features/shell/ui/reader_settings_sheet.dart`
+  └─ 新增 ➔ 提供与需求一致的底部抽屉式阅读设置面板 UI
+- `lib/engine/localization_engine.dart`
+  └─ 变更 ➔ 新增阅读设置相关多语言键
+- `test/txt_viewer_page_test.dart`
+  └─ 变更 ➔ 新增点击中间显示设置面板的回归测试
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+- 无新增 Config Key
+
+---
+
+### [2026-07-10] 修改：主页阅读统计改为真实书架数据
 **【AI 架构依赖树 (Architecture Context)】**
 - `lib/features/shell/ui/home_page.dart`
   └─ 变更 ➔ 将首页阅读统计卡片从硬编码模拟数据改为基于真实书架书籍的 `progress` 与 `lastReadAt` 计算

@@ -1,3 +1,5 @@
+import 'package:flutter/widgets.dart';
+
 import 'config.dart';
 
 /// SettingsEngine provides app-level setting keys and helpers.
@@ -28,6 +30,9 @@ class SettingsEngine {
   static const String fontFamilySansSerif = 'sans_serif';
   static const String fontFamilySerif = 'serif';
   static const String fontFamilyMonospace = 'monospace';
+
+  static const String readerBackgroundColorKey = 'app.readerBackgroundColor';
+  static const Color readerBackgroundColorDefault = Color(0xFFF7F3EC);
 
   // Startup page settings
   static const String startupPageKey = 'app.startupPage';
@@ -77,6 +82,15 @@ class SettingsEngine {
 
   static void setFontFamily(String fontFamily) {
     Config.set(fontFamilyKey, fontFamily);
+  }
+
+  static Color get readerBackgroundColor {
+    final value = Config.get(readerBackgroundColorKey);
+    return value is Color ? value : readerBackgroundColorDefault;
+  }
+
+  static void setReaderBackgroundColor(Color color) {
+    Config.set(readerBackgroundColorKey, color);
   }
 
   // Startup page

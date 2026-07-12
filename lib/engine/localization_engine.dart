@@ -106,70 +106,53 @@ class LocalizationEngine {
   };
 
   static const Map<String, Map<String, String>> _translations = {
-    'home': {
-      'zh': '主页',
-      'en': 'Home',
-    },
-    'bookshelf': {
-      'zh': '书架',
-      'en': 'Bookshelf',
-    },
-    'memory': {
-      'zh': '回忆',
-      'en': 'Memory',
-    },
-    'tools': {
-      'zh': '工具',
-      'en': 'Tools',
-    },
-    'profile': {
-      'zh': '我的',
-      'en': 'Profile',
-    },
-    'daily_sentence': {
-      'zh': '每日一句',
-      'en': 'Daily Sentence',
-    },
-    'recently_reading': {
-      'zh': '最近阅读',
-      'en': 'Recently Read',
-    },
-    'just_now': {
-      'zh': '刚刚',
-      'en': 'Just now',
-    },
-    'account_settings': {
-      'zh': '账号与设置',
-      'en': 'Account & Settings',
-    },
-    'quick_access': {
-      'zh': '快捷入口',
-      'en': 'Quick Access',
-    },
-    'premium': {
-      'zh': '开通高级会员',
-      'en': 'Activate Premium',
-    },
-    'membership_center': {
-      'zh': '会员中心',
-      'en': 'Membership Center',
-    },
+    'home': {'zh': '主页', 'en': 'Home'},
+    'bookshelf': {'zh': '书架', 'en': 'Bookshelf'},
+    'memory': {'zh': '回忆', 'en': 'Memory'},
+    'tools': {'zh': '工具', 'en': 'Tools'},
+    'profile': {'zh': '我的', 'en': 'Profile'},
+    'daily_sentence': {'zh': '每日一句', 'en': 'Daily Sentence'},
+    'recently_reading': {'zh': '最近阅读', 'en': 'Recently Read'},
+    'reader_settings': {'zh': '阅读设置', 'en': 'Reading Settings'},
+    'reader_reset': {'zh': '重置', 'en': 'Reset'},
+    'reader_theme': {'zh': '主题', 'en': 'Theme'},
+    'reader_theme_system': {'zh': '跟随系统', 'en': 'System'},
+    'reader_theme_light': {'zh': '浅色', 'en': 'Light'},
+    'reader_theme_eyegreen': {'zh': '护眼绿', 'en': 'Eye Green'},
+    'reader_theme_beige': {'zh': '米色', 'en': 'Beige'},
+    'reader_theme_dark': {'zh': '深色', 'en': 'Dark'},
+    'reader_brightness': {'zh': '亮度', 'en': 'Brightness'},
+    'reader_font': {'zh': '字体', 'en': 'Font'},
+    'reader_font_system': {'zh': '系统字体', 'en': 'System Font'},
+    'reader_font_default': {'zh': 'A-', 'en': 'A-'},
+    'reader_font_large': {'zh': 'A+', 'en': 'A+'},
+    'reader_page_turn': {'zh': '翻页方式', 'en': 'Page Turn'},
+    'reader_page_turn_horizontal': {'zh': '左右翻页', 'en': 'Horizontal'},
+    'reader_page_turn_vertical': {'zh': '上下滚动', 'en': 'Vertical'},
+    'reader_page_turn_simulation': {'zh': '仿真翻页', 'en': 'Simulation'},
+    'reader_page_turn_none': {'zh': '无动画', 'en': 'No Animation'},
+    'reader_nav_catalog': {'zh': '目录', 'en': 'Catalog'},
+    'reader_nav_progress': {'zh': '进度', 'en': 'Progress'},
+    'reader_nav_notes': {'zh': '笔记', 'en': 'Notes'},
+    'reader_nav_search': {'zh': '搜索', 'en': 'Search'},
+    'reader_nav_more': {'zh': '更多', 'en': 'More'},
+    'just_now': {'zh': '刚刚', 'en': 'Just now'},
+    'account_settings': {'zh': '账号与设置', 'en': 'Account & Settings'},
+    'quick_access': {'zh': '快捷入口', 'en': 'Quick Access'},
+    'premium': {'zh': '开通高级会员', 'en': 'Activate Premium'},
+    'membership_center': {'zh': '会员中心', 'en': 'Membership Center'},
     'membership_intro': {
       'zh': '高级会员为阅读、记录与AI能力提供更完整的体验。',
-      'en': 'Premium membership unlocks a fuller reading, journaling, and AI experience.',
+      'en':
+          'Premium membership unlocks a fuller reading, journaling, and AI experience.',
     },
-    'membership_architecture': {
-      'zh': '会员架构',
-      'en': 'Membership Structure',
-    },
+    'membership_architecture': {'zh': '会员架构', 'en': 'Membership Structure'},
     'membership_architecture_body': {
       'zh': '会员能力由权限引擎统一调度，服务端配置决定当前是否开放高级权益。',
-      'en': 'Membership capabilities are coordinated by the permission engine, and server configuration determines whether premium benefits are enabled.',
+      'en':
+          'Membership capabilities are coordinated by the permission engine, and server configuration determines whether premium benefits are enabled.',
     },
-    'membership_features': {
-      'zh': '会员应有的功能',
-      'en': 'Premium Features',
-    },
+    'membership_features': {'zh': '会员应有的功能', 'en': 'Premium Features'},
     'membership_feature_1': {
       'zh': '无限制的阅读与笔记增强能力',
       'en': 'Unlimited reading and note enhancement capabilities',
@@ -182,21 +165,20 @@ class LocalizationEngine {
       'zh': '优先同步与个性化主题体验',
       'en': 'Priority sync and personalized theme experience',
     },
-    'membership_status_label': {
-      'zh': '当前状态',
-      'en': 'Current Status',
-    },
+    'membership_status_label': {'zh': '当前状态', 'en': 'Current Status'},
     'membership_loading': {
       'zh': '正在加载会员状态...',
       'en': 'Loading membership status...',
     },
     'membership_enabled': {
       'zh': '会员功能已启用，会员权限由云端控制。',
-      'en': 'Membership features are enabled and permissions are controlled by the server.',
+      'en':
+          'Membership features are enabled and permissions are controlled by the server.',
     },
     'membership_disabled': {
       'zh': '会员功能当前未开启，请检查服务器端权限配置。',
-      'en': 'Membership features are currently disabled. Please check the server-side permission settings.',
+      'en':
+          'Membership features are currently disabled. Please check the server-side permission settings.',
     },
     'membership_vip_status': {
       'zh': '当前为 VIP 用户，等级：',
@@ -206,109 +188,50 @@ class LocalizationEngine {
       'zh': '当前非 VIP 用户，等级：',
       'en': 'Current user is not VIP, level: ',
     },
-    'sync': {
-      'zh': '同步',
-      'en': 'Sync',
-    },
-    'ai_assistant': {
-      'zh': 'AI助手',
-      'en': 'AI Assistant',
-    },
-    'language': {
-      'zh': '语言',
-      'en': 'Language',
-    },
-    'appearance': {
-      'zh': '外观',
-      'en': 'Appearance',
-    },
-    'theme_color': {
-      'zh': '主题配色',
-      'en': 'Theme Color',
-    },
-    'theme_color_blue': {
-      'zh': '蓝色',
-      'en': 'Blue',
-    },
-    'theme_color_green': {
-      'zh': '绿色',
-      'en': 'Green',
-    },
-    'theme_color_pink': {
-      'zh': '粉色',
-      'en': 'Pink',
-    },
-    'theme_color_orange': {
-      'zh': '橙色',
-      'en': 'Orange',
-    },
-    'more_settings': {
-      'zh': '更多设置',
-      'en': 'More Settings',
-    },
-    'about': {
-      'zh': '关于',
-      'en': 'About',
-    },
-    'about_app_title': {
-      'zh': '书reader',
-      'en': 'Book Reader',
-    },
+    'sync': {'zh': '同步', 'en': 'Sync'},
+    'ai_assistant': {'zh': 'AI助手', 'en': 'AI Assistant'},
+    'language': {'zh': '语言', 'en': 'Language'},
+    'appearance': {'zh': '外观', 'en': 'Appearance'},
+    'theme_color': {'zh': '主题配色', 'en': 'Theme Color'},
+    'reader_background': {'zh': '阅读背景', 'en': 'Reading Background'},
+    'reader_background_white': {'zh': '白', 'en': 'White'},
+    'reader_background_beige': {'zh': '米白', 'en': 'Beige'},
+    'reader_background_gray': {'zh': '灰', 'en': 'Gray'},
+    'reader_background_yellow': {'zh': '浅黄', 'en': 'Cream'},
+    'reader_background_green': {'zh': '浅绿', 'en': 'Mint'},
+    'reader_background_blue': {'zh': '浅蓝', 'en': 'Blue'},
+    'reader_background_dark': {'zh': '深灰', 'en': 'Dark'},
+    'theme_color_blue': {'zh': '蓝色', 'en': 'Blue'},
+    'theme_color_green': {'zh': '绿色', 'en': 'Green'},
+    'theme_color_pink': {'zh': '粉色', 'en': 'Pink'},
+    'theme_color_orange': {'zh': '橙色', 'en': 'Orange'},
+    'more_settings': {'zh': '更多设置', 'en': 'More Settings'},
+    'about': {'zh': '关于', 'en': 'About'},
+    'about_app_title': {'zh': '书reader', 'en': 'Book Reader'},
     'about_app_description': {
       'zh': '一款简洁好用的阅读与记录应用，持续优化阅读体验。',
-      'en': 'A simple and practical reading and journaling app with continuous experience improvements.',
+      'en':
+          'A simple and practical reading and journaling app with continuous experience improvements.',
     },
     'about_app_mission': {
       'zh': '专注阅读，让每一次打开都值得',
       'en': 'Focus on reading, make every opening worthwhile.',
     },
-    'next_page': {
-      'zh': '下一页',
-      'en': 'Next Page',
-    },
-    'view_more': {
-      'zh': '查看更多',
-      'en': 'View More',
-    },
-    'support_and_links': {
-      'zh': '支持与链接',
-      'en': 'Support & Links',
-    },
-    'update_log': {
-      'zh': '更新日志',
-      'en': 'Update Log',
-    },
-    'check_update': {
-      'zh': '检查更新',
-      'en': 'Check Update',
-    },
-    'qq_group': {
-      'zh': 'QQ群',
-      'en': 'QQ Group',
-    },
-    'wechat_group': {
-      'zh': '微信群',
-      'en': 'WeChat Group',
-    },
-    'email': {
-      'zh': '邮件',
-      'en': 'Email',
-    },
-    'official_website': {
-      'zh': '官网',
-      'en': 'Official Website',
-    },
-    'privacy_policy': {
-      'zh': '隐私政策',
-      'en': 'Privacy Policy',
-    },
-    'user_agreement': {
-      'zh': '用户协议',
-      'en': 'User Agreement',
-    },
+    'next_page': {'zh': '下一页', 'en': 'Next Page'},
+    'view_more': {'zh': '查看更多', 'en': 'View More'},
+    'support_and_links': {'zh': '支持与链接', 'en': 'Support & Links'},
+    'update_log': {'zh': '更新日志', 'en': 'Update Log'},
+    'check_update': {'zh': '检查更新', 'en': 'Check Update'},
+    'qq_group': {'zh': 'QQ群', 'en': 'QQ Group'},
+    'wechat_group': {'zh': '微信群', 'en': 'WeChat Group'},
+    'email': {'zh': '邮件', 'en': 'Email'},
+    'official_website': {'zh': '官网', 'en': 'Official Website'},
+    'privacy_policy': {'zh': '隐私政策', 'en': 'Privacy Policy'},
+    'user_agreement': {'zh': '用户协议', 'en': 'User Agreement'},
     'update_log_content': {
       'zh': '当前版本为 1.0.0，正在持续优化阅读体验与界面细节。',
-      'en': 'The current version is 1.0.0, and the reading experience and interface details are being continuously improved.',
+      'en':
+          'The current version is 1.0.0, and the reading experience and interface details are being continuously improved.',
     },
     'update_latest': {
       'zh': '当前已经是最新版本。',
@@ -318,481 +241,216 @@ class LocalizationEngine {
       'zh': '无法打开该链接，请稍后重试。',
       'en': 'Unable to open the link. Please try again later.',
     },
-    'settings': {
-      'zh': '设置',
-      'en': 'Settings',
-    },
-    'chinese': {
-      'zh': '中文',
-      'en': 'Chinese',
-      'zh_Hant': '中文',
-    },
-    'english': {
-      'zh': '英文',
-      'en': 'English',
-      'zh_Hant': '英文',
-    },
+    'settings': {'zh': '设置', 'en': 'Settings'},
+    'chinese': {'zh': '中文', 'en': 'Chinese', 'zh_Hant': '中文'},
+    'english': {'zh': '英文', 'en': 'English', 'zh_Hant': '英文'},
     'traditional_chinese': {
       'zh': '繁体',
       'en': 'Traditional Chinese',
       'zh_Hant': '繁體',
     },
-    'follow_system': {
-      'zh': '跟随系统',
-      'en': 'Follow System',
+    'follow_system': {'zh': '跟随系统', 'en': 'Follow System'},
+    'light_mode': {'zh': '亮色模式', 'en': 'Light Mode'},
+    'dark_mode': {'zh': '暗色模式', 'en': 'Dark Mode'},
+    'save': {'zh': '保存', 'en': 'Save'},
+    'edit': {'zh': '编辑', 'en': 'Edit'},
+    'cancel': {'zh': '取消', 'en': 'Cancel'},
+    'done': {'zh': '完成', 'en': 'Done'},
+    'bookshelf_import_single': {'zh': '单本导入', 'en': 'Import Single'},
+    'bookshelf_import_multiple': {'zh': '多选导入', 'en': 'Import Multiple'},
+    'bookshelf_scan_import': {'zh': '扫描导入', 'en': 'Scan Import'},
+    'bookshelf_scan_import_title': {'zh': '扫描到的书籍', 'en': 'Scanned Books'},
+    'bookshelf_scan_import_description': {
+      'zh': '系统会扫描下载、文档与桌面目录中的支持格式书籍，选择后即可导入',
+      'en':
+          'We will scan your Downloads, Documents, and Desktop folders for supported books, then you can import the selected ones',
     },
-    'light_mode': {
-      'zh': '亮色模式',
-      'en': 'Light Mode',
+    'bookshelf_scan_import_import': {'zh': '导入所选', 'en': 'Import Selected'},
+    'bookshelf_scan_import_empty': {
+      'zh': '当前没有扫描到可导入的书籍',
+      'en': 'No supported books were found to import',
     },
-    'dark_mode': {
-      'zh': '暗色模式',
-      'en': 'Dark Mode',
+    'bookshelf_import_duplicate': {
+      'zh': '该书籍已导入，无需重复导入',
+      'en': 'This book is already imported and will not be imported again',
     },
-    'save': {
-      'zh': '保存',
-      'en': 'Save',
+    'bookshelf_import_duplicate_skipped': {
+      'zh': '已跳过重复导入的书籍',
+      'en': 'Duplicate imported books were skipped',
     },
-    'edit': {
-      'zh': '编辑',
-      'en': 'Edit',
-    },
-    'cancel': {
-      'zh': '取消',
-      'en': 'Cancel',
-    },
-    'done': {
-      'zh': '完成',
-      'en': 'Done',
-    },
-    'bookshelf_import_single': {
-      'zh': '单本导入',
-      'en': 'Import Single',
-    },
-    'bookshelf_import_multiple': {
-      'zh': '多选导入',
-      'en': 'Import Multiple',
-    },
-    'bookshelf_random_read': {
-      'zh': '随机读书',
-      'en': 'Random Read',
-    },
+    'bookshelf_random_read': {'zh': '随机读书', 'en': 'Random Read'},
     'bookshelf_search_placeholder': {
       'zh': '搜索已导入的书籍',
       'en': 'Search imported books',
     },
-    'bookshelf_empty_error': {
-      'zh': '当前书架中暂无书籍',
-      'en': 'No books in bookshelf',
-    },
-    'bookshelf_empty_title': {
-      'zh': '你的书架还空着',
-      'en': 'Your bookshelf is empty',
-    },
+    'bookshelf_empty_error': {'zh': '当前书架中暂无书籍', 'en': 'No books in bookshelf'},
+    'bookshelf_empty_title': {'zh': '你的书架还空着', 'en': 'Your bookshelf is empty'},
     'bookshelf_empty_subtitle': {
       'zh': '去发现好书，充实你的知识库',
       'en': 'Find great books to enrich your knowledge',
     },
-    'bookshelf_import_button': {
-      'zh': '导入书籍',
-      'en': 'Import Book',
-    },
+    'bookshelf_import_button': {'zh': '导入书籍', 'en': 'Import Book'},
     'bookshelf_no_match_books': {
       'zh': '没有找到匹配的书籍',
       'en': 'No matching books found',
     },
-    'bookshelf_delete': {
-      'zh': '删除',
-      'en': 'Delete',
-    },
+    'bookshelf_delete': {'zh': '删除', 'en': 'Delete'},
+    'bookshelf_add_favorite': {'zh': '收藏', 'en': 'Favorite'},
+    'bookshelf_remove_favorite': {'zh': '取消收藏', 'en': 'Remove Favorite'},
+    'bookshelf_mark_reading': {'zh': '设为在读', 'en': 'Mark as Reading'},
+    'bookshelf_mark_finished': {'zh': '设为已读', 'en': 'Mark as Finished'},
+    'bookshelf_mark_unread': {'zh': '设为未读', 'en': 'Mark as Unread'},
     'memory_reading_duration_hint': {
       'zh': '阅读时长统计将显示在此处',
       'en': 'Reading duration statistics will appear here',
     },
-    'reading_statistics': {
-      'zh': '阅读统计',
-      'en': 'Reading Statistics',
-    },
-    'total_reading_duration': {
-      'zh': '总阅读时长',
-      'en': 'Total Reading Time',
-    },
-    'daily_average': {
-      'zh': '日均',
-      'en': 'Daily Avg',
-    },
-    'vs_previous_period': {
-      'zh': '较上一周期',
-      'en': 'vs Previous Period',
-    },
-    'today_reading': {
-      'zh': '今日阅读',
-      'en': 'Today',
-    },
-    'this_week_reading': {
-      'zh': '本周阅读',
-      'en': 'This Week',
-    },
+    'reading_statistics': {'zh': '阅读统计', 'en': 'Reading Statistics'},
+    'total_reading_duration': {'zh': '总阅读时长', 'en': 'Total Reading Time'},
+    'daily_average': {'zh': '日均', 'en': 'Daily Avg'},
+    'vs_previous_period': {'zh': '较上一周期', 'en': 'vs Previous Period'},
+    'today_reading': {'zh': '今日阅读', 'en': 'Today'},
+    'this_week_reading': {'zh': '本周阅读', 'en': 'This Week'},
     'reading_time_distribution': {
       'zh': '阅读时长分布',
       'en': 'Reading Time Distribution',
     },
-    'reading_trend': {
-      'zh': '阅读趋势',
-      'en': 'Reading Trend',
-    },
-    'trend_summary': {
-      'zh': '趋势总结',
-      'en': 'Trend Summary',
-    },
+    'reading_trend': {'zh': '阅读趋势', 'en': 'Reading Trend'},
+    'trend_summary': {'zh': '趋势总结', 'en': 'Trend Summary'},
     'reading_trend_insight': {
       'zh': '本周阅读时长持续提升，集中在晚间和周末，说明你的阅读节奏已经稳定。',
-      'en': 'Reading time kept rising this week, especially in the evenings and on weekends, showing a steady routine.',
+      'en':
+          'Reading time kept rising this week, especially in the evenings and on weekends, showing a steady routine.',
     },
     'chart_hint': {
       'zh': '点击数据点查看详细时长',
       'en': 'Tap a point to inspect detailed reading time',
     },
-    'hours_short': {
-      'zh': '小时',
-      'en': 'h',
-    },
-    'minutes_short': {
-      'zh': '分钟',
-      'en': 'm',
-    },
-    'days_short': {
-      'zh': '天',
-      'en': 'd',
-    },
-    'books_short': {
-      'zh': '本',
-      'en': 'books',
-    },
-    'longest_reading_day': {
-      'zh': '最长阅读一天',
-      'en': 'Longest Reading Day',
-    },
-    'continuous_reading': {
-      'zh': '连续阅读',
-      'en': 'Streak',
-    },
-    'continuous_reading_label': {
-      'zh': '连续阅读',
-      'en': 'Reading Streak',
-    },
-    'cumulative_reading': {
-      'zh': '累计阅读',
-      'en': 'Accumulated Reading',
-    },
-    'cumulative_reading_days': {
-      'zh': '累计阅读天数',
-      'en': 'Reading Days',
-    },
-    'average_daily_reading': {
-      'zh': '平均每天阅读',
-      'en': 'Average Daily Reading',
-    },
-    'completed_books': {
-      'zh': '阅读完成书籍',
-      'en': 'Completed Books',
-    },
-    'app_launch_count': {
-      'zh': '打开次数',
-      'en': 'App Launches',
-    },
-    'launch_unit': {
-      'zh': '次',
-      'en': 'times',
-    },
-    'period_day': {
-      'zh': '日',
-      'en': 'Day',
-    },
-    'period_week': {
-      'zh': '周',
-      'en': 'Week',
-    },
-    'period_month': {
-      'zh': '月',
-      'en': 'Month',
-    },
-    'period_year': {
-      'zh': '年',
-      'en': 'Year',
-    },
-    'calendar_january': {
-      'zh': '一月',
-      'en': 'Jan',
-    },
-    'calendar_february': {
-      'zh': '二月',
-      'en': 'Feb',
-    },
-    'calendar_march': {
-      'zh': '三月',
-      'en': 'Mar',
-    },
-    'calendar_april': {
-      'zh': '四月',
-      'en': 'Apr',
-    },
-    'calendar_may': {
-      'zh': '五月',
-      'en': 'May',
-    },
-    'calendar_june': {
-      'zh': '六月',
-      'en': 'Jun',
-    },
-    'calendar_july': {
-      'zh': '七月',
-      'en': 'Jul',
-    },
-    'calendar_august': {
-      'zh': '八月',
-      'en': 'Aug',
-    },
-    'calendar_september': {
-      'zh': '九月',
-      'en': 'Sep',
-    },
-    'calendar_october': {
-      'zh': '十月',
-      'en': 'Oct',
-    },
-    'calendar_november': {
-      'zh': '十一月',
-      'en': 'Nov',
-    },
-    'calendar_december': {
-      'zh': '十二月',
-      'en': 'Dec',
-    },
-    'calendar_sunday': {
-      'zh': '日',
-      'en': 'Sun',
-    },
-    'calendar_monday': {
-      'zh': '一',
-      'en': 'Mon',
-    },
-    'calendar_tuesday': {
-      'zh': '二',
-      'en': 'Tue',
-    },
-    'calendar_wednesday': {
-      'zh': '三',
-      'en': 'Wed',
-    },
-    'calendar_thursday': {
-      'zh': '四',
-      'en': 'Thu',
-    },
-    'calendar_friday': {
-      'zh': '五',
-      'en': 'Fri',
-    },
-    'calendar_saturday': {
-      'zh': '六',
-      'en': 'Sat',
-    },
+    'hours_short': {'zh': '小时', 'en': 'h'},
+    'minutes_short': {'zh': '分钟', 'en': 'm'},
+    'days_short': {'zh': '天', 'en': 'd'},
+    'books_short': {'zh': '本', 'en': 'books'},
+    'longest_reading_day': {'zh': '最长阅读一天', 'en': 'Longest Reading Day'},
+    'continuous_reading': {'zh': '连续阅读', 'en': 'Streak'},
+    'continuous_reading_label': {'zh': '连续阅读', 'en': 'Reading Streak'},
+    'cumulative_reading': {'zh': '累计阅读', 'en': 'Accumulated Reading'},
+    'cumulative_reading_days': {'zh': '累计阅读天数', 'en': 'Reading Days'},
+    'average_daily_reading': {'zh': '平均每天阅读', 'en': 'Average Daily Reading'},
+    'completed_books': {'zh': '阅读完成书籍', 'en': 'Completed Books'},
+    'app_launch_count': {'zh': '打开次数', 'en': 'App Launches'},
+    'launch_unit': {'zh': '次', 'en': 'times'},
+    'period_day': {'zh': '日', 'en': 'Day'},
+    'period_week': {'zh': '周', 'en': 'Week'},
+    'period_month': {'zh': '月', 'en': 'Month'},
+    'period_year': {'zh': '年', 'en': 'Year'},
+    'calendar_january': {'zh': '一月', 'en': 'Jan'},
+    'calendar_february': {'zh': '二月', 'en': 'Feb'},
+    'calendar_march': {'zh': '三月', 'en': 'Mar'},
+    'calendar_april': {'zh': '四月', 'en': 'Apr'},
+    'calendar_may': {'zh': '五月', 'en': 'May'},
+    'calendar_june': {'zh': '六月', 'en': 'Jun'},
+    'calendar_july': {'zh': '七月', 'en': 'Jul'},
+    'calendar_august': {'zh': '八月', 'en': 'Aug'},
+    'calendar_september': {'zh': '九月', 'en': 'Sep'},
+    'calendar_october': {'zh': '十月', 'en': 'Oct'},
+    'calendar_november': {'zh': '十一月', 'en': 'Nov'},
+    'calendar_december': {'zh': '十二月', 'en': 'Dec'},
+    'calendar_sunday': {'zh': '日', 'en': 'Sun'},
+    'calendar_monday': {'zh': '一', 'en': 'Mon'},
+    'calendar_tuesday': {'zh': '二', 'en': 'Tue'},
+    'calendar_wednesday': {'zh': '三', 'en': 'Wed'},
+    'calendar_thursday': {'zh': '四', 'en': 'Thu'},
+    'calendar_friday': {'zh': '五', 'en': 'Fri'},
+    'calendar_saturday': {'zh': '六', 'en': 'Sat'},
     'enter_content': {
       'zh': '请输入每日一句内容',
       'en': 'Please enter the daily sentence content',
     },
-    'no_sentences': {
-      'zh': '尚未添加每日一句内容',
-      'en': 'No daily sentences added yet',
-    },
-    'view_full': {
-      'zh': '每日一句全文',
-      'en': 'Full daily sentence',
-    },
+    'no_sentences': {'zh': '尚未添加每日一句内容', 'en': 'No daily sentences added yet'},
+    'view_full': {'zh': '每日一句全文', 'en': 'Full daily sentence'},
     'no_recently_reading': {
       'zh': '尚未有最近阅读记录，先添加一本书籍开始阅读吧。',
       'en': 'No recent reads yet. Add a book to get started.',
     },
-    'greeting_title': {
+    'greeting_title': {'zh': '下午好，万志豪！', 'en': 'Good afternoon, Wanzhihau!'},
+    'greeting_title_morning': {
+      'zh': '上午好，万志豪！',
+      'en': 'Good morning, Wanzhihau!',
+    },
+    'greeting_title_afternoon': {
       'zh': '下午好，万志豪！',
       'en': 'Good afternoon, Wanzhihau!',
     },
-    'greeting_subtitle': {
+    'greeting_title_evening': {
+      'zh': '晚上好，万志豪！',
+      'en': 'Good evening, Wanzhihau!',
+    },
+    'greeting_title_late_night': {
+      'zh': '很晚了，万志豪！',
+      'en': 'It is very late, Wanzhihau!',
+    },
+    'greeting_subtitle': {'zh': '今天继续阅读吧', 'en': "Continue your reading today"},
+    'greeting_subtitle_morning': {
+      'zh': '上午开始新的一天吧',
+      'en': 'Start a new day this morning',
+    },
+    'greeting_subtitle_afternoon': {
       'zh': '今天继续阅读吧',
-      'en': "Continue your reading today",
+      'en': 'Continue your reading today',
     },
-    'reading_progress_label': {
-      'zh': '阅读进度',
-      'en': 'Reading Progress',
+    'greeting_subtitle_evening': {
+      'zh': '今晚也可以安心阅读',
+      'en': 'Enjoy a relaxing reading session tonight',
     },
-    'continue_reading': {
-      'zh': '继续阅读',
-      'en': 'Continue',
+    'greeting_subtitle_late_night': {
+      'zh': '请注意休息，保护好眼睛。',
+      'en': 'Please rest well and protect your eyes.',
     },
-    'import_pdf': {
-      'zh': '导入书籍',
-      'en': 'Import Books',
-    },
-    'recent_files': {
-      'zh': '最近文件',
-      'en': 'Recent Files',
-    },
-    'reading_stats': {
-      'zh': '阅读统计',
-      'en': 'Reading Stats',
-    },
-    'favorites': {
-      'zh': '我的收藏',
-      'en': 'Favorites',
-    },
-    'monthly_reading': {
-      'zh': '本月阅读',
-      'en': 'This Month',
-    },
-    'yearly_reading': {
-      'zh': '今年阅读',
-      'en': 'This Year',
-    },
-    'font_family': {
-      'zh': '字体',
-      'en': 'Font Family',
-    },
-    'system_font': {
-      'zh': '系统字体',
-      'en': 'System Font',
-    },
-    'sans_serif': {
-      'zh': '无衬线',
-      'en': 'Sans Serif',
-    },
-    'serif': {
-      'zh': '有衬线',
-      'en': 'Serif',
-    },
-    'monospace': {
-      'zh': '等宽字体',
-      'en': 'Monospace',
-    },
-    'app_appearance': {
-      'zh': '应用外观',
-      'en': 'App Appearance',
-    },
-    'theme_mode': {
-      'zh': '主题模式',
-      'en': 'Theme Mode',
-    },
+    'reading_progress_label': {'zh': '阅读进度', 'en': 'Reading Progress'},
+    'continue_reading': {'zh': '继续阅读', 'en': 'Continue'},
+    'import_pdf': {'zh': '导入书籍', 'en': 'Import Books'},
+    'recent_files': {'zh': '最近文件', 'en': 'Recent Files'},
+    'reading_stats': {'zh': '阅读统计', 'en': 'Reading Stats'},
+    'favorites': {'zh': '我的收藏', 'en': 'Favorites'},
+    'monthly_reading': {'zh': '本月阅读', 'en': 'This Month'},
+    'yearly_reading': {'zh': '今年阅读', 'en': 'This Year'},
+    'font_family': {'zh': '字体', 'en': 'Font Family'},
+    'system_font': {'zh': '系统字体', 'en': 'System Font'},
+    'sans_serif': {'zh': '无衬线', 'en': 'Sans Serif'},
+    'serif': {'zh': '有衬线', 'en': 'Serif'},
+    'monospace': {'zh': '等宽字体', 'en': 'Monospace'},
+    'app_appearance': {'zh': '应用外观', 'en': 'App Appearance'},
+    'theme_mode': {'zh': '主题模式', 'en': 'Theme Mode'},
     'theme_color_description': {
       'zh': '选择一个主题配色，应用于整个界面。',
       'en': 'Choose a theme color applied across the app.',
     },
-    'theme_color_purple': {
-      'zh': '紫色',
-      'en': 'Purple',
-    },
-    'theme_color_red': {
-      'zh': '红色',
-      'en': 'Red',
-    },
-    'startup_page': {
-      'zh': '启动页',
-      'en': 'Startup Page',
-    },
-    'startup_page_none': {
-      'zh': '不设置（默认主页）',
-      'en': 'None (Home)',
-    },
-    'startup_page_home': {
-      'zh': '首页',
-      'en': 'Home',
-    },
-    'startup_page_bookshelf': {
-      'zh': '书架',
-      'en': 'Bookshelf',
-    },
-    'startup_page_memory': {
-      'zh': '回忆',
-      'en': 'Memory',
-    },
-    'startup_page_tools': {
-      'zh': '工具',
-      'en': 'Tools',
-    },
-    'startup_page_profile': {
-      'zh': '我的',
-      'en': 'Profile',
-    },
-    'splash_settings': {
-      'zh': '启动页设置',
-      'en': 'Splash Settings',
-    },
-    'splash_content_type': {
-      'zh': '内容类型',
-      'en': 'Content Type',
-    },
-    'splash_image_settings': {
-      'zh': '图片设置',
-      'en': 'Image Settings',
-    },
-    'splash_current_image': {
-      'zh': '当前图片',
-      'en': 'Current Image',
-    },
-    'splash_change_image': {
-      'zh': '点击更换图片',
-      'en': 'Tap to change image',
-    },
-    'splash_display_duration': {
-      'zh': '显示时长',
-      'en': 'Display Duration',
-    },
-    'splash_duration_1s': {
-      'zh': '1秒',
-      'en': '1s',
-    },
-    'splash_duration_3s': {
-      'zh': '3秒',
-      'en': '3s',
-    },
-    'splash_duration_5s': {
-      'zh': '5秒',
-      'en': '5s',
-    },
-    'splash_duration_always': {
-      'zh': '永久',
-      'en': 'Always',
-    },
-    'splash_entry_mode': {
-      'zh': '进入方式',
-      'en': 'Entry Mode',
-    },
-    'splash_auto_home': {
-      'zh': '自动',
-      'en': 'Auto',
-    },
-    'splash_wait_click': {
-      'zh': '点击',
-      'en': 'Tap',
-    },
-    'splash_jump_page': {
-      'zh': '启动后跳转页面',
-      'en': 'Target Page',
-    },
-    'splash_text_settings_left': {
-      'zh': '图片设置',
-      'en': 'Image Settings',
-    },
-    'splash_text_settings_right': {
-      'zh': '文字设置',
-      'en': 'Text Settings',
-    },
-    'splash_current_text': {
-      'zh': '当前文字',
-      'en': 'Current Text',
-    },
-    'splash_change_text': {
-      'zh': '点击更换文字',
-      'en': 'Tap to change text',
-    },
+    'theme_color_purple': {'zh': '紫色', 'en': 'Purple'},
+    'theme_color_red': {'zh': '红色', 'en': 'Red'},
+    'startup_page': {'zh': '启动页', 'en': 'Startup Page'},
+    'startup_page_none': {'zh': '不设置（默认主页）', 'en': 'None (Home)'},
+    'startup_page_home': {'zh': '首页', 'en': 'Home'},
+    'startup_page_bookshelf': {'zh': '书架', 'en': 'Bookshelf'},
+    'startup_page_memory': {'zh': '回忆', 'en': 'Memory'},
+    'startup_page_tools': {'zh': '工具', 'en': 'Tools'},
+    'startup_page_profile': {'zh': '我的', 'en': 'Profile'},
+    'splash_settings': {'zh': '启动页设置', 'en': 'Splash Settings'},
+    'splash_content_type': {'zh': '内容类型', 'en': 'Content Type'},
+    'splash_image_settings': {'zh': '图片设置', 'en': 'Image Settings'},
+    'splash_current_image': {'zh': '当前图片', 'en': 'Current Image'},
+    'splash_change_image': {'zh': '点击更换图片', 'en': 'Tap to change image'},
+    'splash_display_duration': {'zh': '显示时长', 'en': 'Display Duration'},
+    'splash_duration_1s': {'zh': '1秒', 'en': '1s'},
+    'splash_duration_3s': {'zh': '3秒', 'en': '3s'},
+    'splash_duration_5s': {'zh': '5秒', 'en': '5s'},
+    'splash_duration_always': {'zh': '永久', 'en': 'Always'},
+    'splash_entry_mode': {'zh': '进入方式', 'en': 'Entry Mode'},
+    'splash_auto_home': {'zh': '自动', 'en': 'Auto'},
+    'splash_wait_click': {'zh': '点击', 'en': 'Tap'},
+    'splash_jump_page': {'zh': '启动后跳转页面', 'en': 'Target Page'},
+    'splash_text_settings_left': {'zh': '图片设置', 'en': 'Image Settings'},
+    'splash_text_settings_right': {'zh': '文字设置', 'en': 'Text Settings'},
+    'splash_current_text': {'zh': '当前文字', 'en': 'Current Text'},
+    'splash_change_text': {'zh': '点击更换文字', 'en': 'Tap to change text'},
     'splash_preview_title': {
       'zh': '探索阅读的世界',
       'en': 'Explore the World of Reading',
@@ -801,110 +459,41 @@ class LocalizationEngine {
       'zh': '让每一次阅读都更有价值',
       'en': 'Make every reading session more valuable',
     },
-    'splash_skip': {
-      'zh': '3s 跳过',
-      'en': 'Skip in 3s',
-    },
-    'startup_content': {
-      'zh': '启动页内容',
-      'en': 'Startup Content',
-    },
-    'startup_content_none': {
-      'zh': '不显示',
-      'en': 'None',
-    },
-    'startup_content_text': {
-      'zh': '显示文字',
-      'en': 'Text',
-    },
+    'splash_skip': {'zh': '3s 跳过', 'en': 'Skip in 3s'},
+    'startup_content': {'zh': '启动页内容', 'en': 'Startup Content'},
+    'startup_content_none': {'zh': '不显示', 'en': 'None'},
+    'startup_content_text': {'zh': '显示文字', 'en': 'Text'},
     'startup_content_text_placeholder': {
       'zh': '在此输入启动页要显示的文字',
       'en': 'Enter startup screen text',
     },
-    'startup_content_image': {
-      'zh': '显示图片',
-      'en': 'Image',
-    },
+    'startup_content_image': {'zh': '显示图片', 'en': 'Image'},
     'startup_content_image_placeholder': {
       'zh': '输入本地文件路径或网络 URL',
       'en': 'Enter local file path or image URL',
     },
-    'startup_duration': {
-      'zh': '显示时长',
-      'en': 'Display Duration',
-    },
-    'seconds': {
-      'zh': '秒',
-      'en': 's',
-    },
-    'duration_picker_title': {
-      'zh': '选择显示时长',
-      'en': 'Select duration',
-    },
-    'custom_seconds_label': {
-      'zh': '自定义秒数',
-      'en': 'Custom seconds',
-    },
-    'custom_seconds_hint': {
-      'zh': '例如 4',
-      'en': 'e.g. 4',
-    },
+    'startup_duration': {'zh': '显示时长', 'en': 'Display Duration'},
+    'seconds': {'zh': '秒', 'en': 's'},
+    'duration_picker_title': {'zh': '选择显示时长', 'en': 'Select duration'},
+    'custom_seconds_label': {'zh': '自定义秒数', 'en': 'Custom seconds'},
+    'custom_seconds_hint': {'zh': '例如 4', 'en': 'e.g. 4'},
     'duration_error': {
       'zh': '请输入大于 0 的整数秒数',
       'en': 'Please enter a positive integer seconds value',
     },
-    'language_settings_title': {
-      'zh': '语言设置',
-      'en': 'Language Settings',
-    },
-    'view_all': {
-      'zh': '查看全部 >',
-      'en': 'View All >',
-    },
-    'bookshelf_tab_all': {
-      'zh': '全部',
-      'en': 'All',
-    },
-    'bookshelf_tab_other': {
-      'zh': '其他',
-      'en': 'Other',
-    },
-    'bookshelf_all_label': {
-      'zh': '全部书籍',
-      'en': 'All Books',
-    },
-    'bookshelf_favorites_label': {
-      'zh': '收藏',
-      'en': 'Favorites',
-    },
-    'bookshelf_reading_label': {
-      'zh': '在读',
-      'en': 'Reading',
-    },
-    'bookshelf_finished_label': {
-      'zh': '已读',
-      'en': 'Finished',
-    },
-    'bookshelf_unread': {
-      'zh': '未读',
-      'en': 'Unread',
-    },
-    'reading_status_read': {
-      'zh': '已读',
-      'en': 'Read',
-    },
-    'file_type_pdf': {
-      'zh': 'PDF',
-      'en': 'PDF',
-    },
-    'file_type_epub': {
-      'zh': 'EPUB',
-      'en': 'EPUB',
-    },
-    'file_type_txt': {
-      'zh': 'TXT',
-      'en': 'TXT',
-    },
+    'language_settings_title': {'zh': '语言设置', 'en': 'Language Settings'},
+    'view_all': {'zh': '查看全部 >', 'en': 'View All >'},
+    'bookshelf_tab_all': {'zh': '全部', 'en': 'All'},
+    'bookshelf_tab_other': {'zh': '其他', 'en': 'Other'},
+    'bookshelf_all_label': {'zh': '全部书籍', 'en': 'All Books'},
+    'bookshelf_favorites_label': {'zh': '收藏', 'en': 'Favorites'},
+    'bookshelf_reading_label': {'zh': '在读', 'en': 'Reading'},
+    'bookshelf_finished_label': {'zh': '已读', 'en': 'Finished'},
+    'bookshelf_unread': {'zh': '未读', 'en': 'Unread'},
+    'reading_status_read': {'zh': '已读', 'en': 'Read'},
+    'file_type_pdf': {'zh': 'PDF', 'en': 'PDF'},
+    'file_type_epub': {'zh': 'EPUB', 'en': 'EPUB'},
+    'file_type_txt': {'zh': 'TXT', 'en': 'TXT'},
   };
 
   static String _toTraditionalChinese(String value) {
@@ -918,7 +507,8 @@ class LocalizationEngine {
   static String text(String key) {
     final language = SettingsEngine.language;
     if (language == SettingsEngine.languageTraditionalChinese) {
-      return _translations[key]?[language] ?? _toTraditionalChinese(_translations[key]?['zh'] ?? key);
+      return _translations[key]?[language] ??
+          _toTraditionalChinese(_translations[key]?['zh'] ?? key);
     }
     return _translations[key]?[language] ?? _translations[key]?['zh'] ?? key;
   }

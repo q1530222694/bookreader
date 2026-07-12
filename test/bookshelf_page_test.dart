@@ -1,11 +1,28 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:bookreader/engine/localization_engine.dart';
 import 'package:bookreader/features/shell/controller/bookshelf_controller.dart';
 import 'package:bookreader/features/shell/model/book_model.dart';
+import 'package:bookreader/features/shell/model/scan_candidate_model.dart';
+import 'package:bookreader/features/shell/service/bookshelf_service.dart';
 import 'package:bookreader/features/shell/ui/bookshelf_page.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+class FakeBookshelfController extends BookshelfController {
+  @override
+  Future<List<ScanCandidateModel>> scanForSupportedBooks() async {
+    return const [
+      ScanCandidateModel(
+        path: '/tmp/sample.pdf',
+        title: 'Sample Book',
+        type: 'pdf',
+        fileSizeBytes: 1024,
+      ),
+    ];
+  }
+}
 
 void main() {
   testWidgets('BookshelfPage shows search entry for imported books', (tester) async {
@@ -50,6 +67,57 @@ void main() {
     expect(find.text('随机读书'), findsOneWidget);
   });
 
+  testWidgets('BookshelfPage shows scan import action in more menu', (tester) async {
+    await tester.pumpWidget(
+      const CupertinoApp(
+        home: BookshelfPage(),
+      ),
+    );
+
+    await tester.tap(find.byIcon(CupertinoIcons.ellipsis));
+    await tester.pumpAndSettle();
+
+    expect(find.text('扫描导入'), findsOneWidget);
+  });
+
+  testWidgets('Scan import sheet shows title on the left and removes the source hint', (tester) async {
+    final controller = FakeBookshelfController();
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: BookshelfPage(controller: controller),
+      ),
+    );
+
+    await tester.tap(find.byIcon(CupertinoIcons.ellipsis));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('扫描导入'));
+    await tester.pumpAndSettle();
+
+    final modalTitleFinder = find.byWidgetPredicate((widget) {
+      if (widget is! Text) return false;
+      return widget.data == '导入书籍' && widget.style?.fontSize == 18 && widget.style?.fontWeight == FontWeight.w600;
+    });
+
+    expect(modalTitleFinder, findsOneWidget);
+    expect(find.text('从本地文件、云端、最近文件'), findsNothing);
+  });
+
+  test('BookshelfService scans injected directories for supported books', () async {
+    final tempDir = await Directory.systemTemp.createTemp('bookshelf_scan_test');
+    addTearDown(() async => tempDir.delete(recursive: true));
+
+    final bookFile = File('${tempDir.path}/sample.pdf');
+    await bookFile.writeAsBytes([1, 2, 3]);
+
+    final service = BookshelfService(scanRoots: [tempDir]);
+    final candidates = await service.scanForSupportedBooks();
+
+    expect(candidates, hasLength(1));
+    expect(candidates.first.title, 'sample');
+    expect(candidates.first.type, 'pdf');
+  });
+
   testWidgets('BookshelfPage shows delete action on long press', (tester) async {
     final controller = BookshelfController();
     controller.books.value = [
@@ -76,6 +144,35 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('删除'), findsOneWidget);
+  });
+
+  testWidgets('BookshelfPage shows common book actions in the overflow menu', (tester) async {
+    final controller = BookshelfController();
+    controller.books.value = [
+      const BookModel(
+        id: 'book-1',
+        title: 'Test Book',
+        path: '/tmp/test.pdf',
+        type: 'pdf',
+      ),
+    ];
+
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: BookshelfPage(controller: controller),
+      ),
+    );
+
+    await tester.longPress(find.text('Test Book'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('收藏'), findsAtLeastNWidgets(1));
+    expect(find.text('设为在读'), findsAtLeastNWidgets(1));
+    expect(find.text('设为已读'), findsAtLeastNWidgets(1));
+    expect(find.text('设为未读'), findsAtLeastNWidgets(1));
+    expect(find.text('删除'), findsAtLeastNWidgets(1));
   });
 
   testWidgets('BookshelfPage uses a popover for long-press actions', (tester) async {
@@ -166,6 +263,33 @@ void main() {
     expect(find.descendant(of: compactCardAncestor, matching: find.byType(FractionallySizedBox)), findsNothing);
   });
 
+  testWidgets('BookshelfPage exposes interactive tap targets for book cards', (tester) async {
+    final controller = BookshelfController();
+    controller.books.value = [
+      const BookModel(
+        id: 'book-2',
+        title: 'Imported Novel',
+        path: '/tmp/imported-novel.txt',
+        type: 'txt',
+        fileSizeBytes: 1548000,
+      ),
+    ];
+
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: BookshelfPage(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byWidgetPredicate((widget) => widget is GestureDetector && widget.onTap != null),
+      findsWidgets,
+    );
+  });
+
   testWidgets('BookshelfPage shows imported title and file size metadata', (tester) async {
     final controller = BookshelfController();
     controller.books.value = [
@@ -225,6 +349,44 @@ void main() {
     expect(viewAllWidget.style?.fontSize, 14);
     expect(recentTitleWidget.style?.fontWeight, FontWeight.w800);
     expect(viewAllWidget.style?.fontWeight, FontWeight.w700);
+  });
+
+  testWidgets('BookshelfPage filters by normalized file type even when stored type is generic', (tester) async {
+    final controller = BookshelfController();
+    controller.books.value = [
+      const BookModel(
+        id: 'book-4',
+        title: 'Flutter 实战',
+        path: '/tmp/flutter.pdf',
+        type: 'file',
+        progress: 0.48,
+        fileSizeBytes: 1548000,
+        lastReadAt: null,
+      ),
+      const BookModel(
+        id: 'book-5',
+        title: 'Another Book',
+        path: '/tmp/another.txt',
+        type: 'txt',
+        progress: 0.2,
+        fileSizeBytes: 204800,
+      ),
+    ];
+
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: BookshelfPage(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('PDF'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Flutter 实战'), findsOneWidget);
+    expect(find.text('Another Book'), findsNothing);
   });
 
   testWidgets('BookshelfPage switches to a download-style list item when filter button is tapped', (tester) async {

@@ -19,13 +19,21 @@
 	<key>com.apple.security.files.user-selected.read-only</key>
 	<true/>
 	
-	<!-- 【图片转PDF修复】允许读写下载文件夹和文档文件夹 -->
-	<!-- 这使得应用可以在用户常用位置保存转换后的 PDF 文件 -->
+	<!-- 【图片转PDF修复】允许读写下载文件夹 -->
+	<!-- 这使得应用可以访问 ~/Downloads 目录中的文件 -->
 	<key>com.apple.security.files.downloads.read-write</key>
 	<true/>
 	
-	<!-- 【图片转PDF修复】允许读写文档文件夹 -->
-	<!-- 支持在 ~/Documents 等位置保存导出记录和 PDF 文件 -->
+	<!-- 允许读写文档文件夹 -->
+	<key>com.apple.security.files.documents.read-write</key>
+	<true/>
+	
+	<!-- 允许读写桌面文件夹 -->
+	<key>com.apple.security.files.desktop.read-write</key>
+	<true/>
+	
+	<!-- 【图片转PDF修复】允许读写用户选择的文件位置 -->
+	<!-- 支持在用户选定的任意文件夹保存 PDF 导出结果 -->
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
 </dict>

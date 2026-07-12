@@ -21,10 +21,10 @@ class ReadingStats {
   final int completedBooks;
   final DateTime? longestReadingDay;
   final int longestReadingDuration;
-  final int distributionUnder1Hour;
-  final int distribution1To2Hours;
-  final int distribution2To3Hours;
-  final int distribution3HoursMore;
+  final int distributionUnder1HourMinutes;
+  final int distribution1To2HoursMinutes;
+  final int distribution2To3HoursMinutes;
+  final int distribution3HoursMoreMinutes;
 
   String get formattedTodayReading => _formatDuration(todayMinutes);
   String get formattedWeekReading => _formatDuration(weekMinutes);
@@ -61,10 +61,10 @@ class ReadingStats {
     required this.completedBooks,
     required this.longestReadingDay,
     required this.longestReadingDuration,
-    required this.distributionUnder1Hour,
-    required this.distribution1To2Hours,
-    required this.distribution2To3Hours,
-    required this.distribution3HoursMore,
+    required this.distributionUnder1HourMinutes,
+    required this.distribution1To2HoursMinutes,
+    required this.distribution2To3HoursMinutes,
+    required this.distribution3HoursMoreMinutes,
   });
 
   static ReadingStats fromBooks(List<BookModel> books) {
@@ -155,10 +155,22 @@ class ReadingStats {
     final longestReadingDay = longestEntry?.key;
     final longestReadingDuration = longestEntry?.value ?? 0;
 
-    final distributionUnder1Hour = normalized.values.where((minutes) => minutes < 60).length;
-    final distribution1To2Hours = normalized.values.where((minutes) => minutes >= 60 && minutes < 120).length;
-    final distribution2To3Hours = normalized.values.where((minutes) => minutes >= 120 && minutes < 180).length;
-    final distribution3HoursMore = normalized.values.where((minutes) => minutes >= 180).length;
+    var distributionUnder1HourMinutes = 0;
+    var distribution1To2HoursMinutes = 0;
+    var distribution2To3HoursMinutes = 0;
+    var distribution3HoursMoreMinutes = 0;
+
+    for (final minutes in normalized.values) {
+      if (minutes < 60) {
+        distributionUnder1HourMinutes += minutes;
+      } else if (minutes < 120) {
+        distribution1To2HoursMinutes += minutes;
+      } else if (minutes < 180) {
+        distribution2To3HoursMinutes += minutes;
+      } else {
+        distribution3HoursMoreMinutes += minutes;
+      }
+    }
 
     return ReadingStats._(
       dailyMinutes: normalized,
@@ -177,10 +189,10 @@ class ReadingStats {
       completedBooks: books.where((book) => book.progress >= 1.0).length,
       longestReadingDay: longestReadingDay,
       longestReadingDuration: longestReadingDuration,
-      distributionUnder1Hour: distributionUnder1Hour,
-      distribution1To2Hours: distribution1To2Hours,
-      distribution2To3Hours: distribution2To3Hours,
-      distribution3HoursMore: distribution3HoursMore,
+      distributionUnder1HourMinutes: distributionUnder1HourMinutes,
+      distribution1To2HoursMinutes: distribution1To2HoursMinutes,
+      distribution2To3HoursMinutes: distribution2To3HoursMinutes,
+      distribution3HoursMoreMinutes: distribution3HoursMoreMinutes,
     );
   }
 

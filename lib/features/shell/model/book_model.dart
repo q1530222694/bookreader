@@ -13,6 +13,9 @@ class BookModel {
   final bool isFavorite;
   final int? fileSizeBytes;
 
+  /// 根据路径扩展名和原始类型，得到统一的书籍分类。
+  String get normalizedType => normalizeBookType(path: path, rawType: type);
+
   const BookModel({
     required this.id,
     required this.title,
@@ -25,6 +28,32 @@ class BookModel {
     this.isFavorite = false,
     this.fileSizeBytes,
   });
+
+  /// 根据路径扩展名和原始类型，得到统一的书籍分类。
+  static String normalizeBookType({required String path, String? rawType}) {
+    final lowerPath = path.toLowerCase();
+    final pathType = _detectTypeByPath(lowerPath);
+    if (pathType != 'file') {
+      return pathType;
+    }
+
+    final raw = (rawType ?? '').trim().toLowerCase();
+    if (raw == 'pdf' || raw == 'epub' || raw == 'txt' || raw == 'mobi' || raw == 'comic') {
+      return raw;
+    }
+    return 'file';
+  }
+
+  static String _detectTypeByPath(String pathLower) {
+    if (pathLower.endsWith('.pdf')) return 'pdf';
+    if (pathLower.endsWith('.epub')) return 'epub';
+    if (pathLower.endsWith('.txt')) return 'txt';
+    if (pathLower.endsWith('.mobi')) return 'mobi';
+    if (pathLower.endsWith('.cbz') || pathLower.endsWith('.cbr') || pathLower.endsWith('.cb7') || pathLower.endsWith('.cbt') || pathLower.endsWith('.zip')) {
+      return 'comic';
+    }
+    return 'file';
+  }
 
   /// Returns a copy with the provided fields replaced.
   BookModel copyWith({

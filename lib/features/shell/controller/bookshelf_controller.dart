@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/widgets.dart';
 import 'package:file_picker/file_picker.dart';
 
+import '../../../engine/localization_engine.dart';
 import '../model/book_model.dart';
+import '../model/scan_candidate_model.dart';
 import '../service/bookshelf_service.dart';
 
 /// BookshelfController manages imported books and coordinates file import logic.
@@ -13,6 +16,8 @@ class BookshelfController {
   final ValueNotifier<List<BookModel>> books = BookshelfService.booksNotifier;
   final ValueNotifier<bool> isLoading = ValueNotifier<bool>(false);
   final ValueNotifier<String?> errorText = ValueNotifier<String?>(null);
+  final ValueNotifier<String?> toastMessage = ValueNotifier<String?>(null);
+  Timer? _toastTimer;
 
   Future<void> importPdf() async {
     isLoading.value = true;
@@ -34,8 +39,13 @@ class BookshelfController {
         return;
       }
 
-      await _service.importPdf(File(filePath));
-      books.value = _service.listBooks();
+      final file = File(filePath);
+      if (_service.isBookAlreadyImported(file)) {
+        _showToast(LocalizationEngine.text('bookshelf_import_duplicate'));
+        return;
+      }
+
+      await _service.importPdf(file);
     } catch (e) {
       errorText.value = '导入书籍失败：$e';
     } finally {
@@ -57,14 +67,53 @@ class BookshelfController {
         return;
       }
 
+      var duplicateSkipped = false;
       for (final file in result.files) {
         final filePath = file.path;
         if (filePath == null) continue;
-        await _service.importPdf(File(filePath));
+        final importFile = File(filePath);
+        if (_service.isBookAlreadyImported(importFile)) {
+          duplicateSkipped = true;
+          continue;
+        }
+        await _service.importPdf(importFile);
       }
-      books.value = _service.listBooks();
+      if (duplicateSkipped) {
+        _showToast(LocalizationEngine.text('bookshelf_import_duplicate_skipped'));
+      }
     } catch (e) {
       errorText.value = '批量导入失败：$e';
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  Future<List<ScanCandidateModel>> scanForSupportedBooks() async {
+    return _service.scanForSupportedBooks();
+  }
+
+  Future<void> importScanCandidates(List<ScanCandidateModel> candidates) async {
+    isLoading.value = true;
+    errorText.value = null;
+
+    try {
+      var duplicateSkipped = false;
+      for (final candidate in candidates) {
+        final file = File(candidate.path);
+        if (!await file.exists()) {
+          continue;
+        }
+        if (_service.isBookAlreadyImported(file)) {
+          duplicateSkipped = true;
+          continue;
+        }
+        await _service.importPdf(file);
+      }
+      if (duplicateSkipped) {
+        _showToast(LocalizationEngine.text('bookshelf_import_duplicate_skipped'));
+      }
+    } catch (e) {
+      errorText.value = '扫描导入失败：$e';
     } finally {
       isLoading.value = false;
     }
@@ -83,34 +132,42 @@ class BookshelfController {
     errorText.value = message;
   }
 
-  void _refreshBooksAfterFrame() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      books.value = _service.listBooks();
+  void _showToast(String message) {
+    toastMessage.value = message;
+    _toastTimer?.cancel();
+    _toastTimer = Timer(const Duration(seconds: 2), () {
+      toastMessage.value = null;
     });
   }
 
   void updateBookProgress(String bookId, double progress) {
     _service.updateBookProgress(bookId, progress);
-    _refreshBooksAfterFrame();
   }
 
   void updateBookReadingDuration(String bookId, int additionalSeconds) {
     _service.updateBookReadingDuration(bookId, additionalSeconds);
-    books.value = _service.listBooks();
+  }
+
+  void updateBookFavorite(String bookId, bool isFavorite) {
+    _service.updateBookFavorite(bookId, isFavorite);
+  }
+
+  void updateBookReadingState(String bookId, double progress) {
+    _service.updateBookReadingState(bookId, progress);
   }
 
   void updateBookLastRead(String bookId, DateTime lastReadAt) {
     _service.updateBookLastRead(bookId, lastReadAt);
-    books.value = _service.listBooks();
   }
 
   void removeBook(String bookId) {
     _service.removeBook(bookId);
-    books.value = _service.listBooks();
   }
 
   void dispose() {
     isLoading.dispose();
     errorText.dispose();
+    toastMessage.dispose();
+    _toastTimer?.cancel();
   }
 }

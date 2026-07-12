@@ -12,7 +12,9 @@ class SettingsController {
       ValueNotifier<String>(SettingsEngine.themeColor);
   static final ValueNotifier<String> fontFamily =
       ValueNotifier<String>(SettingsEngine.fontFamily);
-    static final ValueNotifier<String> startupPage =
+  static final ValueNotifier<Color> readerBackgroundColor =
+      ValueNotifier<Color>(SettingsEngine.readerBackgroundColor);
+  static final ValueNotifier<String> startupPage =
       ValueNotifier<String>(SettingsEngine.startupPage);
     static final ValueNotifier<String> startupSplashType =
       ValueNotifier<String>(SettingsEngine.startupSplashType);
@@ -45,6 +47,12 @@ class SettingsController {
   static void setFontFamily(String value) {
     SettingsEngine.setFontFamily(value);
     fontFamily.value = value;
+  }
+
+  /// Update the reading background color used by the reader views.
+  static void setReaderBackgroundColor(Color value) {
+    SettingsEngine.setReaderBackgroundColor(value);
+    readerBackgroundColor.value = value;
   }
 
   static void setStartupPage(String value) {

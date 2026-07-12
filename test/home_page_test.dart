@@ -16,7 +16,10 @@ void main() {
 
     await tester.pumpWidget(
       CupertinoApp(
-        home: HomePage(controller: controller),
+        home: HomePage(
+          controller: controller,
+          currentTimeProvider: () => DateTime(2026, 7, 11, 14, 30),
+        ),
       ),
     );
 
@@ -27,6 +30,26 @@ void main() {
     expect(find.text('下午好，万志豪！'), findsOneWidget);
     expect(find.byIcon(CupertinoIcons.globe), findsOneWidget);
     expect(find.byIcon(CupertinoIcons.sun_max), findsOneWidget);
+  });
+
+  testWidgets('HomePage shows a late-night greeting and rest reminder after midnight', (tester) async {
+    SettingsEngine.setLanguage(SettingsEngine.languageChinese);
+    final controller = BookshelfController();
+    controller.books.value = const [];
+
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: HomePage(
+          controller: controller,
+          currentTimeProvider: () => DateTime(2026, 7, 11, 4, 30),
+        ),
+      ),
+    );
+
+    expect(find.text('很晚了，万志豪！'), findsOneWidget);
+    expect(find.text('请注意休息，保护好眼睛。'), findsOneWidget);
   });
 
   testWidgets('HomePage uses Chinese label for cumulative reading when Chinese language is selected', (tester) async {
