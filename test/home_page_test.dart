@@ -139,6 +139,30 @@ void main() {
     expect(find.textContaining('小时'), findsWidgets);
   });
 
+  testWidgets('HomePage stat cards use theme-aware background in dark mode', (tester) async {
+    SettingsEngine.setLanguage(SettingsEngine.languageChinese);
+    final controller = BookshelfController();
+    controller.books.value = const [];
+
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        theme: const CupertinoThemeData(brightness: Brightness.dark),
+        home: HomePage(controller: controller),
+      ),
+    );
+
+    final labelElement = tester.element(find.text('本月阅读'));
+    final cardFinder = find.ancestor(of: find.text('本月阅读'), matching: find.byType(Container));
+    final cardContainer = tester.widget<Container>(cardFinder.last);
+
+    final decoration = (cardContainer.decoration as BoxDecoration).color;
+    final expectedColor = CupertinoColors.secondarySystemBackground.resolveFrom(labelElement);
+
+    expect(decoration, expectedColor);
+  });
+
   testWidgets('HomePage stat cards do not render leading icons', (tester) async {
     SettingsEngine.setLanguage(SettingsEngine.languageChinese);
     final controller = BookshelfController();

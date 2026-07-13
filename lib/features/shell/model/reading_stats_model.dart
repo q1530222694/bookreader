@@ -2,10 +2,99 @@ import '../../../engine/localization_engine.dart';
 
 import 'book_model.dart';
 
+/// 按月聚合的阅读时间轴记录，用于回忆页「阅读时间轴」卡片与「查看全部」时间轴页。
+/// 按书籍 lastReadAt 所在月份聚合（近似口径，详见 [monthTimeline]）。
+class MonthTimelineRecord {
+  /// 当月第一天（归一到零点），作为该月的唯一标识。
+  final DateTime month;
+
+  /// 当月有阅读活动的书籍数（读完 + 在读）。
+  final int bookCount;
+
+  /// 当月阅读总分钟（近似：取 lastReadAt 落在该月的书籍，累加其总阅读时长）。
+  final int minutes;
+
+  /// 当月阅读的书籍中被收藏的条数（近似：以 isFavorite 标记，无法精确到收藏时刻）。
+  final int favorites;
+
+  /// 当月读完的书籍（progress >= 1.0）。
+  final List<BookModel> finished;
+
+  /// 当月开始/在读的书籍（0 <= progress < 1.0，含仅记录时长未更新进度者）。
+  final List<BookModel> started;
+
+  const MonthTimelineRecord({
+    required this.month,
+    required this.bookCount,
+    required this.minutes,
+    required this.favorites,
+    required this.finished,
+    required this.started,
+  });
+
+  /// 从书籍列表按月聚合时间轴记录，结果按月份倒序（最近的月份在最前）。
+  ///
+  /// 聚合口径说明（与全 App 其它统计保持一致）：
+  /// - 仅统计有阅读活动的书籍（progress>0 或 readingDurationSeconds>0）；
+  /// - 以 lastReadAt 所在月份归属，一本书只计入其「最后阅读」所在月；
+  /// - 阅读时长为书籍累计总时长（模型未记录逐月明细，故为近似）；
+  /// - 收藏数取该月书籍中 isFavorite 为真的数量（模型未记录收藏时刻，故为近似）。
+  static List<MonthTimelineRecord> monthTimeline(List<BookModel> books) {
+    final Map<DateTime, List<BookModel>> grouped = {};
+    for (final book in books) {
+      if (book.progress <= 0 && book.readingDurationSeconds <= 0) continue;
+      final lr = book.lastReadAt;
+      if (lr == null) continue; // 无阅读时间则无法归属月份
+      final key = DateTime(lr.year, lr.month, 1);
+      grouped.putIfAbsent(key, () => []).add(book);
+    }
+
+    final records = <MonthTimelineRecord>[];
+    for (final entry in grouped.entries) {
+      final monthBooks = entry.value;
+      var minutes = 0;
+      var favorites = 0;
+      final finished = <BookModel>[];
+      final started = <BookModel>[];
+      for (final b in monthBooks) {
+        final m = b.readingDurationSeconds > 0
+            ? ((b.readingDurationSeconds + 59) ~/ 60)
+            : (b.progress * 60).ceil();
+        minutes += m;
+        if (b.isFavorite) favorites++;
+        if (b.progress >= 1.0) {
+          finished.add(b);
+        } else {
+          started.add(b);
+        }
+      }
+      records.add(
+        MonthTimelineRecord(
+          month: entry.key,
+          bookCount: monthBooks.length,
+          minutes: minutes,
+          favorites: favorites,
+          finished: finished,
+          started: started,
+        ),
+      );
+    }
+    // 按月份倒序，最近的月份排最前
+    records.sort((a, b) => b.month.compareTo(a.month));
+    return records;
+  }
+}
+
 /// ReadingStats aggregates reading duration and activity information from a
 /// list of books.
 class ReadingStats {
   final Map<DateTime, int> dailyMinutes;
+  // 每天 4 个「6 小时段」的阅读分钟数：key=日期(归一到零点)，value=长度 4 的列表
+  // 下标含义：[0]=00:00~06:00 [1]=06:00~12:00 [2]=12:00~18:00 [3]=18:00~24:00
+  // 用于热力图把每个日期格切分为 4 块、分别显示各时段的阅读情况。
+  final Map<DateTime, List<int>> dailyBlockMinutes;
+  // 小时级阅读分钟分布（0~23 时），用于「阅读时间分布·时段」统计
+  final Map<int, int> hourlyMinutes;
   final int totalMinutes;
   final int todayMinutes;
   final int yesterdayMinutes;
@@ -46,6 +135,8 @@ class ReadingStats {
 
   ReadingStats._({
     required this.dailyMinutes,
+    required this.dailyBlockMinutes,
+    required this.hourlyMinutes,
     required this.totalMinutes,
     required this.todayMinutes,
     required this.yesterdayMinutes,
@@ -71,6 +162,8 @@ class ReadingStats {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final normalized = <DateTime, int>{};
+    final dailyBlock = <DateTime, List<int>>{};
+    final hourly = <int, int>{};
 
     for (final book in books) {
       if (book.progress <= 0 && book.readingDurationSeconds <= 0) {
@@ -87,6 +180,18 @@ class ReadingStats {
               book.lastReadAt!.day,
             );
       normalized[readDate] = (normalized[readDate] ?? 0) + minutes;
+
+      // 记录每个日期 4 个「6 小时段」的阅读分钟：按最后阅读时间所在小时归入对应时段
+      final block =
+          book.lastReadAt == null ? 0 : (book.lastReadAt!.hour ~/ 6).clamp(0, 3);
+      final blocks = dailyBlock.putIfAbsent(readDate, () => [0, 0, 0, 0]);
+      blocks[block] += minutes;
+
+      // 记录小时级分布，用于「时段」统计：取书籍真实的最后阅读时间所在小时
+      if (book.lastReadAt != null) {
+        final h = book.lastReadAt!.hour;
+        hourly[h] = (hourly[h] ?? 0) + minutes;
+      }
     }
 
     final totalMinutes = normalized.values.fold<int>(0, (sum, value) => sum + value);
@@ -174,6 +279,8 @@ class ReadingStats {
 
     return ReadingStats._(
       dailyMinutes: normalized,
+      dailyBlockMinutes: dailyBlock,
+      hourlyMinutes: hourly,
       totalMinutes: totalMinutes,
       todayMinutes: todayMinutes,
       yesterdayMinutes: yesterdayMinutes,
@@ -194,6 +301,24 @@ class ReadingStats {
       distribution2To3HoursMinutes: distribution2To3HoursMinutes,
       distribution3HoursMoreMinutes: distribution3HoursMoreMinutes,
     );
+  }
+
+  /// 统计区间内「读完」的书籍数量：进度达到 100%（progress>=1.0），
+  /// 且最后阅读时间落在区间 [startInclusive, endExclusive) 内。
+  /// 与「点开过几本书」区分——仅统计真正读完的书籍。
+  static int completedBooksInRange(
+    List<BookModel> books,
+    DateTime startInclusive,
+    DateTime endExclusive,
+  ) {
+    var count = 0;
+    for (final b in books) {
+      if (b.progress < 1.0) continue; // 未读完，不计入
+      final lr = b.lastReadAt;
+      if (lr == null) continue;
+      if (!lr.isBefore(startInclusive) && lr.isBefore(endExclusive)) count++;
+    }
+    return count;
   }
 
   static int _sumInRange(

@@ -488,7 +488,7 @@ class LocalizationEngine {
     'view_all': {'zh': '查看全部 >', 'en': 'View All >'},
     'bookshelf_tab_all': {'zh': '全部', 'en': 'All'},
     'bookshelf_tab_other': {'zh': '其他', 'en': 'Other'},
-    'bookshelf_all_label': {'zh': '全部书籍', 'en': 'All Books'},
+    'bookshelf_all_label': {'zh': '全部', 'en': 'All'},
     'bookshelf_favorites_label': {'zh': '收藏', 'en': 'Favorites'},
     'bookshelf_reading_label': {'zh': '在读', 'en': 'Reading'},
     'bookshelf_finished_label': {'zh': '已读', 'en': 'Finished'},
@@ -497,6 +497,13 @@ class LocalizationEngine {
     'file_type_pdf': {'zh': 'PDF', 'en': 'PDF'},
     'file_type_epub': {'zh': 'EPUB', 'en': 'EPUB'},
     'file_type_txt': {'zh': 'TXT', 'en': 'TXT'},
+    // 去年的今天卡片（MemoryMainPage）
+    'last_year_today': {'zh': '去年的今天', 'en': 'This Day Last Year'},
+    // 随机回忆 / 本周阅读时长 / 阅读时间轴 卡片标题（MemoryMainPage）
+    'random_memory': {'zh': '随机回忆', 'en': 'Random Memory'},
+    'weekly_reading_duration': {'zh': '本周阅读时长', 'en': 'Weekly Reading'},
+    'weekly_compare_prefix': {'zh': '比上周', 'en': 'vs last week'},
+    'reading_timeline': {'zh': '阅读时间轴', 'en': 'Reading Timeline'},
     // 阅读统计卡片（MemoryMainPage）
     'stats_reading_hours_label': {
       'zh': '阅读时长(小时)',
@@ -523,6 +530,10 @@ class LocalizationEngine {
     'heatmap_legend_few': {'zh': '少', 'en': 'Less'},
     'heatmap_legend_many': {'zh': '多', 'en': 'More'},
     'reading_heatmap': {'zh': '阅读热力图', 'en': 'Reading Heatmap'},
+    'heatmap_block_hint': {
+      'zh': '每格 4 块 = 当日的 4 个 6 小时段阅读情况',
+      'en': 'Each cell split into 4 = the day’s four 6-hour reading blocks'
+    },
     // 遗忘的书籍卡片（MemoryMainPage）
     'forgotten_books_title': {'zh': '遗忘的书籍', 'en': 'Forgotten Books'},
     'forgotten_view_now': {'zh': '立即查看', 'en': 'View Now'},
@@ -536,6 +547,61 @@ class LocalizationEngine {
       'zh': '没有遗漏的书籍，继续保持！',
       'en': 'No forgotten books. Keep it up!',
     },
+    // 阅读统计详情页（MemoryPage）—— 区块标题与分类/时段标签
+    'detail_trend_title': {
+      'zh': '阅读时长趋势',
+      'en': 'Reading Trend',
+    },
+    'detail_type_distribution': {
+      'zh': '阅读类型分布',
+      'en': 'Reading Type Distribution',
+    },
+    'detail_time_distribution': {
+      'zh': '阅读时间分布',
+      'en': 'Reading Time Distribution',
+    },
+    'detail_monthly_records': {
+      'zh': '阅读记录',
+      'en': 'Reading Records',
+    },
+    'type_tech': {'zh': '技术编程', 'en': 'Tech / Programming'},
+    'type_thought': {'zh': '思想认知', 'en': 'Thought / Philosophy'},
+    'type_novel': {'zh': '文学小说', 'en': 'Literature / Fiction'},
+    'type_other': {'zh': '其他', 'en': 'Other'},
+    'time_morning': {'zh': '白天(6:00-12:00)', 'en': 'Morning (6-12)'},
+    'time_afternoon': {'zh': '午后(12:00-18:00)', 'en': 'Afternoon (12-18)'},
+    'time_evening': {'zh': '晚上(18:00-24:00)', 'en': 'Evening (18-24)'},
+    'time_night': {'zh': '深夜(0:00-6:00)', 'en': 'Late Night (0-6)'},
+    'time_tab_period': {'zh': '时段', 'en': 'Period'},
+    'time_tab_alt': {'zh': '频率', 'en': 'Frequency'},
+    // 全部阅读记录页（ReadingRecordsPage）与记录行文案
+    'all_reading_records': {'zh': '全部阅读记录', 'en': 'All Reading Records'},
+    'record_duration_label': {'zh': '阅读时长', 'en': 'Duration'},
+    'record_read_on': {'zh': '阅读于', 'en': 'Read on'},
+    'records_empty': {'zh': '暂无阅读记录', 'en': 'No reading records yet'},
+    // 阅读统计详情页（MemoryPage）—— 周期导航与图表/分布补充键
+    'year_unit': {'zh': '年', 'en': 'Year'},
+    'month_unit': {'zh': '月', 'en': 'Month'},
+    'trend_chart_bar': {'zh': '条形', 'en': 'Bar'},
+    'trend_chart_line': {'zh': '折线', 'en': 'Line'},
+    'freq_under_1h': {'zh': '1小时内', 'en': '< 1h'},
+    'freq_1_2h': {'zh': '1-2小时', 'en': '1-2h'},
+    'freq_2_3h': {'zh': '2-3小时', 'en': '2-3h'},
+    'freq_3h_plus': {'zh': '3小时以上', 'en': '> 3h'},
+    'records_finished': {'zh': '看完了', 'en': 'Finished'},
+    'records_reading': {'zh': '在读', 'en': 'Reading'},
+    'record_progress_prefix': {'zh': '读到', 'en': 'Read to'},
+    'record_done_label': {'zh': '已读完', 'en': 'Completed'},
+    // 阅读时间轴（按月记录真实数据，MemoryMainPage + ReadingTimelinePage）
+    'timeline_summary': {
+      'zh': '阅读 {books} 本书 · {hours} 小时 · 收藏 {fav} 条',
+      'en': 'Read {books} books · {hours} h · {fav} saved',
+    },
+    'timeline_finished_prefix': {'zh': '读完：', 'en': 'Finished: '},
+    'timeline_started_prefix': {'zh': '开始：', 'en': 'Started: '},
+    'timeline_book_sep': {'zh': '、', 'en': ', '},
+    'timeline_etc': {'zh': '等', 'en': '…'},
+    'stats_page_enter': {'zh': '统计页', 'en': 'Stats'},
   };
 
   static String _toTraditionalChinese(String value) {

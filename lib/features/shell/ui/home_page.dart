@@ -555,6 +555,7 @@ class _HomePageState extends State<HomePage> {
     final parts = value.split(' ');
     final primaryText = parts.isNotEmpty ? parts.first : value;
     final secondaryText = parts.length > 1 ? value.substring(value.indexOf(' ')).trim() : '';
+    final cardColor = CupertinoColors.secondarySystemBackground.resolveFrom(context);
 
     return Container(
       width: double.infinity,
@@ -562,7 +563,7 @@ class _HomePageState extends State<HomePage> {
       margin: EdgeInsets.zero,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       decoration: BoxDecoration(
-        color: CupertinoColors.white,
+        color: cardColor,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: CupertinoColors.separator.resolveFrom(context).withOpacity(0.7)),
         boxShadow: [

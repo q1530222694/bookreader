@@ -1166,13 +1166,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: CupertinoColors.systemBackground.resolveFrom(context),
+          // 背景改用次要系统背景，与回忆页阅读统计卡片一致，无需硬边框即可与页面底色形成柔和对比
+          color: CupertinoColors.secondarySystemBackground.resolveFrom(context),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: CupertinoColors.systemGrey5.resolveFrom(context), width: 0.8),
           boxShadow: [
+            // 阴影调淡，仅留极轻的主题主色投影，整体线框更柔和
             BoxShadow(
-              color: CupertinoColors.systemGrey.withOpacity(0.08),
-              blurRadius: 12,
+              color: CupertinoTheme.of(context).primaryColor.withOpacity(0.06),
+              blurRadius: 14,
               offset: const Offset(0, 4),
             ),
           ],
@@ -1188,7 +1189,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
                 LocalizationEngine.text('bookshelf_all_label'),
               ),
             ),
-            Container(width: 1, height: 46, color: CupertinoColors.systemGrey5.resolveFrom(context)),
             Expanded(
               child: _buildStatCell(
                 context,
@@ -1198,7 +1198,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
                 LocalizationEngine.text('bookshelf_favorites_label'),
               ),
             ),
-            Container(width: 1, height: 46, color: CupertinoColors.systemGrey5.resolveFrom(context)),
             Expanded(
               child: _buildStatCell(
                 context,
@@ -1208,7 +1207,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
                 LocalizationEngine.text('bookshelf_reading_label'),
               ),
             ),
-            Container(width: 1, height: 46, color: CupertinoColors.systemGrey5.resolveFrom(context)),
             Expanded(
               child: _buildStatCell(
                 context,

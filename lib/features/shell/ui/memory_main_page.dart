@@ -10,6 +10,8 @@ import 'comic_viewer_page.dart';
 import 'epub_viewer_page.dart';
 import 'memory_page.dart';
 import 'forgotten_books_page.dart';
+import 'reading_timeline_page.dart';
+import 'timeline_entry.dart';
 import 'txt_viewer_page.dart';
 
 /// MemoryMainPage 是新的一级“阅读回忆”长滚动页面。
@@ -27,6 +29,9 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
   /// 当前选中的统计周期索引（0=周, 1=月, 2=年, 3=全部）
   int _selectedPeriodIndex = 0;
 
+  /// 热力图当前展示的月份（由卡片右上「月份 ▼」按钮切换，默认当前月）
+  DateTime _heatmapMonth = DateTime(DateTime.now().year, DateTime.now().month);
+
   @override
   void dispose() {
     _controller.dispose();
@@ -42,7 +47,12 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
       builder: (context, books, child) {
         final stats = ReadingStats.fromBooks(books);
         final yearHours = (stats.yearMinutes / 60).round();
-        final bookCount = books.length;
+        // 「今年已读」统计【已读完】的书籍（进度 100% 且最后阅读时间在今年），而非点开过的书
+        final now = DateTime.now();
+        final yearStart = DateTime(now.year, 1, 1);
+        final yearEnd = DateTime(now.year + 1, 1, 1);
+        final bookCount =
+            ReadingStats.completedBooksInRange(books, yearStart, yearEnd);
         final estimatedPages = (stats.yearMinutes * 1.5).round();
 
         return CupertinoPageScaffold(
@@ -105,12 +115,12 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
                     ),
                     const SizedBox(height: 12),
 
-                    // 阅读时间轴（简化展示）
-                    _buildTimelineCard(theme, stats),
+                    // 阅读统计卡片（周/月/年/全部 + 四项数据 + 右上「统计页」入口）
+                    _buildReadingStatsCard(theme, books, stats),
                     const SizedBox(height: 12),
 
-                    // 阅读统计卡片（周/月/年/全部 + 四项数据）
-                    _buildReadingStatsCard(theme, stats),
+                    // 阅读时间轴（按月展示真实数据，查看全部进入时间轴全量页）
+                    _buildTimelineCard(theme, books),
                     const SizedBox(height: 12),
 
                     // 阅读热力图（日历网格）
@@ -222,7 +232,7 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: CupertinoColors.white,
+        color: CupertinoColors.secondarySystemBackground.resolveFrom(context),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
@@ -237,11 +247,14 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
         children: [
           Row(
             children: [
+              _sectionIcon(theme, CupertinoIcons.calendar),
+              const SizedBox(width: 10),
               Text(
-                '✨ 去年的今天',
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: CupertinoColors.systemGrey,
+                LocalizationEngine.text('last_year_today'),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: CupertinoColors.label.resolveFrom(context),
                 ),
               ),
               const Spacer(),
@@ -347,9 +360,11 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
         children: [
           Row(
             children: [
-              const Expanded(
+              _sectionIcon(theme, CupertinoIcons.shuffle, onDark: true),
+              const SizedBox(width: 10),
+              Expanded(
                 child: Text(
-                  '🔄 随机回忆',
+                  LocalizationEngine.text('random_memory'),
                   style: TextStyle(
                     color: CupertinoColors.white,
                     fontWeight: FontWeight.w700,
@@ -420,11 +435,11 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7F5FF),
+        color: CupertinoColors.secondarySystemBackground.resolveFrom(context),
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF9D88E9).withOpacity(0.09),
+            color: theme.primaryColor.withOpacity(0.10),
             blurRadius: 18,
             offset: const Offset(0, 10),
           ),
@@ -439,23 +454,14 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
               children: [
                 Row(
                   children: [
-                    CupertinoButton(
-                      padding: EdgeInsets.zero,
-                      minSize: 32,
-                      onPressed: () {},
-                      child: const Icon(
-                        CupertinoIcons.clear_thick,
-                        color: Color(0xFFB7B7B7),
-                        size: 18,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    const Text(
-                      '本周阅读时长',
+                    _sectionIcon(theme, CupertinoIcons.clock),
+                    const SizedBox(width: 10),
+                    Text(
+                      LocalizationEngine.text('weekly_reading_duration'),
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
-                        color: Color(0xFF2E2E2E),
+                        color: CupertinoColors.label.resolveFrom(context),
                       ),
                     ),
                   ],
@@ -498,19 +504,22 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
                 Text(
                   durationText,
                   textAlign: TextAlign.right,
-                  style: const TextStyle(
-                    fontSize: 20,
+                  style: TextStyle(
+                    fontSize: 16,
                     fontWeight: FontWeight.w800,
-                    color: Color(0xFF2A2A2A),
+                    color: CupertinoColors.label.resolveFrom(context),
                   ),
                 ),
                 const SizedBox(height: 12),
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text(
-                      '比上周',
-                      style: TextStyle(fontSize: 12, color: Color(0xFF6D6D6D)),
+                    Text(
+                      LocalizationEngine.text('weekly_compare_prefix'),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                      ),
                     ),
                     const SizedBox(width: 6),
                     Icon(
@@ -539,82 +548,13 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
     );
   }
 
-  Widget _buildTimelineCard(CupertinoThemeData theme, ReadingStats stats) {
+  Widget _buildTimelineCard(CupertinoThemeData theme, List<BookModel> books) {
     final primary = theme.primaryColor;
-    final lavenderBg = const Color(0xFFF7F5FF);
-    final mutedGrey = const Color(0xFF8E8E93);
+    final lavenderBg = CupertinoColors.secondarySystemBackground.resolveFrom(context);
 
-    Widget _marker({required bool filled, required Color color}) {
-      return Container(
-        width: 14,
-        height: 14,
-        decoration: BoxDecoration(
-          color: filled ? color : Colors.transparent,
-          border: Border.all(
-            color: filled ? color : const Color(0xFFBDBDBD),
-            width: 1.5,
-          ),
-          shape: BoxShape.circle,
-        ),
-      );
-    }
-
-    Widget _entry({
-      required Widget marker,
-      required String title,
-      required String subtitle,
-      bool isLast = false,
-    }) {
-      return IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-              width: 36,
-              child: Column(
-                children: [
-                  marker,
-                  if (!isLast) ...[
-                    const SizedBox(height: 6),
-                    Expanded(
-                      child: Container(
-                        width: 2,
-                        color: const Color(0xFFEAE6F8),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF222222),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Color(0xFF6B6B6B),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
-    }
+    // 按月聚合真实阅读数据（倒序，最近的月份在前），主卡片最多展示最近 5 个月
+    final records = MonthTimelineRecord.monthTimeline(books);
+    final visible = records.take(5).toList();
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -634,92 +574,80 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
         children: [
           Row(
             children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: primary.withOpacity(0.14),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Center(
-                  child: Icon(
-                    Icons.auto_awesome, // geometric abstract icon
-                    color: primary,
-                    size: 18,
-                  ),
-                ),
-              ),
+              _sectionIcon(theme, Icons.timeline),
               const SizedBox(width: 10),
-              const Expanded(
+              Expanded(
                 child: Text(
-                  '阅读时间轴',
+                  LocalizationEngine.text('reading_timeline'),
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
-                    color: Color(0xFF222222),
+                    color: CupertinoColors.label.resolveFrom(context),
                   ),
                 ),
               ),
               CupertinoButton(
                 padding: EdgeInsets.zero,
                 minSize: 28,
-                onPressed: () {},
+                onPressed: () => Navigator.of(context).push(
+                  CupertinoPageRoute(
+                    builder: (_) => ReadingTimelinePage(books: books),
+                  ),
+                ),
                 child: Text(
-                  '查看全部 >',
-                  style: TextStyle(fontSize: 13, color: mutedGrey),
+                  LocalizationEngine.text('view_all'),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: CupertinoColors.tertiaryLabel.resolveFrom(context),
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 12),
 
-          // Timeline entries
-          SizedBox(
-            height: 220,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Left spacer (markers column handled in _entry)
-                Expanded(
-                  child: Column(
-                    children: [
-                      _entry(
-                        marker: _marker(filled: true, color: primary),
-                        title: '2026年7月',
-                        subtitle: '阅读 4 本书 · 47 小时 · 收藏 26 条',
-                      ),
-                      _entry(
-                        marker: _marker(
-                          filled: false,
-                          color: const Color(0xFFBDBDBD),
-                        ),
-                        title: '2026年6月',
-                        subtitle: '完成 《三体》 · 阅读时长 32 小时',
-                      ),
-                      _entry(
-                        marker: _marker(
-                          filled: false,
-                          color: const Color(0xFFBDBDBD),
-                        ),
-                        title: '2026年5月',
-                        subtitle: '开始阅读 《Flutter 实战》',
-                        isLast: true,
-                      ),
-                    ],
+          // 时间轴列表：最多展示最近 5 个月，超出部分由「查看全部」进入全量页
+          visible.isEmpty
+              ? Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Text(
+                    LocalizationEngine.text('records_empty'),
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                    ),
+                  ),
+                )
+              : ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 340),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      children: visible.asMap().entries.map((e) {
+                        final index = e.key;
+                        final record = e.value;
+                        return timelineEntryFromRecord(
+                          record,
+                          context,
+                          isFirst: index == 0,
+                          isLast: index == visible.length - 1,
+                        );
+                      }).toList(),
+                    ),
                   ),
                 ),
-              ],
-            ),
-          ),
         ],
       ),
     );
   }
 
   /// 构建阅读统计卡片：包含周期切换 Tab（周/月/年/全部）和四项统计数据。
-  Widget _buildReadingStatsCard(CupertinoThemeData theme, ReadingStats stats) {
+  Widget _buildReadingStatsCard(
+    CupertinoThemeData theme,
+    List<BookModel> books,
+    ReadingStats stats,
+  ) {
     final primary = theme.primaryColor;
-    final lavenderBg = const Color(0xFFF7F5FF);
+    final lavenderBg = CupertinoColors.secondarySystemBackground.resolveFrom(context);
 
     // 周期标签列表
     final periodTabs = [
@@ -743,8 +671,29 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
       }
     }
 
+    /// 根据当前选中的周期，计算区间 [start, end)（用于统计「读完」的书籍本数）
+    (DateTime, DateTime) _periodBounds() {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      switch (_selectedPeriodIndex) {
+        case 0: // 周：本周一 ~ 下周一
+          final start = today.subtract(Duration(days: today.weekday - 1));
+          return (start, start.add(const Duration(days: 7)));
+        case 1: // 月：本月 1 号 ~ 下月 1 号
+          final start = DateTime(now.year, now.month, 1);
+          return (start, DateTime(now.year, now.month + 1, 1));
+        case 2: // 年：今年 1 月 1 号 ~ 明年 1 月 1 号
+          final start = DateTime(now.year, 1, 1);
+          return (start, DateTime(now.year + 1, 1, 1));
+        default: // 全部：极早 ~ 明年（即所有历史读完的书籍）
+          return (DateTime(1970), DateTime(now.year + 1, 1, 1));
+      }
+    }
+
     final hours = (_periodMinutes() / 60).round();
-    final bookCount = _controller.books.value.length;
+    // 「阅读书籍本数」统计【已读完】的书籍（进度 100% 且最后阅读时间落在该周期内）
+    final (start, end) = _periodBounds();
+    final bookCount = ReadingStats.completedBooksInRange(books, start, end);
     // 按平均每分钟 1.5 页估算阅读页数（与导航栏副标题保持一致）
     final pages = (_periodMinutes() * 1.5).round();
     const notesCount = 26; // 收藏笔记数（暂用占位值，后续对接笔记模块）
@@ -799,9 +748,11 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 标题行 + 周期切换 Tab
+          // 标题：阅读统计（右侧「统计页」入口，点击进入阅读统计详情页）
           Row(
             children: [
+              _sectionIcon(theme, CupertinoIcons.chart_bar),
+              const SizedBox(width: 10),
               Text(
                 LocalizationEngine.text('reading_statistics'),
                 style: TextStyle(
@@ -811,48 +762,61 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
                 ),
               ),
               const Spacer(),
-              // 周期选择胶囊按钮组
-              SizedBox(
-                height: 32,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  shrinkWrap: true,
-                  itemCount: periodTabs.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 6),
-                  itemBuilder: (context, index) {
-                    final isSelected = index == _selectedPeriodIndex;
-                    return GestureDetector(
-                      onTap: () =>
-                          setState(() => _selectedPeriodIndex = index),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        padding: const EdgeInsets.symmetric(horizontal: 14),
-                        decoration: BoxDecoration(
-                          color: isSelected ? primary : Colors.transparent,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          periodTabs[index],
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight:
-                                isSelected ? FontWeight.w600 : FontWeight.w400,
-                            color: isSelected
-                                ? CupertinoColors.white
-                                : CupertinoColors.secondaryLabel.resolveFrom(
-                                    context,
-                                  ),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
+              CupertinoButton(
+                padding: EdgeInsets.zero,
+                minSize: 28,
+                onPressed: () => Navigator.of(context).push(
+                  CupertinoPageRoute(builder: (_) => const MemoryPage()),
+                ),
+                child: Text(
+                  LocalizationEngine.text('stats_page_enter'),
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: primary,
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
+          // 周期切换 Tab（周/月/年/全部）：移至标题下方，使用 Expanded 均分卡片宽度
+          Row(
+            children: periodTabs.asMap().entries.map((entry) {
+              final index = entry.key;
+              final label = entry.value;
+              final isSelected = index == _selectedPeriodIndex;
+              return Expanded(
+                child: GestureDetector(
+                  onTap: () => setState(() => _selectedPeriodIndex = index),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    height: 34,
+                    margin: const EdgeInsets.symmetric(horizontal: 3),
+                    decoration: BoxDecoration(
+                      color: isSelected ? primary : Colors.transparent,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight:
+                            isSelected ? FontWeight.w600 : FontWeight.w400,
+                        color: isSelected
+                            ? CupertinoColors.white
+                            : CupertinoColors.secondaryLabel.resolveFrom(
+                                context,
+                              ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 16),
 
           // 四列统计数据
           Row(
@@ -889,16 +853,16 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
   /// 构建阅读热力图卡片：日历网格 + 紫色渐变强度 + 底部图例。
   Widget _buildHeatmapCard(CupertinoThemeData theme, ReadingStats stats) {
     final primary = theme.primaryColor;
-    final lavenderBg = const Color(0xFFF7F5FF);
+    final lavenderBg = CupertinoColors.secondarySystemBackground.resolveFrom(context);
 
-    // 当前月份的日历数据：按周分行，每行包含 [日期标签 + 7天格子]
-    final now = DateTime.now();
-    // 取当月第一天（周一为起始）
-    final monthStart = DateTime(now.year, now.month, 1);
-    // 当月第一天是周几（1=周一 ... 7=周日），调整偏移使周一为第0列
+    // 当前展示月份的日历数据：按周分行，每行包含 [日期标签 + 7天格子]
+    final month = _heatmapMonth;
+    // 取展示月第一天（周一为起始）
+    final monthStart = DateTime(month.year, month.month, 1);
+    // 展示月第一天是周几（1=周一 ... 7=周日），调整偏移使周一为第0列
     var startWeekday = monthStart.weekday; // 1=Mon .. 7=Sun
-    // 当月天数
-    final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
+    // 展示月天数
+    final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
 
     /// 构造按周分行的网格数据：每行 = {weekLabel, List<DayCell?>}
     /// DayCell 为 null 表示该格不属于当前月份
@@ -911,14 +875,14 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
       firstRowCells.add(null); // 上月占位
     }
     while (firstRowCells.length < 7 && currentDay <= daysInMonth) {
-      final date = DateTime(now.year, now.month, currentDay);
-      final minutes = stats.dailyMinutes[date] ?? 0;
-      firstRowCells.add(_DayCell(date: date, minutes: minutes));
+      final date = DateTime(month.year, month.month, currentDay);
+      final blockMinutes = stats.dailyBlockMinutes[date] ?? [0, 0, 0, 0];
+      firstRowCells.add(_DayCell(date: date, blockMinutes: blockMinutes));
       currentDay++;
     }
     if (firstRowCells.isNotEmpty) {
       gridRows.add(_HeatmapRow(
-        label: '${now.month}/${firstRowCells.firstWhere((c) => c != null)?.date.day ?? currentDay}',
+        label: '${month.month}/${firstRowCells.firstWhere((c) => c != null)?.date.day ?? currentDay}',
         cells: firstRowCells,
       ));
     }
@@ -927,14 +891,14 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
     while (currentDay <= daysInMonth) {
       final rowCells = <_DayCell?>[];
       for (var col = 0; col < 7 && currentDay <= daysInMonth; col++) {
-        final date = DateTime(now.year, now.month, currentDay);
-        final minutes = stats.dailyMinutes[date] ?? 0;
-        rowCells.add(_DayCell(date: date, minutes: minutes));
+        final date = DateTime(month.year, month.month, currentDay);
+        final blockMinutes = stats.dailyBlockMinutes[date] ?? [0, 0, 0, 0];
+        rowCells.add(_DayCell(date: date, blockMinutes: blockMinutes));
         currentDay++;
       }
       if (rowCells.isNotEmpty) {
         gridRows.add(_HeatmapRow(
-          label: '${now.month}/${rowCells.firstWhere((c) => c != null)?.date.day ?? currentDay}',
+          label: '${month.month}/${rowCells.firstWhere((c) => c != null)?.date.day ?? currentDay}',
           cells: rowCells,
         ));
       }
@@ -943,25 +907,16 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
     /// 周几表头（周一 ~ 周日）
     const weekdayLabels = ['一', '二', '三', '四', '五', '六', '日'];
 
-    /// 根据阅读分钟数返回对应颜色（5 级紫色调）
-    Color _cellColor(int minutes) {
-      if (minutes == 0) return const Color(0xFFF0EDFA); // 无数据：极浅紫底色
-      if (minutes < 15) return const Color(0xFFE0D6FC); // Level 1
-      if (minutes < 30) return const Color(0xFFC8B8F7); // Level 2
-      if (minutes < 60) return const Color(0xFFA98EF0); // Level 3
-      return primary;                                    // Level 4+：主色最深
-    }
-
-    /// 单个日期格子
-    Widget cellWidget(_DayCell? cell) {
-      final color = cell != null ? _cellColor(cell.minutes) : Colors.transparent;
-      return Container(
-        margin: const EdgeInsets.all(1.5),
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(3),
-        ),
-      );
+    /// 根据单个「6 小时段」的阅读分钟数返回对应颜色（主题主色派生，不写死十六进制）。
+    /// 阈值按 6 小时段等比下调：无数据=极浅灰；其余按 0.20/0.40/0.65/主色 四档。
+    Color _blockColor(int minutes) {
+      if (minutes <= 0) {
+        return CupertinoColors.systemGrey5.resolveFrom(context); // 无数据：浅灰底（比卡片背景深一档，确保方框在明暗模式下都可见）
+      }
+      if (minutes < 8) return primary.withValues(alpha: 0.20); // Level 1
+      if (minutes < 20) return primary.withValues(alpha: 0.40); // Level 2
+      if (minutes < 45) return primary.withValues(alpha: 0.65); // Level 3
+      return primary; // Level 4+：主色最深
     }
 
     return Container(
@@ -983,6 +938,8 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
           // 标题行
           Row(
             children: [
+              _sectionIcon(theme, CupertinoIcons.flame),
+              const SizedBox(width: 10),
               Text(
                 LocalizationEngine.text('reading_heatmap'),
                 style: TextStyle(
@@ -993,21 +950,24 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
               ),
               const Spacer(),
               GestureDetector(
-                onTap: () {}, // 预留：展开更多月份
+                // 点击弹出月份选择器，切换热力图展示的月份
+                onTap: _showHeatmapMonthPicker,
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      LocalizationEngine.text('heatmap_month_btn'),
+                      '${_heatmapMonth.year}${LocalizationEngine.text('year_unit')}${_heatmapMonth.month}${LocalizationEngine.text('month_unit')}',
                       style: TextStyle(
                         fontSize: 13,
-                        color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                        fontWeight: FontWeight.w600,
+                        color: primary,
                       ),
                     ),
+                    const SizedBox(width: 2),
                     Icon(
-                      CupertinoIcons.chevron_right,
+                      CupertinoIcons.chevron_down,
                       size: 12,
-                      color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                      color: primary,
                     ),
                   ],
                 ),
@@ -1016,59 +976,140 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
           ),
           const SizedBox(height: 12),
 
-          // 周几表头
-          Padding(
-            padding: const EdgeInsets.only(left: 36), // 对齐日期标签宽度
-            child: Row(
-              children: weekdayLabels.map((label) {
-                return Expanded(
-                  child: Center(
-                    child: Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: CupertinoColors.tertiaryLabel.resolveFrom(context),
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-          const SizedBox(height: 6),
+          // 热力图网格：所有方格统一尺寸（用 LayoutBuilder 计算 cellSize，保证每个日期的格子完全一致）
+          LayoutBuilder(
+            builder: (ctx, constraints) {
+              const labelWidth = 32.0;
+              const labelGap = 4.0;
+              const gap = 4.0; // 格子之间的水平间距
+              // 可用宽度 = 总宽 - 左侧日期标签(32+4) - 6 个格子间缝隙；再均分为 7 列
+              final cellSize =
+                  ((constraints.maxWidth - labelWidth - labelGap - (7 - 1) * gap) / 7)
+                      .clamp(10.0, 60.0);
 
-          // 日历网格行
-          ...gridRows.map((row) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: 2),
-            child: IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // 行首日期标签
-                  SizedBox(
-                    width: 32,
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: Text(
-                        row.label,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: CupertinoColors.secondaryLabel.resolveFrom(context),
+              // 周几表头（与数据列严格对齐：同样左偏移 + 同样 gap + 同样 cellSize）
+              final header = Padding(
+                padding: const EdgeInsets.only(left: labelWidth + labelGap),
+                child: Row(
+                  children: [
+                    for (var i = 0; i < weekdayLabels.length; i++) ...[
+                      if (i > 0) const SizedBox(width: gap),
+                      SizedBox(
+                        width: cellSize,
+                        child: Center(
+                          child: Text(
+                            weekdayLabels[i],
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: CupertinoColors.tertiaryLabel.resolveFrom(ctx),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
+                    ],
+                  ],
+                ),
+              );
+
+              // 单个日期格：切分为 2×2 四象限，分别对应当日 4 个「6 小时段」的阅读情况
+              Widget _dayCell(_DayCell? cell) {
+                if (cell == null) {
+                  return SizedBox(width: cellSize, height: cellSize); // 非当月：留空
+                }
+                final b = cell.blockMinutes;
+                const subGap = 2.0; // 象限之间的细微间隙
+                Widget quad(int mins) => Expanded(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: _blockColor(mins),
+                          borderRadius: BorderRadius.circular(2),
+                          border: Border.all(
+                            color: CupertinoColors.separator
+                                .resolveFrom(context)
+                                .withValues(alpha: 0.35),
+                            width: 0.5,
+                          ),
+                        ),
+                      ),
+                    );
+                return SizedBox(
+                  width: cellSize,
+                  height: cellSize,
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: Row(
+                          children: [
+                            quad(b[0]),
+                            const SizedBox(width: subGap),
+                            quad(b[1]),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: subGap),
+                      Expanded(
+                        child: Row(
+                          children: [
+                            quad(b[2]),
+                            const SizedBox(width: subGap),
+                            quad(b[3]),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 4),
-                  // 7 天格子
-                  Expanded(
-                    child: Row(
-                      children: row.cells.map((cell) => Expanded(child: cellWidget(cell))).toList(),
+                );
+              }
+
+              // 数据行：左侧日期标签 + 7 个统一尺寸的「四象限日期格」
+              final rows = gridRows.map((row) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: gap),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: labelWidth,
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: Text(
+                            row.label,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: CupertinoColors.secondaryLabel.resolveFrom(ctx),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: labelGap),
+                      for (var i = 0; i < row.cells.length; i++) ...[
+                        if (i > 0) const SizedBox(width: gap),
+                        _dayCell(row.cells[i]),
+                      ],
+                    ],
+                  ),
+                );
+              }).toList();
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  header,
+                  const SizedBox(height: 6),
+                  ...rows,
+                  const SizedBox(height: 8),
+                  // 说明：每格拆分为 4 块，分别对应当日 4 个「6 小时段」的阅读情况
+                  Text(
+                    LocalizationEngine.text('heatmap_block_hint'),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: CupertinoColors.tertiaryLabel.resolveFrom(context),
                     ),
                   ),
                 ],
-              ),
-            ),
-          )),
+              );
+            },
+          ),
 
           const SizedBox(height: 10),
 
@@ -1086,17 +1127,18 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
               Expanded(
                 child: Container(
                   height: 8,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(4),
-                    gradient: const LinearGradient(
-                      colors: [
-                        Color(0xFFF0EDFA),
-                        Color(0xFFE0D6FC),
-                        Color(0xFFC8B8F7),
-                        Color(0xFFA98EF0),
-                      ],
-                    ),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(4),
+                  gradient: LinearGradient(
+                    colors: [
+                      CupertinoColors.systemGrey5.resolveFrom(context),
+                      primary.withValues(alpha: 0.20),
+                      primary.withValues(alpha: 0.40),
+                      primary.withValues(alpha: 0.65),
+                      primary,
+                    ],
                   ),
+                ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -1120,13 +1162,85 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
     return DateTime.now().difference(book.lastReadAt!).inDays;
   }
 
+  /// 弹出月份选择器（Cupertino 风格底部弹层），选择后更新热力图展示的月份。
+  /// 仅允许选择当前月起至 2000 年 1 月之间（maximumDate = 此刻），避免选到未来。
+  void _showHeatmapMonthPicker() {
+    DateTime picked = _heatmapMonth;
+    showCupertinoModalPopup<void>(
+      context: context,
+      builder: (ctx) => Container(
+        height: 300,
+        color: CupertinoColors.systemBackground.resolveFrom(ctx),
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                CupertinoButton(
+                  child: Text(
+                    LocalizationEngine.text('cancel'),
+                    style: TextStyle(
+                      color: CupertinoTheme.of(ctx).primaryColor,
+                    ),
+                  ),
+                  onPressed: () => Navigator.pop(ctx),
+                ),
+                CupertinoButton(
+                  child: Text(
+                    LocalizationEngine.text('done'),
+                    style: TextStyle(
+                      color: CupertinoTheme.of(ctx).primaryColor,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  onPressed: () {
+                    setState(() => _heatmapMonth = picked);
+                    Navigator.pop(ctx);
+                  },
+                ),
+              ],
+            ),
+            Expanded(
+              child: CupertinoDatePicker(
+                mode: CupertinoDatePickerMode.monthYear,
+                initialDateTime: _heatmapMonth,
+                minimumDate: DateTime(2000, 1),
+                maximumDate: DateTime.now(),
+                onDateTimeChanged: (d) => picked = d,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 统一的分区标题前置图标：圆角方块 + 主题色（暗色卡片用白色）浅底图标，
+  /// 风格现代统一，配合标题让人一眼看懂该分区含义。
+  Widget _sectionIcon(CupertinoThemeData theme, IconData icon,
+      {bool onDark = false}) {
+    final color = onDark ? CupertinoColors.white : theme.primaryColor;
+    final bg = onDark
+        ? CupertinoColors.white.withValues(alpha: 0.18)
+        : theme.primaryColor.withValues(alpha: 0.12);
+    return Container(
+      width: 30,
+      height: 30,
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: Icon(icon, size: 17, color: color),
+    );
+  }
+
   /// 构建"遗忘的书籍"卡片：与截图一致的单行布局——[封面] [标题+天数] [立即查看按钮]。
   Widget _buildForgottenBooksCard(
     CupertinoThemeData theme,
     List<BookModel> books,
   ) {
     final primary = theme.primaryColor;
-    final lavenderBg = const Color(0xFFF7F5FF);
+    final lavenderBg = CupertinoColors.secondarySystemBackground.resolveFrom(context);
 
     // 筛选未读完的书籍（已看完的不计算），按未打开天数倒序排列
     final forgotten = books
@@ -1235,17 +1349,52 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 标题行
-          Text(
-            LocalizationEngine.text('forgotten_books_title'),
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: CupertinoColors.label.resolveFrom(context),
-            ),
+          // 标题行：左侧标题 + 右侧「查看更多」入口（布局与阅读时间轴「查看全部」保持一致）
+          Row(
+            children: [
+              _sectionIcon(theme, CupertinoIcons.bookmark),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  LocalizationEngine.text('forgotten_books_title'),
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: CupertinoColors.label.resolveFrom(context),
+                  ),
+                ),
+              ),
+              // 仅在遗忘书籍数量超过展示上限（2本）时，于标题右侧显示「查看更多」
+              if (forgotten.length > 2)
+                GestureDetector(
+                  onTap: () => Navigator.of(context).push(
+                    CupertinoPageRoute(
+                        builder: (_) => const ForgottenBooksPage()),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        LocalizationEngine.text('forgotten_view_more'),
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: primary,
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      Icon(
+                        CupertinoIcons.chevron_right,
+                        size: 13,
+                        color: primary,
+                      ),
+                    ],
+                  ),
+                ),
+            ],
           ),
           const SizedBox(height: 14),
-          // 书籍列表（纵向堆叠，每行一本书）
+          // 书籍列表（纵向堆叠，最多展示 2 本）
           if (forgotten.isEmpty)
             Center(
               child: Padding(
@@ -1261,39 +1410,7 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
               ),
             )
           else
-            ...forgotten.take(3).map(_bookRow),
-
-          // 查看更多入口（超过3本时显示）
-          if (forgotten.length > 3) ...[
-            const SizedBox(height: 4),
-            Center(
-              child: GestureDetector(
-                onTap: () => Navigator.of(context).push(
-                  CupertinoPageRoute(
-                      builder: (_) => const ForgottenBooksPage()),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      LocalizationEngine.text('forgotten_view_more'),
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: primary,
-                      ),
-                    ),
-                    const SizedBox(width: 2),
-                    Icon(
-                      CupertinoIcons.chevron_right,
-                      size: 13,
-                      color: primary,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
+            ...forgotten.take(2).map(_bookRow),
         ],
       ),
     );
@@ -1303,9 +1420,13 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
 /// 热力图单日数据单元
 class _DayCell {
   final DateTime date;
-  final int minutes;
+  // 4 个「6 小时段」的阅读分钟数：[0]=00~06 [1]=06~12 [2]=12~18 [3]=18~24
+  final List<int> blockMinutes;
 
-  _DayCell({required this.date, required this.minutes});
+  _DayCell({required this.date, required this.blockMinutes});
+
+  // 当天总阅读分钟（4 段之和），供需要时回退使用
+  int get minutes => blockMinutes.fold<int>(0, (sum, v) => sum + v);
 }
 
 /// 热力图按周分行数据
