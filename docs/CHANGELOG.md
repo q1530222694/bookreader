@@ -599,3 +599,70 @@
   └─ 依赖 ➔ `lib/features/shell/ui/tools_page.dart`
 **【全局状态/鉴权变动 (State & Auth)】**
 - 无新增权限/配置项
+
+### [2026-07-13] 新增/修改：阅读统计卡片 + 时间轴崩溃修复
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/engine/localization_engine.dart`
+  └─ 提供 ➔ 阅读统计卡片多语言文案（8 个新 key）
+  └─ 被消费 ➔ `lib/features/shell/ui/memory_main_page.dart`
+- `lib/features/shell/model/reading_stats_model.dart`
+  └─ 提供数据 ➔ 周/月/年/全部周期分钟数（weekMinutes, monthMinutes, yearMinutes, totalMinutes）
+  └─ 被消费 ➔ `lib/features/shell/ui/memory_main_page.dart`（_buildReadingStatsCard）
+- `lib/features/shell/ui/memory_main_page.dart`
+  └─ 新增 ➔ `_buildReadingStatsCard()` —— 阅读统计卡片组件（标题 + 周期 Tab 切换 + 四项统计数据）
+  └─ 修复 ➔ `_entry()` 中时间轴竖线 Expanded 布局崩溃（IntrinsicHeight 包裹）
+  └─ 依赖/调用 ➔ `lib/features/shell/controller/bookshelf_controller.dart`
+  └─ 依赖/调用 ➔ `lib/engine/localization_engine.dart`
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增/修改 Config Key
+- 无新增/修改 Permission Key
+
+**【多语言变更 (i18n)】**
+- 请将以下键值对添加到语言翻译文件：
+  - `'stats_reading_hours_label'`: `'阅读统计(小时)'`
+  - `'stats_reading_books_label'`: `'阅读书籍(本)'`
+  - `'stats_reading_pages_label'`: `'阅读页数(页)'`
+  - `'stats_notes_count_label'`: `'收藏笔记(条)'`
+  - `'stats_tab_week'`: `'周'`
+  - `'stats_tab_month'`: `'月'`
+  - `'stats_tab_year'`: `'年'`
+  - `'stats_tab_all'`: `'全部'`
+
+### [2026-07-13] 新增/修改：阅读热力图日历网格
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/memory_main_page.dart`
+  └─ 重构 ➔ `_buildHeatmapCard()` 从占位条形替换为完整日历热力图网格
+  └─ 新增内部数据类 ➔ `_DayCell`（单日阅读分钟数）+ `_HeatmapRow`（按周分行）
+  └─ 消费数据 ➔ `ReadingStats.dailyMinutes` 驱动每格颜色强度（5 级紫色调）
+  └─ 依赖/调用 ➔ `lib/engine/localization_engine.dart`
+- `lib/engine/localization_engine.dart`
+  └─ 新增 ➔ `reading_heatmap`, `heatmap_month_btn`, `heatmap_legend_few`, `heatmap_legend_many`
+
+**【多语言变更 (i18n)】**
+- `'reading_heatmap'`: `'阅读热力图'` / `'Reading Heatmap'`
+- `'heatmap_month_btn'`: `'本月'` / `'This Month'`
+- `'heatmap_legend_few'`: `'少'` / `'Less'`
+- `'heatmap_legend_many'`: `'多'` / `'More'`
+
+### [2026-07-13] 新增/修改：遗忘的书籍卡片 + 二级列表页
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/memory_main_page.dart`
+  └─ 重写 ➔ `_buildForgottenBooksCard()`：横向书卡行 + 右侧"立即查看" + 行尾"查看更多"
+  └─ 新增 ➔ `_daysSinceOpened()` 计算未打开天数；`_openBook()` 共享跳转逻辑（同时重构 `_buildRandomMemoryCard` 复用）
+  └─ 筛选规则 ➔ `progress < 1.0`（已看完不计入），按未打开天数倒序
+  └─ 跳转到 ➔ `lib/features/shell/ui/forgotten_books_page.dart`
+- `lib/features/shell/ui/forgotten_books_page.dart`（新增）
+  └─ 展示全部未读完书籍，响应式 `GridView`（列数 2~6 自适应），一个框一本书
+  └─ 依赖/调用 ➔ `lib/features/shell/controller/bookshelf_controller.dart`
+  └─ 依赖/调用 ➔ `lib/engine/localization_engine.dart`
+- `lib/engine/localization_engine.dart`
+  └─ 新增 ➔ `forgotten_books_title` / `forgotten_view_now` / `forgotten_view_more` / `forgotten_days_label` / `forgotten_never_opened` / `forgotten_empty`
+
+**【多语言变更 (i18n)】**
+- `'forgotten_books_title'`: `'遗忘的书籍'` / `'Forgotten Books'`
+- `'forgotten_view_now'`: `'立即查看'` / `'View Now'`
+- `'forgotten_view_more'`: `'查看更多'` / `'More'`
+- `'forgotten_days_label'`: `'未打开 {days} 天'` / `'Not opened for {days} days'`
+- `'forgotten_never_opened'`: `'从未打开'` / `'Never opened'`
+- `'forgotten_empty'`: `'没有遗漏的书籍，继续保持！'` / `'No forgotten books. Keep it up!'`

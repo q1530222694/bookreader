@@ -201,6 +201,9 @@ class LocalizationEngine {
     'reader_background_green': {'zh': '浅绿', 'en': 'Mint'},
     'reader_background_blue': {'zh': '浅蓝', 'en': 'Blue'},
     'reader_background_dark': {'zh': '深灰', 'en': 'Dark'},
+    'reader_add_tag': {'zh': '添加标签', 'en': 'Add Tag'},
+    'reader_add_tag_placeholder': {'zh': '输入标签', 'en': 'Enter tag'},
+    'add': {'zh': '添加', 'en': 'Add'},
     'theme_color_blue': {'zh': '蓝色', 'en': 'Blue'},
     'theme_color_green': {'zh': '绿色', 'en': 'Green'},
     'theme_color_pink': {'zh': '粉色', 'en': 'Pink'},
@@ -494,6 +497,45 @@ class LocalizationEngine {
     'file_type_pdf': {'zh': 'PDF', 'en': 'PDF'},
     'file_type_epub': {'zh': 'EPUB', 'en': 'EPUB'},
     'file_type_txt': {'zh': 'TXT', 'en': 'TXT'},
+    // 阅读统计卡片（MemoryMainPage）
+    'stats_reading_hours_label': {
+      'zh': '阅读时长(小时)',
+      'en': 'Reading Hours',
+    },
+    'stats_reading_books_label': {
+      'zh': '阅读书籍(本)',
+      'en': 'Books Read',
+    },
+    'stats_reading_pages_label': {
+      'zh': '阅读页数(页)',
+      'en': 'Pages Read',
+    },
+    'stats_notes_count_label': {
+      'zh': '收藏笔记(条)',
+      'en': 'Bookmarks',
+    },
+    'stats_tab_week': {'zh': '周', 'en': 'Week'},
+    'stats_tab_month': {'zh': '月', 'en': 'Month'},
+    'stats_tab_year': {'zh': '年', 'en': 'Year'},
+    'stats_tab_all': {'zh': '全部', 'en': 'All'},
+    // 阅读热力图卡片（MemoryMainPage）
+    'heatmap_month_btn': {'zh': '本月', 'en': 'This Month'},
+    'heatmap_legend_few': {'zh': '少', 'en': 'Less'},
+    'heatmap_legend_many': {'zh': '多', 'en': 'More'},
+    'reading_heatmap': {'zh': '阅读热力图', 'en': 'Reading Heatmap'},
+    // 遗忘的书籍卡片（MemoryMainPage）
+    'forgotten_books_title': {'zh': '遗忘的书籍', 'en': 'Forgotten Books'},
+    'forgotten_view_now': {'zh': '立即查看', 'en': 'View Now'},
+    'forgotten_view_more': {'zh': '查看更多', 'en': 'More'},
+    'forgotten_days_label': {
+      'zh': '未打开 {days} 天',
+      'en': 'Not opened for {days} days',
+    },
+    'forgotten_never_opened': {'zh': '从未打开', 'en': 'Never opened'},
+    'forgotten_empty': {
+      'zh': '没有遗漏的书籍，继续保持！',
+      'en': 'No forgotten books. Keep it up!',
+    },
   };
 
   static String _toTraditionalChinese(String value) {

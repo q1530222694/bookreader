@@ -27,7 +27,7 @@ void main() {
 
       await tester.pumpWidget(
         CupertinoApp(
-          home: TxtViewerPage(title: 'Sample', filePath: file.path),
+          home: TxtViewerPage(title: 'Sample', filePath: file.path, bookId: 'dummy'),
         ),
       );
       await tester.pump(const Duration(milliseconds: 200));
@@ -49,7 +49,7 @@ void main() {
 
       await tester.pumpWidget(
         CupertinoApp(
-          home: TxtViewerPage(title: 'Sample', filePath: file.path),
+          home: TxtViewerPage(title: 'Sample', filePath: file.path, bookId: 'dummy'),
         ),
       );
       await tester.pump(const Duration(milliseconds: 300));

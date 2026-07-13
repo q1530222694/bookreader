@@ -20,6 +20,7 @@ class ReaderSettingsSheet extends StatefulWidget {
   final ValueChanged<int> onPageModeChanged;
   final bool isPdfReader;
   final VoidCallback onClose;
+  final VoidCallback? onAddTag;
 
   const ReaderSettingsSheet({
     super.key,
@@ -35,6 +36,7 @@ class ReaderSettingsSheet extends StatefulWidget {
     this.isPdfReader = false,
     this.onBackgroundColorChanged = _noopBackgroundColorChanged,
     required this.onClose,
+    this.onAddTag,
   });
 
   @override
@@ -43,6 +45,7 @@ class ReaderSettingsSheet extends StatefulWidget {
 
 class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
   bool _showMoreSettings = false;
+  bool _showAppearanceSettings = false;
 
   Color _resolveThemeColor(String themeColor) {
     switch (themeColor) {
@@ -60,6 +63,355 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
       default:
         return CupertinoColors.activeBlue;
     }
+  }
+
+  Widget _buildPdfReaderSheet(
+    BuildContext context,
+    Color primaryColor,
+    List<_ThemeOption> themeOptions,
+    int selectedIndex,
+    Color effectiveBackgroundColor,
+  ) {
+    final labelColor = CupertinoColors.label.resolveFrom(context);
+    final secondaryColor = CupertinoColors.secondaryLabel.resolveFrom(context);
+    final borderColor = CupertinoColors.systemGrey4.resolveFrom(context);
+
+    return ColoredBox(
+      color: CupertinoColors.systemBackground.resolveFrom(context),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  CupertinoButton(
+                    padding: const EdgeInsets.all(4),
+                    minSize: 0,
+                    onPressed: () {},
+                    child: Icon(
+                      CupertinoIcons.search,
+                      size: 20,
+                      color: primaryColor,
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      LocalizationEngine.text('reader_settings'),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: labelColor,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  CupertinoButton(
+                    padding: const EdgeInsets.all(4),
+                    minSize: 0,
+                    onPressed: widget.onAddTag ?? widget.onClose,
+                    child: Icon(
+                      CupertinoIcons.add,
+                      size: 20,
+                      color: primaryColor,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (_showAppearanceSettings) ...[
+                const SizedBox(height: 12),
+                Text(
+                  LocalizationEngine.text('theme_color'),
+                  style: TextStyle(
+                    color: labelColor,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                SizedBox(
+                  height: 70,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: themeOptions.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    itemBuilder: (context, index) {
+                      final isSelected = index == selectedIndex;
+                      return GestureDetector(
+                        onTap: () {
+                          widget.onThemeChanged(index);
+                          SettingsController.setThemeColor(
+                            themeOptions[index].keyValue,
+                          );
+                        },
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: themeOptions[index].color,
+                                border: Border.all(
+                                  color: isSelected ? primaryColor : borderColor,
+                                  width: isSelected ? 2 : 1,
+                                ),
+                              ),
+                              child: isSelected
+                                  ? Icon(
+                                      Icons.check,
+                                      size: 16,
+                                      color: primaryColor,
+                                    )
+                                  : null,
+                            ),
+                            const SizedBox(height: 2),
+                            SizedBox(
+                              width: 54,
+                              child: Text(
+                                themeOptions[index].label,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: secondaryColor,
+                                  fontSize: 11,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  LocalizationEngine.text('reader_background'),
+                  style: TextStyle(
+                    color: labelColor,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: _buildBackgroundOptions(
+                      effectiveBackgroundColor,
+                      primaryColor,
+                      secondaryColor,
+                      borderColor,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  LocalizationEngine.text('reader_brightness'),
+                  style: TextStyle(
+                    color: labelColor,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Icon(CupertinoIcons.sun_max, size: 18, color: primaryColor),
+                    Expanded(
+                      child: CupertinoSlider(
+                        value: widget.brightness,
+                        onChanged: widget.onBrightnessChanged,
+                        activeColor: primaryColor,
+                        thumbColor: primaryColor,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ],
+              if (_showMoreSettings) ...[
+                const SizedBox(height: 12),
+                Text(
+                  LocalizationEngine.text('reader_page_turn'),
+                  style: TextStyle(
+                    color: labelColor,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    _PageModeChip(
+                      icon: CupertinoIcons.book,
+                      label: LocalizationEngine.text('reader_page_turn_horizontal'),
+                      selected: widget.selectedPageMode == 0,
+                      onPressed: () => widget.onPageModeChanged(0),
+                    ),
+                    const SizedBox(width: 8),
+                    _PageModeChip(
+                      icon: CupertinoIcons.square_stack_3d_up,
+                      label: LocalizationEngine.text('reader_page_turn_vertical'),
+                      selected: widget.selectedPageMode == 1,
+                      onPressed: () => widget.onPageModeChanged(1),
+                    ),
+                    const SizedBox(width: 8),
+                    _PageModeChip(
+                      icon: CupertinoIcons.sparkles,
+                      label: LocalizationEngine.text('reader_page_turn_simulation'),
+                      selected: widget.selectedPageMode == 2,
+                      onPressed: () => widget.onPageModeChanged(2),
+                    ),
+                    const SizedBox(width: 8),
+                    _PageModeChip(
+                      icon: Icons.motion_photos_on,
+                      label: LocalizationEngine.text('reader_page_turn_none'),
+                      selected: widget.selectedPageMode == 3,
+                      onPressed: () => widget.onPageModeChanged(3),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ],
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _BottomNavItem(
+                    icon: CupertinoIcons.book,
+                    label: LocalizationEngine.text('reader_nav_catalog'),
+                  ),
+                  _BottomNavItem(
+                    icon: CupertinoIcons.chart_bar_circle,
+                    label: LocalizationEngine.text('reader_nav_progress'),
+                  ),
+                  _BottomNavItem(
+                    icon: CupertinoIcons.square_list,
+                    label: LocalizationEngine.text('reader_nav_notes'),
+                  ),
+                  GestureDetector(
+                    onTap: () => setState(() {
+                      _showAppearanceSettings = !_showAppearanceSettings;
+                      if (_showAppearanceSettings) {
+                        _showMoreSettings = false;
+                      }
+                    }),
+                    child: _BottomNavItem(
+                      icon: CupertinoIcons.paintbrush,
+                      label: LocalizationEngine.text('appearance'),
+                      active: _showAppearanceSettings,
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () => setState(() {
+                      _showMoreSettings = !_showMoreSettings;
+                      if (_showMoreSettings) {
+                        _showAppearanceSettings = false;
+                      }
+                    }),
+                    child: _BottomNavItem(
+                      icon: CupertinoIcons.ellipsis,
+                      label: LocalizationEngine.text('reader_nav_more'),
+                      active: _showMoreSettings,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildBackgroundOptions(
+    Color effectiveBackgroundColor,
+    Color primaryColor,
+    Color secondaryColor,
+    Color borderColor,
+  ) {
+    final backgroundOptions = <_BackgroundColorOption>[
+      _BackgroundColorOption(
+        label: LocalizationEngine.text('reader_background_white'),
+        color: const Color(0xFFFFFFFF),
+      ),
+      _BackgroundColorOption(
+        label: LocalizationEngine.text('reader_background_beige'),
+        color: const Color(0xFFF3E5D6),
+      ),
+      _BackgroundColorOption(
+        label: LocalizationEngine.text('reader_background_gray'),
+        color: const Color(0xFFF2F2F2),
+      ),
+      _BackgroundColorOption(
+        label: LocalizationEngine.text('reader_background_yellow'),
+        color: const Color(0xFFF7F0C3),
+      ),
+      _BackgroundColorOption(
+        label: LocalizationEngine.text('reader_background_green'),
+        color: const Color(0xFFE4F2E2),
+      ),
+      _BackgroundColorOption(
+        label: LocalizationEngine.text('reader_background_blue'),
+        color: const Color(0xFFE7F1FC),
+      ),
+      _BackgroundColorOption(
+        label: LocalizationEngine.text('reader_background_dark'),
+        color: const Color(0xFF2C2C2C),
+      ),
+    ];
+
+    return backgroundOptions.asMap().entries.map((entry) {
+      final index = entry.key;
+      final option = entry.value;
+      final isSelected = effectiveBackgroundColor == option.color;
+      return Padding(
+        padding: const EdgeInsets.only(right: 6),
+        child: GestureDetector(
+          key: ValueKey('reader_background_color_$index'),
+          onTap: () {
+            widget.onBackgroundColorChanged(option.color);
+            SettingsController.setReaderBackgroundColor(option.color);
+          },
+          child: SizedBox(
+            width: 46,
+            child: Column(
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: option.color,
+                    border: Border.all(
+                      color: isSelected ? primaryColor : borderColor,
+                      width: isSelected ? 2 : 1,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  option.label,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: secondaryColor,
+                    fontSize: 9,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }).toList();
   }
 
   @override
@@ -103,6 +455,23 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
         keyValue: SettingsEngine.themeColorRed,
       ),
     ];
+
+    final resolvedSelectedIndex = themeOptions.indexWhere(
+      (option) => option.keyValue == SettingsController.themeColor.value,
+    );
+    final selectedIndex = resolvedSelectedIndex >= 0
+        ? resolvedSelectedIndex
+        : widget.selectedThemeIndex.clamp(0, themeOptions.length - 1);
+
+    if (widget.isPdfReader) {
+      return _buildPdfReaderSheet(
+        context,
+        primaryColor,
+        themeOptions,
+        selectedIndex,
+        effectiveBackgroundColor,
+      );
+    }
 
     final backgroundOptions = <_BackgroundColorOption>[
       _BackgroundColorOption(
@@ -182,19 +551,13 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                             ),
                           ),
                           CupertinoButton(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
+                            padding: const EdgeInsets.all(4),
                             minSize: 0,
-                            onPressed: widget.onClose,
-                            child: Text(
-                              LocalizationEngine.text('reader_reset'),
-                              style: TextStyle(
-                                color: primaryColor,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                              ),
+                            onPressed: widget.onAddTag ?? widget.onClose,
+                            child: Icon(
+                              CupertinoIcons.add,
+                              size: 20,
+                              color: primaryColor,
                             ),
                           ),
                         ],

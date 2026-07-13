@@ -75,7 +75,14 @@ class _HomePageState extends State<HomePage> {
 
     if (path.endsWith('.txt')) {
       Navigator.of(context).push(
-        CupertinoPageRoute(builder: (_) => TxtViewerPage(title: book.title, filePath: book.path)),
+        CupertinoPageRoute(
+          builder: (_) => TxtViewerPage(
+            title: book.title,
+            filePath: book.path,
+            bookId: book.id,
+            controller: _controller,
+          ),
+        ),
       );
       return;
     }

@@ -107,8 +107,8 @@ class _MemoryPageState extends State<MemoryPage> {
               onTap: () {
                 setState(() {
                   _period = period;
-                  _selectedPoint =
-                      _buildPeriodDataFor(period, stats).values.length - 1;
+                  final len = _buildPeriodDataFor(period, stats).values.length;
+                  _selectedPoint = len > 0 ? len - 1 : 0;
                 });
               },
               child: AnimatedContainer(
@@ -312,7 +312,7 @@ class _MemoryPageState extends State<MemoryPage> {
     final textColor = theme.textTheme.textStyle.color ?? CupertinoColors.label;
     final labels = data.labels;
     final values = data.values;
-    final selectedIndex = _selectedPoint.clamp(0, values.length - 1);
+    final selectedIndex = values.isEmpty ? 0 : _selectedPoint.clamp(0, values.length - 1);
 
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),

@@ -12,6 +12,7 @@ class BookModel {
   final int readingDurationSeconds;
   final bool isFavorite;
   final int? fileSizeBytes;
+  final List<String> tags;
 
   /// 根据路径扩展名和原始类型，得到统一的书籍分类。
   String get normalizedType => normalizeBookType(path: path, rawType: type);
@@ -27,6 +28,7 @@ class BookModel {
     this.readingDurationSeconds = 0,
     this.isFavorite = false,
     this.fileSizeBytes,
+    this.tags = const [],
   });
 
   /// 根据路径扩展名和原始类型，得到统一的书籍分类。
@@ -67,6 +69,7 @@ class BookModel {
     int? readingDurationSeconds,
     bool? isFavorite,
     int? fileSizeBytes,
+    List<String>? tags,
   }) {
     return BookModel(
       id: id ?? this.id,
@@ -79,6 +82,7 @@ class BookModel {
       readingDurationSeconds: readingDurationSeconds ?? this.readingDurationSeconds,
       isFavorite: isFavorite ?? this.isFavorite,
       fileSizeBytes: fileSizeBytes ?? this.fileSizeBytes,
+      tags: tags ?? this.tags,
     );
   }
 }

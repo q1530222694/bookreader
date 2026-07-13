@@ -7,7 +7,7 @@ import '../controller/settings_controller.dart';
 import '../controller/shell_controller.dart';
 import 'bookshelf_page.dart';
 import 'home_page.dart';
-import 'memory_page.dart';
+import 'memory_main_page.dart';
 import 'profile_page.dart';
 import 'tools_page.dart';
 
@@ -33,7 +33,7 @@ class _ShellPageState extends State<ShellPage> {
     final pages = <Widget>[
       HomePage(),
       BookshelfPage(),
-      MemoryPage(),
+      MemoryMainPage(),
       ToolsPage(),
       ProfilePage(),
     ];

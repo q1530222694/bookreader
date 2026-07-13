@@ -160,6 +160,14 @@ class BookshelfController {
     _service.updateBookLastRead(bookId, lastReadAt);
   }
 
+  void updateBookTags(String bookId, List<String> tags) {
+    _service.updateBookTags(bookId, tags);
+  }
+
+  BookModel? getBook(String bookId) {
+    return _service.getBookById(bookId);
+  }
+
   void removeBook(String bookId) {
     _service.removeBook(bookId);
   }

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart' show Colors;
 import 'package:pdfx/pdfx.dart';
 import 'package:photo_view/photo_view.dart';
 
+import '../../../engine/localization_engine.dart';
 import '../controller/bookshelf_controller.dart';
 import '../controller/settings_controller.dart';
 import 'reader_settings_sheet.dart';
@@ -163,6 +164,58 @@ class _BookViewerPageState extends State<BookViewerPage>
     }
 
     widget.controller!.updateBookReadingDuration(widget.bookId, elapsedSeconds);
+  }
+
+  Future<void> _showAddTagDialog() async {
+    if (widget.controller == null) {
+      return;
+    }
+    final textController = TextEditingController();
+
+    void submitTag() {
+      final newTag = textController.text.trim();
+      if (newTag.isNotEmpty) {
+        final book = widget.controller!.getBook(widget.bookId);
+        if (book != null) {
+          final tags = List<String>.from(book.tags);
+          if (!tags.contains(newTag)) {
+            tags.add(newTag);
+            widget.controller!.updateBookTags(widget.bookId, tags);
+          }
+        }
+      }
+      Navigator.of(context).pop();
+    }
+
+    await showCupertinoDialog<void>(
+      context: context,
+      builder: (context) {
+        return CupertinoAlertDialog(
+          title: Text(LocalizationEngine.text('reader_add_tag')),
+          content: Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: CupertinoTextField(
+              controller: textController,
+              placeholder: LocalizationEngine.text('reader_add_tag_placeholder'),
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => submitTag(),
+            ),
+          ),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(LocalizationEngine.text('cancel')),
+            ),
+            CupertinoDialogAction(
+              onPressed: submitTag,
+              child: Text(LocalizationEngine.text('add')),
+            ),
+          ],
+        );
+      },
+    );
+    textController.dispose();
   }
 
   @override
@@ -468,6 +521,7 @@ class _BookViewerPageState extends State<BookViewerPage>
                               setState(() => _selectedPageMode = index),
                           onBackgroundColorChanged: (color) =>
                               SettingsController.setReaderBackgroundColor(color),
+                          onAddTag: _showAddTagDialog,
                           onClose: _toggleSettings,
                         ),
                       ),

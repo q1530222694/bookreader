@@ -57,6 +57,7 @@ class BookshelfService {
       progress: 0.0,
       isFavorite: false,
       fileSizeBytes: fileSizeBytes,
+      tags: const [],
     );
 
     _books.add(book);
@@ -222,6 +223,16 @@ class BookshelfService {
     return List<BookModel>.unmodifiable(_books);
   }
 
+  /// Get a book by its id.
+  BookModel? getBookById(String bookId) {
+    for (final book in _books) {
+      if (book.id == bookId) {
+        return book;
+      }
+    }
+    return null;
+  }
+
   /// Update the reading progress of a book by its id.
   void updateBookProgress(String bookId, double progress) {
     final index = _books.indexWhere((book) => book.id == bookId);
@@ -279,6 +290,17 @@ class BookshelfService {
     }
 
     final updatedBook = _books[index].copyWith(lastReadAt: lastReadAt);
+    _books[index] = updatedBook;
+    _notifyBooksChanged();
+  }
+
+  void updateBookTags(String bookId, List<String> tags) {
+    final index = _books.indexWhere((book) => book.id == bookId);
+    if (index < 0) {
+      return;
+    }
+
+    final updatedBook = _books[index].copyWith(tags: List<String>.unmodifiable(tags));
     _books[index] = updatedBook;
     _notifyBooksChanged();
   }

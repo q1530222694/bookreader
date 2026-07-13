@@ -479,7 +479,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (path.endsWith('.txt')) {
       Navigator.push(
         context,
-        CupertinoPageRoute(builder: (context) => TxtViewerPage(title: book.title, filePath: book.path)),
+        CupertinoPageRoute(
+          builder: (context) => TxtViewerPage(
+            title: book.title,
+            filePath: book.path,
+            bookId: book.id,
+            controller: _controller,
+          ),
+        ),
       );
       return;
     }

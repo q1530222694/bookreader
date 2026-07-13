@@ -5,14 +5,24 @@ import 'dart:io';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
+import '../../../engine/localization_engine.dart';
+import '../controller/bookshelf_controller.dart';
 import '../controller/settings_controller.dart';
 import 'reader_settings_sheet.dart';
 
 class TxtViewerPage extends StatefulWidget {
   final String title;
   final String filePath;
+  final String bookId;
+  final BookshelfController? controller;
 
-  const TxtViewerPage({super.key, required this.title, required this.filePath});
+  const TxtViewerPage({
+    super.key,
+    required this.title,
+    required this.filePath,
+    required this.bookId,
+    this.controller,
+  });
 
   @override
   State<TxtViewerPage> createState() => _TxtViewerPageState();
@@ -124,6 +134,58 @@ class _TxtViewerPageState extends State<TxtViewerPage>
     } else {
       _settingsController.reverse();
     }
+  }
+
+  Future<void> _showAddTagDialog() async {
+    if (widget.controller == null || widget.bookId.isEmpty) {
+      return;
+    }
+    final textController = TextEditingController();
+
+    void submitTag() {
+      final newTag = textController.text.trim();
+      if (newTag.isNotEmpty) {
+        final book = widget.controller!.getBook(widget.bookId);
+        if (book != null) {
+          final tags = List<String>.from(book.tags);
+          if (!tags.contains(newTag)) {
+            tags.add(newTag);
+            widget.controller!.updateBookTags(widget.bookId, tags);
+          }
+        }
+      }
+      Navigator.of(context).pop();
+    }
+
+    await showCupertinoDialog<void>(
+      context: context,
+      builder: (context) {
+        return CupertinoAlertDialog(
+          title: Text(LocalizationEngine.text('reader_add_tag')),
+          content: Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: CupertinoTextField(
+              controller: textController,
+              placeholder: LocalizationEngine.text('reader_add_tag_placeholder'),
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => submitTag(),
+            ),
+          ),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(LocalizationEngine.text('cancel')),
+            ),
+            CupertinoDialogAction(
+              onPressed: submitTag,
+              child: Text(LocalizationEngine.text('add')),
+            ),
+          ],
+        );
+      },
+    );
+    textController.dispose();
   }
 
   void _handleCenterTap() {
@@ -351,6 +413,7 @@ class _TxtViewerPageState extends State<TxtViewerPage>
                             setState(() => _selectedPageMode = index),
                         onBackgroundColorChanged: (color) =>
                             SettingsController.setReaderBackgroundColor(color),
+                        onAddTag: _showAddTagDialog,
                         onClose: _toggleSettings,
                       ),
                     ),
