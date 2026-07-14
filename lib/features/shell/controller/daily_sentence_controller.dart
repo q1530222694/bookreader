@@ -11,7 +11,7 @@ class DailySentenceController {
   final ValueNotifier<String?> errorText = ValueNotifier<String?>(null);
 
   DailySentenceController() {
-    _service.loadSentences();
+    DailySentenceService.loadSentences();
   }
 
   /// Add a new daily sentence entry.
@@ -42,6 +42,11 @@ class DailySentenceController {
     );
     await _service.updateSentence(sentence);
     errorText.value = null;
+  }
+
+  /// Delete a daily sentence entry by id.
+  Future<void> deleteSentence(String id) async {
+    await DailySentenceService.deleteSentence(id);
   }
 
   /// Dispose controller notifiers.

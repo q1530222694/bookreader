@@ -1,110 +1,144 @@
 import 'package:flutter/cupertino.dart';
 
 import '../../../engine/localization_engine.dart';
-import '../../image_to_pdf/ui/image_to_pdf_page.dart';
-import '../../txt_to_epub/ui/txt_to_epub_page.dart';
+import '../../../shared/ui/app_text_styles.dart';
 import '../../doc_to_pdf/ui/doc_to_pdf_page.dart';
-import '../../ppt_to_pdf/ui/ppt_to_pdf_page.dart';
 import '../../excel_to_pdf/ui/excel_to_pdf_page.dart';
+import '../../image_to_pdf/ui/image_to_pdf_page.dart';
+import '../../ppt_to_pdf/ui/ppt_to_pdf_page.dart';
+import '../../txt_to_epub/ui/txt_to_epub_page.dart';
 
-/// ToolsPage 工具页面，展示各种实用工具
+/// ToolItem 工具条目数据模型（数据驱动）。
+/// 所有展示文案均通过 [titleKey]/[subtitleKey] 走本地化引擎，UI 不出现硬编码中文；
+/// 跳转目标页面由 [page] 注入，保持「无状态提线木偶」式纯视图。
+class _ToolItem {
+  /// 所属分类的本地化键（用于分组标题）
+  final String categoryKey;
+
+  /// 图标
+  final IconData icon;
+
+  /// 标题本地化键
+  final String titleKey;
+
+  /// 副标题本地化键
+  final String subtitleKey;
+
+  /// 点击跳转的目标页面
+  final Widget page;
+
+  const _ToolItem({
+    required this.categoryKey,
+    required this.icon,
+    required this.titleKey,
+    required this.subtitleKey,
+    required this.page,
+  });
+}
+
+/// ToolsPage 工具页面，以「分类 + 响应式网格」展示各种实用工具。
 class ToolsPage extends StatelessWidget {
   const ToolsPage({super.key});
 
-  void _openImageToPdfPage(BuildContext context) {
-    Navigator.of(context).push(CupertinoPageRoute(
-      builder: (_) => const ImageToPdfPage(),
-    ));
+  /// 全部工具定义（顺序即展示顺序，按 categoryKey 自动分组）
+  static final List<_ToolItem> _tools = [
+    _ToolItem(
+      categoryKey: 'tools_cat_ebook',
+      icon: CupertinoIcons.book,
+      titleKey: 'tool_txt_epub_title',
+      subtitleKey: 'tool_txt_epub_sub',
+      page: const TxtToEpubPage(),
+    ),
+    _ToolItem(
+      categoryKey: 'tools_cat_pdf',
+      icon: CupertinoIcons.doc_text,
+      titleKey: 'tool_doc_pdf_title',
+      subtitleKey: 'tool_doc_pdf_sub',
+      page: const DocToPdfPage(),
+    ),
+    _ToolItem(
+      categoryKey: 'tools_cat_pdf',
+      icon: CupertinoIcons.doc,
+      titleKey: 'tool_ppt_pdf_title',
+      subtitleKey: 'tool_ppt_pdf_sub',
+      page: const PptToPdfPage(),
+    ),
+    _ToolItem(
+      categoryKey: 'tools_cat_pdf',
+      icon: CupertinoIcons.table,
+      titleKey: 'tool_xls_pdf_title',
+      subtitleKey: 'tool_xls_pdf_sub',
+      page: const ExcelToPdfPage(),
+    ),
+    _ToolItem(
+      categoryKey: 'tools_cat_pdf',
+      icon: CupertinoIcons.photo_on_rectangle,
+      titleKey: 'tool_img_pdf_title',
+      subtitleKey: 'tool_img_pdf_sub',
+      page: const ImageToPdfPage(),
+    ),
+  ];
+
+  /// 根据屏幕宽度返回网格列数（响应式，满足跨端要求）。
+  static int _columns(BuildContext context) {
+    final double w = MediaQuery.of(context).size.width;
+    if (w >= 800) return 4;
+    if (w >= 600) return 3;
+    return 2;
   }
 
-  void _openTxtToEpubPage(BuildContext context) {
-    Navigator.of(context).push(CupertinoPageRoute(
-      builder: (_) => const TxtToEpubPage(),
-    ));
-  }
-
-  void _openDocToPdfPage(BuildContext context) {
-    Navigator.of(context).push(CupertinoPageRoute(
-      builder: (_) => const DocToPdfPage(),
-    ));
-  }
-
-  void _openPptToPdfPage(BuildContext context) {
-    Navigator.of(context).push(CupertinoPageRoute(
-      builder: (_) => const PptToPdfPage(),
-    ));
-  }
-
-  void _openExcelToPdfPage(BuildContext context) {
-    Navigator.of(context).push(CupertinoPageRoute(
-      builder: (_) => const ExcelToPdfPage(),
-    ));
-  }
-
-  Widget _buildToolCard({
-    required BuildContext context,
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-  }) {
+  /// 构建单个工具卡片（纯展示，数据经构造传入、点击经回调/路由抛出）。
+  Widget _buildToolCard(BuildContext context, _ToolItem item) {
     final theme = CupertinoTheme.of(context);
 
     return GestureDetector(
-      onTap: onTap,
+      onTap: () => Navigator.of(context).push(
+        CupertinoPageRoute(builder: (_) => item.page),
+      ),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: CupertinoColors.systemGrey6,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: CupertinoColors.systemGrey5,
-            width: 1,
-          ),
+          // 卡片背景使用语义化次级系统背景，跟随暗色模式
+          color: CupertinoColors.secondarySystemBackground.resolveFrom(context),
+          borderRadius: BorderRadius.circular(16),
+          // 淡阴影取代边框，与书架/回忆页卡片风格一致
+          boxShadow: [
+            BoxShadow(
+              color: theme.primaryColor.withValues(alpha: 0.06),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // 主色 12% 透明底的图标徽标，随主题色动态变化
             Container(
-              width: 50,
-              height: 50,
+              width: 46,
+              height: 46,
               decoration: BoxDecoration(
-                color: theme.primaryColor.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
+                color: theme.primaryColor.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(13),
               ),
               child: Icon(
-                icon,
+                item.icon,
                 color: theme.primaryColor,
-                size: 28,
+                size: 24,
               ),
             ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: theme.primaryColor,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: CupertinoColors.systemGrey,
-                    ),
-                  ),
-                ],
-              ),
+            const SizedBox(height: 12),
+            // 标题/副标题走语义化文本样式，无硬编码字号
+            Text(
+              LocalizationEngine.text(item.titleKey),
+              style: AppTextStyles.body(context),
             ),
-            const Icon(
-              CupertinoIcons.chevron_right,
-              color: CupertinoColors.systemGrey,
-              size: 20,
+            const SizedBox(height: 4),
+            Text(
+              LocalizationEngine.text(item.subtitleKey),
+              style: AppTextStyles.secondary(context),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),
@@ -114,6 +148,12 @@ class ToolsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 按分类聚合工具（保持首次出现顺序）
+    final Map<String, List<_ToolItem>> grouped = {};
+    for (final t in _tools) {
+      grouped.putIfAbsent(t.categoryKey, () => []).add(t);
+    }
+
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         middle: Text(LocalizationEngine.text('tools')),
@@ -124,49 +164,31 @@ class ToolsPage extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildToolCard(
-                context: context,
-                icon: CupertinoIcons.book,
-                title: 'TXT转EPUB',
-                subtitle: '将TXT文本文件转换为EPUB电子书格式',
-                onTap: () => _openTxtToEpubPage(context),
-              ),
-              const SizedBox(height: 12),
-
-              _buildToolCard(
-                context: context,
-                icon: CupertinoIcons.doc_text,
-                title: 'DOC转PDF',
-                subtitle: '将Word文档转换为PDF格式',
-                onTap: () => _openDocToPdfPage(context),
-              ),
-              const SizedBox(height: 12),
-
-              _buildToolCard(
-                context: context,
-                icon: CupertinoIcons.doc,
-                title: 'PPT转PDF',
-                subtitle: '将PPT或PPTX幻灯片转换为PDF文档（提取文本）',
-                onTap: () => _openPptToPdfPage(context),
-              ),
-              const SizedBox(height: 12),
-
-              _buildToolCard(
-                context: context,
-                icon: CupertinoIcons.table,
-                title: 'Excel转PDF',
-                subtitle: '将Excel表格（XLS/XLSX）导出为PDF（提取文本）',
-                onTap: () => _openExcelToPdfPage(context),
-              ),
-              const SizedBox(height: 12),
-
-              _buildToolCard(
-                context: context,
-                icon: CupertinoIcons.photo_on_rectangle,
-                title: '图片转PDF',
-                subtitle: '将图片合并并导出为PDF',
-                onTap: () => _openImageToPdfPage(context),
-              ),
+              for (final entry in grouped.entries) ...[
+                // 分类标题（本地化键 -> 文案）
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 4, 4, 10),
+                  child: Text(
+                    LocalizationEngine.text(entry.key),
+                    style: AppTextStyles.secondary(context)
+                        .copyWith(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                // 响应式网格（列数随屏幕宽度变化）
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: _columns(context),
+                    mainAxisSpacing: 12,
+                    crossAxisSpacing: 12,
+                    childAspectRatio: 1.15,
+                  ),
+                  itemCount: entry.value.length,
+                  itemBuilder: (_, i) => _buildToolCard(context, entry.value[i]),
+                ),
+                const SizedBox(height: 12),
+              ],
             ],
           ),
         ),
@@ -174,4 +196,3 @@ class ToolsPage extends StatelessWidget {
     );
   }
 }
-

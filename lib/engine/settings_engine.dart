@@ -24,6 +24,9 @@ class SettingsEngine {
   static const String themeColorOrange = 'orange';
   static const String themeColorPurple = 'purple';
   static const String themeColorRed = 'red';
+  // 选中自定义配色时的哨兵值：themeColor 置为该值表示当前主色来自自定义色，
+  // 预设高亮将让位给自定义色选中态（避免预设与自定义同时高亮）。
+  static const String themeColorCustom = 'custom';
 
   static const String fontFamilyKey = 'app.fontFamily';
   static const String fontFamilySystem = 'system';
@@ -51,6 +54,15 @@ class SettingsEngine {
   static const String startupSplashTextKey = 'app.startupSplash.text';
   static const String startupSplashImagePathKey = 'app.startupSplash.imagePath';
   static const String startupSplashDurationKey = 'app.startupSplash.duration';
+  // 启动屏进入方式：自动（倒计时后自动进入）/ 点击（点击屏幕或按钮进入）
+  static const String startupSplashEntryModeKey = 'app.startupSplash.entryMode';
+  static const String startupSplashEntryModeAuto = 'auto';
+  static const String startupSplashEntryModeTap = 'tap';
+  static const String startupSplashEntryModeDefault = startupSplashEntryModeAuto;
+
+  // 每日一句设置
+  static const String dailySentenceUseBuiltinKey = 'app.dailySentence.useBuiltin';
+  static const bool dailySentenceUseBuiltinDefault = true;
 
   static String get language {
     return Config.get(languageKey) as String? ?? languageChinese;
@@ -133,5 +145,25 @@ class SettingsEngine {
 
   static void setStartupSplashDuration(int seconds) {
     Config.set(startupSplashDurationKey, seconds);
+  }
+
+  // 启动屏进入方式（自动 / 点击）
+  static String get startupSplashEntryMode {
+    return Config.get(startupSplashEntryModeKey) as String? ??
+        startupSplashEntryModeDefault;
+  }
+
+  static void setStartupSplashEntryMode(String mode) {
+    Config.set(startupSplashEntryModeKey, mode);
+  }
+
+  // 每日一句：是否启用内置句子池
+  static bool get dailySentenceUseBuiltin {
+    return Config.get(dailySentenceUseBuiltinKey) as bool? ??
+        dailySentenceUseBuiltinDefault;
+  }
+
+  static void setDailySentenceUseBuiltin(bool value) {
+    Config.set(dailySentenceUseBuiltinKey, value);
   }
 }

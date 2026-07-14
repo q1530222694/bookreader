@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import '../../../engine/localization_engine.dart';
 import '../controller/bookshelf_controller.dart';
 import '../controller/settings_controller.dart';
+import '../service/reading_session_service.dart';
 import 'reader_settings_sheet.dart';
 
 class TxtViewerPage extends StatefulWidget {
@@ -29,11 +30,12 @@ class TxtViewerPage extends StatefulWidget {
 }
 
 class _TxtViewerPageState extends State<TxtViewerPage>
-    with TickerProviderStateMixin {
+    with WidgetsBindingObserver, TickerProviderStateMixin {
   String? _content;
   bool _isFullscreen = true;
   bool _showSettings = false;
   Timer? _tapDetectionTimer;
+  final ReadingSessionTracker _session = ReadingSessionTracker();
   late final AnimationController _settingsController;
   late final Animation<double> _settingsAnimation;
   late final Animation<Offset> _headerOffsetAnimation;
@@ -48,6 +50,8 @@ class _TxtViewerPageState extends State<TxtViewerPage>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _session.start();
     _settingsController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 320),
@@ -76,9 +80,33 @@ class _TxtViewerPageState extends State<TxtViewerPage>
 
   @override
   void dispose() {
+    _pauseSession();
     _tapDetectionTimer?.cancel();
     _settingsController.dispose();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _pauseSession();
+    }
+  }
+
+  /// 结束本次阅读会话并记录（开始时间 / 时长 / 是否读完）。
+  void _pauseSession() {
+    _session.stop(
+      bookId: widget.bookId,
+      isFinished: () =>
+          (widget.controller?.getBook(widget.bookId)?.progress ?? 0) >= 1.0,
+      onDuration: (s) => widget.controller?.updateBookReadingDuration(
+        widget.bookId,
+        s,
+      ),
+    );
   }
 
   Future<void> _load() async {

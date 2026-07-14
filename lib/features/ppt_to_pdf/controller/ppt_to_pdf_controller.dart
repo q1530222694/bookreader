@@ -57,4 +57,9 @@ class PptToPdfController {
   static Future<void> saveExportRecord({required String sourceFileName, required String pdfFileName, required String filePath}) async {
     return PptToPdfService.saveExportRecord(sourceFileName: sourceFileName, pdfFileName: pdfFileName, filePath: filePath);
   }
+
+  /// 删除转换记录及其文件（按时间戳唯一标识）
+  static Future<bool> deleteExportRecord(int timestamp) async {
+    return PptToPdfService.deleteExportRecord(timestamp);
+  }
 }

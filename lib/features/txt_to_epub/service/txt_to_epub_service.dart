@@ -1,24 +1,34 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
+import 'dart:math';
 
+import 'package:archive/archive.dart';
+import 'package:fast_gbk/fast_gbk.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../model/txt_to_epub_model.dart';
 
-/// TxtToEpubService 处理TXT文件到EPUB的转换逻辑
+/// TxtToEpubService 处理 TXT 文件到 EPUB 的转换逻辑。
+///
+/// 关键点修复（此前生成的 .epub 实为裸 XHTML 文本，并非合法 EPUB，任何阅读器都打不开）：
+/// 1. 用 [archive] 包拼出标准 EPUB（ZIP：mimetype / META-INF/container.xml /
+///    OEBPS/content.opf / OEBPS/toc.ncx / OEBPS/content.html），可被阅读器正常打开；
+/// 2. 编码自动探测：先按 UTF-8（不允许乱码字节），失败或含替换符则回退 GBK，
+///    解决中文 TXT（常见 GBK）导入后乱码的问题；
+/// 3. 正文做 XML 转义并按空行切片为段落，避免 `< & >` 破坏 XML 导致无法解析。
 class TxtToEpubService {
   TxtToEpubService._();
 
-  /// 将TXT文件转换为EPUB格式
+  /// 将 TXT 文件转换为 EPUB 格式。
   ///
   /// 参数：
-  /// - [txtFilePath] TXT文件的完整路径
-  /// - [outputFileName] 输出EPUB文件名（不包含路径）
-  /// - [bookTitle] EPUB书籍标题（可选，默认为文件名）
+  /// - [txtFilePath] TXT 文件的完整路径
+  /// - [outputFileName] 输出 EPUB 文件名（不包含路径）
+  /// - [bookTitle] EPUB 书籍标题（可选，默认为文件名）
   ///
-  /// 返回转换结果，包含成功状态和EPUB路径
+  /// 返回转换结果，包含成功状态和 EPUB 路径。
   static Future<ConversionResult> convertTxtToEpub({
     required String txtFilePath,
     required String outputFileName,
@@ -41,11 +51,14 @@ class TxtToEpubService {
       final outputPath =
           '${outputDir.path}${Platform.pathSeparator}$outputFileName';
 
-      // 在后台isolate中生成EPUB，避免阻塞主线程
+      final title =
+          bookTitle ?? outputFileName.replaceAll(RegExp(r'\.epub$'), '');
+
+      // 在后台 isolate 中生成 EPUB，避免阻塞主线程
       final args = {
         'txtFilePath': txtFilePath,
         'outputPath': outputPath,
-        'bookTitle': bookTitle ?? outputFileName.replaceAll('.epub', ''),
+        'bookTitle': title,
       };
 
       Map<String, dynamic> result;
@@ -73,11 +86,11 @@ class TxtToEpubService {
     }
   }
 
-  /// 后台isolate执行的EPUB生成函数
+  /// 后台 isolate 执行的 EPUB 生成函数。
   ///
-  /// 参数args包含：
-  /// - txtFilePath: TXT文件路径
-  /// - outputPath: EPUB输出路径
+  /// 参数 args 包含：
+  /// - txtFilePath: TXT 文件路径
+  /// - outputPath: EPUB 输出路径
   /// - bookTitle: 书籍标题
   static Future<Map<String, dynamic>> _generateEpubAndSave(
       Map<String, dynamic> args) async {
@@ -86,20 +99,16 @@ class TxtToEpubService {
       final outputPath = args['outputPath'] as String;
       final bookTitle = args['bookTitle'] as String;
 
-      // 读取TXT文件内容
+      // 读取 TXT 原始字节并按编码探测解码（UTF-8 → GBK）
       final txtFile = File(txtFilePath);
-      final content = await txtFile.readAsString();
+      final rawBytes = await txtFile.readAsBytes();
+      final content = _decodeText(rawBytes);
 
-      // 简单的EPUB框架（完整的EPUB格式）
-      // 将内容写入EPUB文件（实际上是ZIP格式）
-      // 这里使用简化版本，仅写入主要内容文件
+      // 组装合法 EPUB 并写入
+      final epubBytes = _buildEpubBytes(bookTitle, content);
 
-      // 生成EPUB容器
-      final epub = _createEpubStructure(bookTitle, content);
-
-      // 写入文件
       final outputFile = File(outputPath);
-      await outputFile.writeAsString(epub);
+      await outputFile.writeAsBytes(epubBytes, flush: true);
 
       return {
         'success': true,
@@ -113,32 +122,157 @@ class TxtToEpubService {
     }
   }
 
-  /// 创建基础EPUB结构
-  ///
-  /// 返回EPUB格式的XML内容（简化版本）
-  static String _createEpubStructure(String title, String content) {
-    // 这是一个简化版本，完整的EPUB需要压缩多个XML文件
-    // 实际项目可使用 epub_writer 包来创建完整的EPUB格式
-    return '''<?xml version="1.0" encoding="UTF-8"?>
+  /// 编码探测：优先 UTF-8（严格，遇到非法字节会失败），否则回退 GBK。
+  /// 这样无论是 UTF-8 还是中文常见的 GBK 编码 TXT 都不会乱码。
+  static String _decodeText(List<int> bytes) {
+    try {
+      final utf8Str = utf8.decode(bytes, allowMalformed: false);
+      // 若含替换符，视为编码识别失败，回退 GBK
+      if (!utf8Str.contains('\u{FFFD}')) {
+        return utf8Str;
+      }
+    } catch (_) {
+      // UTF-8 解码失败，继续尝试 GBK
+    }
+    try {
+      return gbk.decode(bytes);
+    } catch (_) {
+      // 极端情况下兜底：忽略非法字节按 UTF-8 读取
+      return utf8.decode(bytes, allowMalformed: true);
+    }
+  }
+
+  /// 将字符串转义为合法的 XML 文本（防止 `< & >` 破坏文档结构）。
+  static String _escapeXml(String text) {
+    return text
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;');
+  }
+
+  /// 将 TXT 正文按空行切分为段落，段内换行用 <br/> 连接。
+  static String _buildParagraphs(String content) {
+    final buffer = StringBuffer();
+    // 按一个或多个空行分段
+    final blocks = content.split(RegExp(r'\n\s*\n'));
+    for (final block in blocks) {
+      final trimmed = block.trim();
+      if (trimmed.isEmpty) continue;
+      final lines = trimmed
+          .split('\n')
+          .map((l) => _escapeXml(l.trim()))
+          .where((l) => l.isNotEmpty)
+          .join('<br/>');
+      buffer.writeln('    <p>$lines</p>');
+    }
+    final result = buffer.toString().trim();
+    return result.isEmpty ? '    <p>（内容为空）</p>' : result;
+  }
+
+  /// 生成标准 EPUB（ZIP）字节流。
+  static List<int> _buildEpubBytes(String title, String content) {
+    final safeTitle = _escapeXml(title);
+    final uid = 'bookreader-${DateTime.now().microsecondsSinceEpoch}-'
+        '${Random().nextInt(999999)}';
+    final paragraphs = _buildParagraphs(content);
+
+    // 1) mimetype：必须为第一个文件且存储（不压缩，compressionLevel=0）
+    final mimeBytes = utf8.encode('application/epub+zip');
+    final mimeFile = ArchiveFile('mimetype', mimeBytes.length, mimeBytes)
+      ..compressionLevel = 0;
+
+    // 2) META-INF/container.xml
+    const containerXml = '''
+<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>''';
+
+    // 3) OEBPS/content.opf
+    final contentOpf = '''
+<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="bookid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>$safeTitle</dc:title>
+    <dc:language>zh</dc:language>
+    <dc:identifier id="bookid">urn:uuid:$uid</dc:identifier>
+    <dc:creator>BookReader</dc:creator>
+  </metadata>
+  <manifest>
+    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+    <item id="content" href="content.html" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine toc="ncx">
+    <itemref idref="content"/>
+  </spine>
+</package>''';
+
+    // 4) OEBPS/toc.ncx
+    final tocNcx = '''
+<?xml version="1.0" encoding="UTF-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+  <head>
+    <meta name="dtb:uid" content="urn:uuid:$uid"/>
+    <meta name="dtb:depth" content="1"/>
+  </head>
+  <docTitle><text>$safeTitle</text></docTitle>
+  <navMap>
+    <navPoint id="np1" playOrder="1">
+      <navLabel><text>$safeTitle</text></navLabel>
+      <content src="content.html"/>
+    </navPoint>
+  </navMap>
+</ncx>''';
+
+    // 5) OEBPS/content.html
+    final contentHtml = '''
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
-  <title>$title</title>
   <meta charset="UTF-8"/>
+  <title>$safeTitle</title>
   <style>
-    body { font-family: 'Noto Sans', sans-serif; line-height: 1.6; }
-    p { margin: 1em 0; text-indent: 2em; }
+    body { font-family: sans-serif; line-height: 1.8; padding: 0 1em; }
+    h1 { font-size: 1.4em; text-align: center; }
+    p { text-indent: 2em; margin: 0.6em 0; }
   </style>
 </head>
 <body>
-  <h1>$title</h1>
-  <div>
-    ${content.replaceAll('\n', '</p><p>')}
-  </div>
+  <h1>$safeTitle</h1>
+$paragraphs
 </body>
 </html>''';
+
+    final archive = Archive();
+    archive.addFile(mimeFile);
+    archive.addFile(ArchiveFile(
+      'META-INF/container.xml',
+      utf8.encode(containerXml).length,
+      utf8.encode(containerXml),
+    ));
+    archive.addFile(ArchiveFile(
+      'OEBPS/content.opf',
+      utf8.encode(contentOpf).length,
+      utf8.encode(contentOpf),
+    ));
+    archive.addFile(ArchiveFile(
+      'OEBPS/toc.ncx',
+      utf8.encode(tocNcx).length,
+      utf8.encode(tocNcx),
+    ));
+    archive.addFile(ArchiveFile(
+      'OEBPS/content.html',
+      utf8.encode(contentHtml).length,
+      utf8.encode(contentHtml),
+    ));
+
+    return ZipEncoder().encode(archive);
   }
 
-  /// 获取EPUB输出目录
+  /// 获取 EPUB 输出目录
   static Future<Directory> getEpubOutputDirectory() async {
     final docDir = await getApplicationDocumentsDirectory();
     final epubDir =
@@ -203,6 +337,37 @@ class TxtToEpubService {
     } catch (e) {
       debugPrint('获取转换记录失败: $e');
       return [];
+    }
+  }
+
+  /// 删除转换记录及其对应的 EPUB 文件（按时间戳唯一标识）
+  static Future<bool> deleteExportRecord(int timestamp) async {
+    try {
+      final recordsFile = await _getExportRecordsFile();
+      if (!await recordsFile.exists()) return false;
+
+      final content = await recordsFile.readAsString();
+      final jsonList = json.decode(content) as List;
+      final records = jsonList
+          .map((item) => ExportRecord.fromJson(item as Map<String, dynamic>))
+          .toList();
+
+      // 删除对应的物理文件（若存在）
+      for (final r in records.where((r) => r.timestamp == timestamp)) {
+        final f = File(r.filePath);
+        if (await f.exists()) {
+          await f.delete();
+        }
+      }
+
+      records.removeWhere((r) => r.timestamp == timestamp);
+      await recordsFile.writeAsString(
+        json.encode(records.map((r) => r.toJson()).toList()),
+      );
+      return true;
+    } catch (e) {
+      debugPrint('删除转换记录失败: $e');
+      return false;
     }
   }
 }

@@ -4,15 +4,15 @@ import 'package:flutter/material.dart';
 import '../../../engine/localization_engine.dart';
 import '../controller/bookshelf_controller.dart';
 import '../model/book_model.dart';
+import '../service/reading_session_service.dart';
 import 'book_viewer_page.dart';
 import 'comic_viewer_page.dart';
 import 'epub_viewer_page.dart';
 import 'txt_viewer_page.dart';
 
 /// ReadingRecordsPage —— 全部阅读记录页（阅读统计详情页「查看全部」入口的目标页）。
-/// 展示所有存在阅读记录（有进度或有阅读时长）的书籍，按最后阅读时间倒序排列。
-/// 每行含封面缩略图 + 书名 + 阅读时长 + 阅读日期，点击跳转对应阅读器。
-/// 所有颜色走主题系统、文本全部走 LocalizationEngine，不硬编码。
+/// 展示全部阅读会话（每次打开阅读器即一条：书名 + 开始时间 + 本次阅读时长），
+/// 以及读完了哪些书、累计读完耗时。所有颜色走主题系统、文本全部走 LocalizationEngine。
 class ReadingRecordsPage extends StatefulWidget {
   const ReadingRecordsPage({super.key});
 
@@ -36,72 +36,183 @@ class _ReadingRecordsPageState extends State<ReadingRecordsPage> {
     return ValueListenableBuilder<List<BookModel>>(
       valueListenable: _controller.books,
       builder: (context, books, child) {
-        // 筛选有阅读记录的书籍，按最后阅读时间倒序
-        final records = books
-            .where((b) => b.progress > 0 || b.readingDurationSeconds > 0)
-            .toList()
-          ..sort((a, b) {
-            final da = a.lastReadAt ?? DateTime(2000);
-            final db = b.lastReadAt ?? DateTime(2000);
-            return db.compareTo(da);
-          });
+        // bookId -> BookModel 反查表
+        final bookMap = <String, BookModel>{for (final b in books) b.id: b};
 
-        return CupertinoPageScaffold(
-          navigationBar: CupertinoNavigationBar(
-            leading: CupertinoButton(
-              padding: EdgeInsets.zero,
-              onPressed: () => Navigator.maybePop(context),
-              child: Icon(
-                CupertinoIcons.back,
-                size: 22,
-                color: theme.textTheme.textStyle.color,
-              ),
-            ),
-            middle: Text(
-              LocalizationEngine.text('all_reading_records'),
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w600,
-                color: theme.textTheme.textStyle.color,
-              ),
-            ),
-          ),
-          child: SafeArea(
-            child: records.isEmpty
-                // 空状态
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 32),
-                      child: Text(
-                        LocalizationEngine.text('records_empty'),
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 15,
-                          color: CupertinoColors.secondaryLabel
-                              .resolveFrom(context),
-                        ),
-                      ),
-                    ),
-                  )
-                // 记录列表
-                : ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
-                    itemCount: records.length,
-                    itemBuilder: (context, index) {
-                      final book = records[index];
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: ReadingRecordRow(
-                          theme: theme,
-                          book: book,
-                          onTap: () => _openBook(book),
-                        ),
-                      );
-                    },
+        return ValueListenableBuilder<List<ReadingSession>>(
+          valueListenable: ReadingSessionService.sessionsNotifier,
+          builder: (context, sessions, _) {
+            // 读完了的书籍（按累计进度判定）及其累计阅读总时长
+            final finished = books
+                .where((b) => b.progress >= 1.0)
+                .toList()
+              ..sort((a, b) =>
+                  (b.lastReadAt ?? DateTime(2000))
+                      .compareTo(a.lastReadAt ?? DateTime(2000)));
+            final finishedSeconds =
+                finished.fold<int>(0, (sum, b) => sum + b.readingDurationSeconds);
+
+            final hasData = sessions.isNotEmpty || finished.isNotEmpty;
+
+            return CupertinoPageScaffold(
+              navigationBar: CupertinoNavigationBar(
+                leading: CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  onPressed: () => Navigator.maybePop(context),
+                  child: Icon(
+                    CupertinoIcons.back,
+                    size: 22,
+                    color: theme.textTheme.textStyle.color,
                   ),
-          ),
+                ),
+                middle: Text(
+                  LocalizationEngine.text('all_reading_records'),
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                    color: theme.textTheme.textStyle.color,
+                  ),
+                ),
+              ),
+              child: SafeArea(
+                child: !hasData
+                    // 空状态
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 32),
+                          child: Text(
+                            LocalizationEngine.text('records_empty'),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 15,
+                              color: CupertinoColors.secondaryLabel
+                                  .resolveFrom(context),
+                            ),
+                          ),
+                        ),
+                      )
+                    // 记录列表
+                    : ListView(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+                        children: [
+                          // 概览：阅读次数 / 读完本数 / 读完耗时
+                          _buildSummary(
+                            theme,
+                            sessions.length,
+                            finished.length,
+                            finishedSeconds,
+                          ),
+                          const SizedBox(height: 18),
+                          // 阅读明细（会话列表）
+                          _sectionHeader(
+                            LocalizationEngine.text('records_detail'),
+                          ),
+                          const SizedBox(height: 8),
+                          ...sessions.map((s) => _SessionListRow(
+                                theme: theme,
+                                book: bookMap[s.bookId],
+                                session: s,
+                                onTap: () => _openBook(bookMap[s.bookId]),
+                              )),
+                          // 读完了
+                          if (finished.isNotEmpty) ...[
+                            const SizedBox(height: 18),
+                            _sectionHeader(
+                              '${LocalizationEngine.text('records_finished')} (${finished.length})',
+                            ),
+                            const SizedBox(height: 8),
+                            ...finished.map((b) => ReadingRecordRow(
+                                  theme: theme,
+                                  book: b,
+                                  onTap: () => _openBook(b),
+                                )),
+                          ],
+                        ],
+                      ),
+              ),
+            );
+          },
         );
       },
+    );
+  }
+
+  /// 概览统计：阅读次数 / 读完本数 / 读完耗时。
+  Widget _buildSummary(
+    CupertinoThemeData theme,
+    int sessionCount,
+    int finishedCount,
+    int finishedSeconds,
+  ) {
+    return Row(
+      children: [
+        Expanded(
+          child: _StatTile(
+            value: '$sessionCount',
+            label: LocalizationEngine.text('records_session_count'),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _StatTile(
+            value: '$finishedCount',
+            label: LocalizationEngine.text('records_finished_count'),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _StatTile(
+            value: formatSessionDuration(finishedSeconds),
+            label: LocalizationEngine.text('records_finished_time'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 概览单块统计（数值 + 标签）。
+  Widget _StatTile({required String value, required String label}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: BoxDecoration(
+        color: CupertinoColors.tertiarySystemFill.resolveFrom(context),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: CupertinoColors.label.resolveFrom(context),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: CupertinoColors.secondaryLabel.resolveFrom(context),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 分组小标题。
+  Widget _sectionHeader(String label) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+          color: CupertinoColors.label.resolveFrom(context),
+        ),
+      ),
     );
   }
 
@@ -123,6 +234,8 @@ class _ReadingRecordsPageState extends State<ReadingRecordsPage> {
         builder: (_) => EpubViewerPage(
           title: book.title,
           filePath: book.path,
+          bookId: book.id,
+          controller: _controller,
         ),
       ));
     } else if (path.endsWith('.txt')) {
@@ -143,9 +256,109 @@ class _ReadingRecordsPageState extends State<ReadingRecordsPage> {
         builder: (_) => ComicViewerPage(
           title: book.title,
           filePath: book.path,
+          bookId: book.id,
+          controller: _controller,
         ),
       ));
     }
+  }
+}
+
+/// 单次阅读会话行（全部记录页用）：封面 + 书名 + 「HH:MM 开始 · 读了 Y 分钟」。
+class _SessionListRow extends StatelessWidget {
+  final CupertinoThemeData theme;
+  final BookModel? book;
+  final ReadingSession session;
+  final VoidCallback onTap;
+
+  const _SessionListRow({
+    required this.theme,
+    required this.book,
+    required this.session,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cover = book?.coverBytes;
+    final title = book?.title ?? LocalizationEngine.text('unknown_book');
+    final timeText =
+        '${formatSessionTime(session.startedAt)}${LocalizationEngine.text('session_start_suffix')} · ${LocalizationEngine.text('session_read_prefix')}${formatSessionDuration(session.durationSeconds)}';
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: CupertinoColors.white,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+              color: theme.primaryColor.withValues(alpha: 0.06),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 58,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(6),
+                color: CupertinoColors.systemGrey5,
+              ),
+              child: cover != null
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: Image.memory(cover, fit: BoxFit.cover),
+                    )
+                  : const Icon(
+                      CupertinoIcons.book,
+                      size: 20,
+                      color: CupertinoColors.systemGrey,
+                    ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: CupertinoColors.label.resolveFrom(context),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    timeText,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 6),
+            Icon(
+              CupertinoIcons.chevron_right,
+              size: 15,
+              color: CupertinoColors.tertiaryLabel.resolveFrom(context),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -259,8 +472,7 @@ class ReadingRecordRow extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 11,
-                      color:
-                          CupertinoColors.secondaryLabel.resolveFrom(context),
+                      color: CupertinoColors.secondaryLabel.resolveFrom(context),
                     ),
                   ),
                   const SizedBox(height: 8),

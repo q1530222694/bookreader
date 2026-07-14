@@ -95,6 +95,13 @@ class ReadingStats {
   final Map<DateTime, List<int>> dailyBlockMinutes;
   // 小时级阅读分钟分布（0~23 时），用于「阅读时间分布·时段」统计
   final Map<int, int> hourlyMinutes;
+  // 按天 × 按小时的阅读分钟明细：key=日期(归一到零点)，value=长度 24 的列表，
+  // 下标即 0~23 时。用于「日」视图下趋势图（按小时）/ 热力图（每小时切 4 格）。
+  final Map<DateTime, List<int>> dailyHourlyMinutes;
+  // 按天 × 按「15 分钟段」的阅读分钟明细：key=日期(归一到零点)，
+  // value=长度 96 的列表，下标 = 小时×4 + (分钟~/15)，覆盖 00:00~23:59 共 96 段。
+  // 用于「日」视图热力图：每小时切成 4 个小方格（每格 = 1 个 15 分钟段）。
+  final Map<DateTime, List<int>> dailyQuarterMinutes;
   final int totalMinutes;
   final int todayMinutes;
   final int yesterdayMinutes;
@@ -137,6 +144,8 @@ class ReadingStats {
     required this.dailyMinutes,
     required this.dailyBlockMinutes,
     required this.hourlyMinutes,
+    required this.dailyHourlyMinutes,
+    required this.dailyQuarterMinutes,
     required this.totalMinutes,
     required this.todayMinutes,
     required this.yesterdayMinutes,
@@ -164,6 +173,8 @@ class ReadingStats {
     final normalized = <DateTime, int>{};
     final dailyBlock = <DateTime, List<int>>{};
     final hourly = <int, int>{};
+    final dailyHourly = <DateTime, List<int>>{};
+    final dailyQuarter = <DateTime, List<int>>{};
 
     for (final book in books) {
       if (book.progress <= 0 && book.readingDurationSeconds <= 0) {
@@ -191,6 +202,16 @@ class ReadingStats {
       if (book.lastReadAt != null) {
         final h = book.lastReadAt!.hour;
         hourly[h] = (hourly[h] ?? 0) + minutes;
+
+        // 按天 × 按小时聚合：将阅读分钟累加到该日对应小时档
+        final dh = dailyHourly.putIfAbsent(readDate, () => List.filled(24, 0));
+        dh[h] += minutes;
+
+        // 按天 × 按「15 分钟段」聚合：取真实最后阅读时间的分钟定位到该小时内的第几段
+        // （0~3 段，对应 0-14/15-29/30-44/45-59 分钟），与小时档的分钟均分无冲突。
+        final quarter = (book.lastReadAt!.minute ~/ 15).clamp(0, 3);
+        final dq = dailyQuarter.putIfAbsent(readDate, () => List.filled(96, 0));
+        dq[h * 4 + quarter] += minutes;
       }
     }
 
@@ -281,6 +302,8 @@ class ReadingStats {
       dailyMinutes: normalized,
       dailyBlockMinutes: dailyBlock,
       hourlyMinutes: hourly,
+      dailyHourlyMinutes: dailyHourly,
+      dailyQuarterMinutes: dailyQuarter,
       totalMinutes: totalMinutes,
       todayMinutes: todayMinutes,
       yesterdayMinutes: yesterdayMinutes,
@@ -353,6 +376,17 @@ class ReadingStats {
       }
     }
     return sum;
+  }
+
+  /// 统计区间内「有阅读活动的天数」（累计阅读天数）。
+  /// 与 [minutesBetween] 不同，这里计数的是「天数」而非「分钟数」：
+  /// 凡是区间 [startInclusive, endExclusive) 内有阅读记录的日期都计入 1 天。
+  int activeDaysInRange(DateTime startInclusive, DateTime endExclusive) {
+    var count = 0;
+    for (final d in dailyMinutes.keys) {
+      if (!d.isBefore(startInclusive) && d.isBefore(endExclusive)) count++;
+    }
+    return count;
   }
 
   static String _formatDuration(int minutes) {

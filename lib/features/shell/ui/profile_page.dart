@@ -1,9 +1,7 @@
 import 'package:flutter/cupertino.dart';
 
 import '../../../engine/localization_engine.dart';
-import '../../../engine/settings_engine.dart';
 import '../../../shared/ui/app_text_styles.dart';
-import '../controller/settings_controller.dart';
 import '../../membership/ui/membership_page.dart';
 import 'about_page.dart';
 import 'appearance_page.dart';
@@ -14,267 +12,6 @@ import 'settings_page.dart';
 /// ProfilePage displays the user's personal section for the shell module.
 class ProfilePage extends StatelessWidget {
   const ProfilePage({super.key});
-
-  void _showAppearanceSheet(BuildContext context) {
-    final appearance = SettingsController.appearance.value;
-    showCupertinoModalPopup<void>(
-      context: context,
-      builder: (context) {
-        return CupertinoActionSheet(
-          title: Text(LocalizationEngine.text('appearance')),
-          actions: [
-            CupertinoActionSheetAction(
-              onPressed: () {
-                SettingsController.setAppearance(SettingsEngine.appearanceSystem);
-                Navigator.of(context).pop();
-              },
-              child: SizedBox(
-                width: double.infinity,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Text(LocalizationEngine.text('follow_system')),
-                    if (appearance == SettingsEngine.appearanceSystem)
-                      Icon(
-                        CupertinoIcons.check_mark_circled_solid,
-                        color: CupertinoTheme.of(context).primaryColor,
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            CupertinoActionSheetAction(
-              onPressed: () {
-                SettingsController.setAppearance(SettingsEngine.appearanceLight);
-                Navigator.of(context).pop();
-              },
-              child: SizedBox(
-                width: double.infinity,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Text(LocalizationEngine.text('light_mode')),
-                    if (appearance == SettingsEngine.appearanceLight)
-                      Icon(
-                        CupertinoIcons.check_mark_circled_solid,
-                        color: CupertinoTheme.of(context).primaryColor,
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            CupertinoActionSheetAction(
-              onPressed: () {
-                SettingsController.setAppearance(SettingsEngine.appearanceDark);
-                Navigator.of(context).pop();
-              },
-              child: SizedBox(
-                width: double.infinity,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Text(LocalizationEngine.text('dark_mode')),
-                    if (appearance == SettingsEngine.appearanceDark)
-                      Icon(
-                        CupertinoIcons.check_mark_circled_solid,
-                        color: CupertinoTheme.of(context).primaryColor,
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-          cancelButton: CupertinoActionSheetAction(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(LocalizationEngine.text('cancel')),
-          ),
-        );
-      },
-    );
-  }
-
-  void _showFontSheet(BuildContext context) {
-    final fontFamily = SettingsController.fontFamily.value;
-    showCupertinoModalPopup<void>(
-      context: context,
-      builder: (context) {
-        return CupertinoActionSheet(
-          title: Text(LocalizationEngine.text('font_family')),
-          actions: [
-            CupertinoActionSheetAction(
-              onPressed: () {
-                SettingsController.setFontFamily(SettingsEngine.fontFamilySystem);
-                Navigator.of(context).pop();
-              },
-              child: SizedBox(
-                width: double.infinity,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(LocalizationEngine.text('system_font')),
-                    if (fontFamily == SettingsEngine.fontFamilySystem)
-                      Icon(CupertinoIcons.check_mark_circled_solid, color: CupertinoTheme.of(context).primaryColor),
-                  ],
-                ),
-              ),
-            ),
-            CupertinoActionSheetAction(
-              onPressed: () {
-                SettingsController.setFontFamily(SettingsEngine.fontFamilySansSerif);
-                Navigator.of(context).pop();
-              },
-              child: SizedBox(
-                width: double.infinity,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(LocalizationEngine.text('sans_serif')),
-                    if (fontFamily == SettingsEngine.fontFamilySansSerif)
-                      Icon(CupertinoIcons.check_mark_circled_solid, color: CupertinoTheme.of(context).primaryColor),
-                  ],
-                ),
-              ),
-            ),
-            CupertinoActionSheetAction(
-              onPressed: () {
-                SettingsController.setFontFamily(SettingsEngine.fontFamilySerif);
-                Navigator.of(context).pop();
-              },
-              child: SizedBox(
-                width: double.infinity,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(LocalizationEngine.text('serif')),
-                    if (fontFamily == SettingsEngine.fontFamilySerif)
-                      Icon(CupertinoIcons.check_mark_circled_solid, color: CupertinoTheme.of(context).primaryColor),
-                  ],
-                ),
-              ),
-            ),
-            CupertinoActionSheetAction(
-              onPressed: () {
-                SettingsController.setFontFamily(SettingsEngine.fontFamilyMonospace);
-                Navigator.of(context).pop();
-              },
-              child: SizedBox(
-                width: double.infinity,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(LocalizationEngine.text('monospace')),
-                    if (fontFamily == SettingsEngine.fontFamilyMonospace)
-                      Icon(CupertinoIcons.check_mark_circled_solid, color: CupertinoTheme.of(context).primaryColor),
-                  ],
-                ),
-              ),
-            ),
-          ],
-          cancelButton: CupertinoActionSheetAction(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(LocalizationEngine.text('cancel')),
-          ),
-        );
-      },
-    );
-  }
-
-  void _showThemeSheet(BuildContext context) {
-    final themeColor = SettingsController.themeColor.value;
-    showCupertinoModalPopup<void>(
-      context: context,
-      builder: (context) {
-        return CupertinoActionSheet(
-          title: Text(LocalizationEngine.text('theme_color')),
-          actions: [
-            CupertinoActionSheetAction(
-              onPressed: () {
-                SettingsController.setThemeColor(SettingsEngine.themeColorBlue);
-                Navigator.of(context).pop();
-              },
-              child: SizedBox(
-                width: double.infinity,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(LocalizationEngine.text('theme_color_blue')),
-                    if (themeColor == SettingsEngine.themeColorBlue)
-                      Icon(CupertinoIcons.check_mark_circled_solid, color: CupertinoTheme.of(context).primaryColor),
-                  ],
-                ),
-              ),
-            ),
-            CupertinoActionSheetAction(
-              onPressed: () {
-                SettingsController.setThemeColor(SettingsEngine.themeColorGreen);
-                Navigator.of(context).pop();
-              },
-              child: SizedBox(
-                width: double.infinity,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(LocalizationEngine.text('theme_color_green')),
-                    if (themeColor == SettingsEngine.themeColorGreen)
-                      Icon(CupertinoIcons.check_mark_circled_solid, color: CupertinoTheme.of(context).primaryColor),
-                  ],
-                ),
-              ),
-            ),
-            CupertinoActionSheetAction(
-              onPressed: () {
-                SettingsController.setThemeColor(SettingsEngine.themeColorPink);
-                Navigator.of(context).pop();
-              },
-              child: SizedBox(
-                width: double.infinity,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(LocalizationEngine.text('theme_color_pink')),
-                    if (themeColor == SettingsEngine.themeColorPink)
-                      Icon(CupertinoIcons.check_mark_circled_solid, color: CupertinoTheme.of(context).primaryColor),
-                  ],
-                ),
-              ),
-            ),
-            CupertinoActionSheetAction(
-              onPressed: () {
-                SettingsController.setThemeColor(SettingsEngine.themeColorOrange);
-                Navigator.of(context).pop();
-              },
-              child: SizedBox(
-                width: double.infinity,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(LocalizationEngine.text('theme_color_orange')),
-                    if (themeColor == SettingsEngine.themeColorOrange)
-                      Icon(CupertinoIcons.check_mark_circled_solid, color: CupertinoTheme.of(context).primaryColor),
-                  ],
-                ),
-              ),
-            ),
-            CupertinoActionSheetAction(
-              onPressed: () {
-                Navigator.of(context).pop();
-                // open font sheet
-                Future.delayed(Duration(milliseconds: 200), () => _showFontSheet(context));
-              },
-              child: Text(LocalizationEngine.text('font_family')),
-            ),
-          ],
-          cancelButton: CupertinoActionSheetAction(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(LocalizationEngine.text('cancel')),
-          ),
-        );
-      },
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -326,7 +63,8 @@ class ProfilePage extends StatelessWidget {
                               ),
                               onPressed: () {
                                 Navigator.of(context).push(
-                                  CupertinoPageRoute(builder: (context) => const MembershipPage()),
+                                  CupertinoPageRoute(
+                                      builder: (context) => const MembershipPage()),
                                 );
                               },
                               child: Text(LocalizationEngine.text('premium')),
@@ -367,7 +105,8 @@ class ProfilePage extends StatelessWidget {
                     icon: CupertinoIcons.quote_bubble,
                     onTap: () {
                       Navigator.of(context).push(
-                        CupertinoPageRoute(builder: (context) => const DailySentencePage()),
+                        CupertinoPageRoute(
+                            builder: (context) => const DailySentencePage()),
                       );
                     },
                   ),
@@ -381,7 +120,8 @@ class ProfilePage extends StatelessWidget {
                     icon: CupertinoIcons.globe,
                     onTap: () {
                       Navigator.of(context).push(
-                        CupertinoPageRoute(builder: (context) => const LanguagePage()),
+                        CupertinoPageRoute(
+                            builder: (context) => const LanguagePage()),
                       );
                     },
                   ),
@@ -390,16 +130,8 @@ class ProfilePage extends StatelessWidget {
                     icon: CupertinoIcons.paintbrush_fill,
                     onTap: () {
                       Navigator.of(context).push(
-                        CupertinoPageRoute(builder: (context) => const AppearancePage()),
-                      );
-                    },
-                  ),
-                  _ProfileSettingItem(
-                    label: LocalizationEngine.text('theme_color'),
-                    icon: CupertinoIcons.circle_fill,
-                    onTap: () {
-                      Navigator.of(context).push(
-                        CupertinoPageRoute(builder: (context) => const AppearancePage()),
+                        CupertinoPageRoute(
+                            builder: (context) => const AppearancePage()),
                       );
                     },
                   ),

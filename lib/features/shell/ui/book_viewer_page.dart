@@ -8,6 +8,7 @@ import 'package:photo_view/photo_view.dart';
 import '../../../engine/localization_engine.dart';
 import '../controller/bookshelf_controller.dart';
 import '../controller/settings_controller.dart';
+import '../service/reading_session_service.dart';
 import 'reader_settings_sheet.dart';
 
 /// BookViewerPage displays the first page of a PDF book.
@@ -152,18 +153,27 @@ class _BookViewerPageState extends State<BookViewerPage>
   }
 
   void _pauseSessionAndPersist() {
-    if (_sessionStart == null || widget.controller == null) {
-      _sessionStart = null;
-      return;
-    }
-
-    final elapsedSeconds = DateTime.now().difference(_sessionStart!).inSeconds;
+    final begin = _sessionStart;
     _sessionStart = null;
-    if (elapsedSeconds <= 0) {
-      return;
-    }
+    if (begin == null) return;
 
-    widget.controller!.updateBookReadingDuration(widget.bookId, elapsedSeconds);
+    final elapsedSeconds = DateTime.now().difference(begin).inSeconds;
+    if (elapsedSeconds <= 0) return;
+
+    // 更新书籍累计阅读时长（仅在有 controller 时）
+    if (widget.controller != null) {
+      widget.controller!.updateBookReadingDuration(widget.bookId, elapsedSeconds);
+    }
+    // 记录本次阅读会话：开始时间 / 时长 / 是否读完，供阅读记录页使用
+    final finished = widget.controller == null
+        ? false
+        : (widget.controller!.getBook(widget.bookId)?.progress ?? 0) >= 1.0;
+    ReadingSessionService.logSession(
+      bookId: widget.bookId,
+      startedAt: begin,
+      durationSeconds: elapsedSeconds,
+      finished: finished,
+    );
   }
 
   Future<void> _showAddTagDialog() async {

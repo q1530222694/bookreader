@@ -110,6 +110,68 @@ class LocalizationEngine {
     'bookshelf': {'zh': '书架', 'en': 'Bookshelf'},
     'memory': {'zh': '回忆', 'en': 'Memory'},
     'tools': {'zh': '工具', 'en': 'Tools'},
+    // 工具页分类与工具文案（数据驱动，避免 UI 硬编码中文）
+    'tools_cat_ebook': {'zh': '电子书转换', 'en': 'E-Book'},
+    'tools_cat_pdf': {'zh': '转 PDF', 'en': 'To PDF'},
+    'tool_txt_epub_title': {'zh': 'TXT 转 EPUB', 'en': 'TXT to EPUB'},
+    'tool_txt_epub_sub': {'zh': '文本文件转电子书', 'en': 'Convert text files to e-book'},
+    'tool_doc_pdf_title': {'zh': 'DOC 转 PDF', 'en': 'DOC to PDF'},
+    'tool_doc_pdf_sub': {'zh': 'Word 文档转 PDF', 'en': 'Convert Word documents to PDF'},
+    'tool_ppt_pdf_title': {'zh': 'PPT 转 PDF', 'en': 'PPT to PDF'},
+    'tool_ppt_pdf_sub': {'zh': '幻灯片转 PDF', 'en': 'Convert slides to PDF'},
+    'tool_xls_pdf_title': {'zh': 'Excel 转 PDF', 'en': 'Excel to PDF'},
+    'tool_xls_pdf_sub': {'zh': '表格转 PDF', 'en': 'Export spreadsheets to PDF'},
+    'tool_img_pdf_title': {'zh': '图片转 PDF', 'en': 'Image to PDF'},
+    'tool_img_pdf_sub': {'zh': '图片合并导出', 'en': 'Merge images into PDF'},
+    // 统一转换页文案（txt/doc/ppt/excel/image 五页共用，避免 UI 硬编码）
+    'conv_tab_convert': {'zh': '转换', 'en': 'Convert'},
+    'conv_tab_records': {'zh': '记录', 'en': 'Records'},
+    'conv_select_file': {'zh': '选择文件', 'en': 'Select File'},
+    'conv_select_txt': {'zh': '选择 TXT 文件', 'en': 'Select TXT File'},
+    'conv_select_doc': {'zh': '选择 DOC / DOCX 文件', 'en': 'Select DOC / DOCX File'},
+    'conv_select_ppt': {'zh': '选择 PPT / PPTX 文件', 'en': 'Select PPT / PPTX File'},
+    'conv_select_excel': {'zh': '选择 XLS / XLSX 文件', 'en': 'Select XLS / XLSX File'},
+    'conv_select_images': {'zh': '选择图片（支持多选）', 'en': 'Select Images (multi-select)'},
+    'conv_start': {'zh': '开始转换', 'en': 'Start Convert'},
+    'conv_converting': {'zh': '转换中…', 'en': 'Converting…'},
+    'conv_selected_file': {'zh': '已选择文件', 'en': 'Selected file'},
+    'conv_open': {'zh': '打开', 'en': 'Open'},
+    'conv_view': {'zh': '查看', 'en': 'View'},
+    'conv_add_shelf': {'zh': '加入书架', 'en': 'Add to Shelf'},
+    'conv_added_shelf': {'zh': '已加入书架', 'en': 'Added to Shelf'},
+    'conv_no_record': {'zh': '还没有转换记录', 'en': 'No conversion records yet'},
+    'conv_delete': {'zh': '删除', 'en': 'Delete'},
+    'conv_delete_confirm_title': {'zh': '删除记录', 'en': 'Delete Record'},
+    'conv_delete_confirm_msg': {
+      'zh': '确定要删除这条记录及其文件吗？此操作不可撤销。',
+      'en': 'Delete this record and its file? This cannot be undone.'
+    },
+    'conv_cancel': {'zh': '取消', 'en': 'Cancel'},
+    'conv_open_failed': {'zh': '打开失败', 'en': 'Failed to open'},
+    'conv_file_not_found': {'zh': '文件不存在', 'en': 'File not found'},
+    'conv_tip_txt': {
+      'zh': '选择一个 TXT 文本文件，即可快速生成可在阅读器中打开的 EPUB 电子书。',
+      'en': 'Pick a TXT file to quickly generate an EPUB e-book for the reader.'
+    },
+    'conv_tip_doc': {
+      'zh': '选择 Word 文档（DOC / DOCX），转换为可分享的 PDF 文件。',
+      'en': 'Pick a Word document (DOC / DOCX) and convert it to a shareable PDF.'
+    },
+    'conv_tip_ppt': {
+      'zh': '选择演示文稿（PPT / PPTX），提取内容并生成 PDF。',
+      'en': 'Pick a presentation (PPT / PPTX) to extract content into a PDF.'
+    },
+    'conv_tip_excel': {
+      'zh': '选择电子表格（XLS / XLSX），导出为 PDF 文件。',
+      'en': 'Pick a spreadsheet (XLS / XLSX) and export it as a PDF.'
+    },
+    'conv_tip_image': {
+      'zh': '选择多张图片，将按显示顺序合并为一个 PDF。拖动可重新排序，点按右上角 × 可移除。',
+      'en': 'Select multiple images to merge into one PDF in order. Drag to reorder, tap × to remove.'
+    },
+    'conv_selected_count': {'zh': '已选择 %d 张图片', 'en': '%d image(s) selected'},
+    'conv_image_count': {'zh': '%d 张图片', 'en': '%d image(s)'},
+    'conv_convert_failed': {'zh': '转换失败', 'en': 'Conversion failed'},
     'profile': {'zh': '我的', 'en': 'Profile'},
     'daily_sentence': {'zh': '每日一句', 'en': 'Daily Sentence'},
     'recently_reading': {'zh': '最近阅读', 'en': 'Recently Read'},
@@ -329,6 +391,7 @@ class LocalizationEngine {
       'en': 'Tap a point to inspect detailed reading time',
     },
     'hours_short': {'zh': '小时', 'en': 'h'},
+    'hour_unit': {'zh': '时', 'en': 'h'},
     'minutes_short': {'zh': '分钟', 'en': 'm'},
     'days_short': {'zh': '天', 'en': 'd'},
     'books_short': {'zh': '本', 'en': 'books'},
@@ -370,6 +433,39 @@ class LocalizationEngine {
     },
     'no_sentences': {'zh': '尚未添加每日一句内容', 'en': 'No daily sentences added yet'},
     'view_full': {'zh': '每日一句全文', 'en': 'Full daily sentence'},
+    // 每日一句：刷新按钮与内置开关
+    'daily_sentence_refresh': {'zh': '换一句', 'en': 'Refresh'},
+    'daily_sentence_use_builtin': {
+      'zh': '启用内置每日一句',
+      'en': 'Enable Built-in Sentences',
+    },
+    'daily_sentence_use_builtin_desc': {
+      'zh': '关闭后只显示你自定义的每日一句',
+      'en': 'When off, only your custom sentences are shown',
+    },
+    'daily_sentence_empty_custom': {
+      'zh': '还没有自定义每日一句，开启内置每日一句获取灵感吧',
+      'en': 'No custom sentences yet. Enable built-in sentences for inspiration.',
+    },
+    // 每日一句列表页（截图改版）
+    'my_sentences': {'zh': '我的语句', 'en': 'My Sentences'},
+    'today_preview': {'zh': '今天可能会看到', 'en': "Today's preview"},
+    'refresh_one': {'zh': '换一个', 'en': 'Refresh'},
+    'add_new_sentence': {'zh': '添加新的语句', 'en': 'Add New Sentence'},
+    'long_press_reorder': {
+      'zh': '长按可拖动排序',
+      'en': 'Long press to drag and reorder',
+    },
+    'sentence_delete_confirm': {
+      'zh': '确认删除此句？',
+      'en': 'Delete this sentence?',
+    },
+    'sentence_deleted': {
+      'zh': '已删除',
+      'en': 'Deleted',
+    },
+    'move_up': {'zh': '上移', 'en': 'Move Up'},
+    'move_down': {'zh': '下移', 'en': 'Move Down'},
     'no_recently_reading': {
       'zh': '尚未有最近阅读记录，先添加一本书籍开始阅读吧。',
       'en': 'No recent reads yet. Add a book to get started.',
@@ -429,6 +525,24 @@ class LocalizationEngine {
     },
     'theme_color_purple': {'zh': '紫色', 'en': 'Purple'},
     'theme_color_red': {'zh': '红色', 'en': 'Red'},
+    'custom_theme_color': {'zh': '自定义配色', 'en': 'Custom Colors'},
+    'custom_color_pick': {'zh': '选择颜色', 'en': 'Pick a Color'},
+    'custom_color_palette': {'zh': '调色板', 'en': 'Palette'},
+    'custom_color_name': {'zh': '名称', 'en': 'Name'},
+    'custom_color_delete': {'zh': '删除配色', 'en': 'Delete Color'},
+    'custom_color_delete_confirm': {
+      'zh': '确认删除该配色？',
+      'en': 'Delete this custom color?',
+    },
+    'custom_color_section_hint': {
+      'zh': '点击色块应用配色，长按可编辑或删除。',
+      'en': 'Tap a swatch to apply; long-press to edit or delete.',
+    },
+    'custom_color_membership_hint': {
+      'zh': '自定义配色为会员功能，开通会员后可创建专属配色。',
+      'en':
+          'Custom colors are a premium feature. Activate membership to create your own.',
+    },
     'startup_page': {'zh': '启动页', 'en': 'Startup Page'},
     'startup_page_none': {'zh': '不设置（默认主页）', 'en': 'None (Home)'},
     'startup_page_home': {'zh': '首页', 'en': 'Home'},
@@ -463,6 +577,29 @@ class LocalizationEngine {
       'en': 'Make every reading session more valuable',
     },
     'splash_skip': {'zh': '3s 跳过', 'en': 'Skip in 3s'},
+    // 启动设置页·交互文案（图片选择 / 文字编辑 / 跳转页 / 预览）
+    'splash_edit_text': {'zh': '编辑启动文字', 'en': 'Edit Splash Text'},
+    'splash_text_placeholder': {
+      'zh': '输入启动页要显示的文字',
+      'en': 'Enter the text to show on splash',
+    },
+    'splash_save': {'zh': '保存', 'en': 'Save'},
+    'splash_image_empty': {'zh': '尚未选择图片', 'en': 'No image selected'},
+    'splash_text_empty': {'zh': '尚未设置文字', 'en': 'No text set'},
+    'splash_image_failed': {'zh': '图片选择失败', 'en': 'Failed to pick image'},
+    'splash_permission_denied': {
+      'zh': '没有访问相册的权限，无法选择图片',
+      'en': 'No permission to access photos',
+    },
+    'splash_preview_none': {
+      'zh': '未配置启动页（将直接打开应用）',
+      'en': 'Splash disabled (app opens directly)',
+    },
+    'splash_jump_select': {'zh': '选择启动后打开的页面', 'en': 'Select startup page'},
+    'splash_skip_now': {'zh': '跳过', 'en': 'Skip'},
+    'splash_tap_enter_now': {'zh': '点击进入', 'en': 'Tap to enter'},
+    'splash_auto_countdown': {'zh': '%d 秒后跳过', 'en': 'Skip in %d s'},
+    'splash_tap_countdown': {'zh': '%d 秒后进入', 'en': 'Enter in %d s'},
     'startup_content': {'zh': '启动页内容', 'en': 'Startup Content'},
     'startup_content_none': {'zh': '不显示', 'en': 'None'},
     'startup_content_text': {'zh': '显示文字', 'en': 'Text'},
@@ -525,6 +662,7 @@ class LocalizationEngine {
     'stats_tab_month': {'zh': '月', 'en': 'Month'},
     'stats_tab_year': {'zh': '年', 'en': 'Year'},
     'stats_tab_all': {'zh': '全部', 'en': 'All'},
+    'stats_tab_day': {'zh': '日', 'en': 'Day'},
     // 阅读热力图卡片（MemoryMainPage）
     'heatmap_month_btn': {'zh': '本月', 'en': 'This Month'},
     'heatmap_legend_few': {'zh': '少', 'en': 'Less'},
@@ -534,6 +672,17 @@ class LocalizationEngine {
       'zh': '每格 4 块 = 当日的 4 个 6 小时段阅读情况',
       'en': 'Each cell split into 4 = the day’s four 6-hour reading blocks'
     },
+    'heatmap_day_block_hint': {
+      'zh': '4 行 = 当日 4 个 6 小时段；每行 6 小时 × 4 个小方格，每格 = 15 分钟，颜色越深读得越多',
+      'en': '4 rows = the day’s four 6-hour blocks; 6 hours × 4 squares per row, each square = 15 min'
+    },
+    // 阅读统计详情页新增指标卡
+    'app_open_count_label': {'zh': '打开次数', 'en': 'App Opens'},
+    'cumulative_reading_days_label': {
+      'zh': '累计阅读天数',
+      'en': 'Reading Days'
+    },
+    'today_reading_label': {'zh': '今日阅读', 'en': 'Today'},
     // 遗忘的书籍卡片（MemoryMainPage）
     'forgotten_books_title': {'zh': '遗忘的书籍', 'en': 'Forgotten Books'},
     'forgotten_view_now': {'zh': '立即查看', 'en': 'View Now'},
@@ -592,6 +741,15 @@ class LocalizationEngine {
     'records_reading': {'zh': '在读', 'en': 'Reading'},
     'record_progress_prefix': {'zh': '读到', 'en': 'Read to'},
     'record_done_label': {'zh': '已读完', 'en': 'Completed'},
+    // 阅读记录重设计（会话级数据）：概览 + 阅读明细 + 读完汇总
+    'records_session_count': {'zh': '阅读次数', 'en': 'Sessions'},
+    'records_finished_count': {'zh': '读完', 'en': 'Finished'},
+    'records_finished_time': {'zh': '读完耗时', 'en': 'Time Finished'},
+    'records_detail': {'zh': '阅读明细', 'en': 'Reading Detail'},
+    'records_detail_empty': {'zh': '该区间暂无阅读明细', 'en': 'No reading detail in this period'},
+    'unknown_book': {'zh': '未知书籍', 'en': 'Unknown Book'},
+    'session_start_suffix': {'zh': '开始', 'en': ' started'},
+    'session_read_prefix': {'zh': '读了', 'en': 'read '},
     // 阅读时间轴（按月记录真实数据，MemoryMainPage + ReadingTimelinePage）
     'timeline_summary': {
       'zh': '阅读 {books} 本书 · {hours} 小时 · 收藏 {fav} 条',

@@ -1,14 +1,25 @@
 import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
-import 'package:open_filex/open_filex.dart';
+import 'package:flutter/material.dart'
+    show
+        DefaultMaterialLocalizations,
+        DefaultWidgetsLocalizations,
+        Localizations,
+        ReorderableDragStartListener,
+        ReorderableListView;
 
+import '../../../engine/localization_engine.dart';
+import '../../../shared/ui/app_text_styles.dart';
+import '../../../shared/ui/conversion_scaffold.dart';
 import '../controller/image_to_pdf_controller.dart';
 import '../model/export_record_model.dart';
 import '../service/filepicker_diagnostics.dart';
 import '../../shell/service/bookshelf_service.dart';
 
-/// ImageToPdfPage 纯UI层，负责显示界面和处理用户交互
+/// ImageToPdfPage 纯 UI 层：多张图片合并转 PDF。使用统一转换脚手架。
+///
+/// 相比其它转换页额外支持：多选、拖动重新排序、缩略图角标删除、加入书架。
 class ImageToPdfPage extends StatefulWidget {
   const ImageToPdfPage({super.key});
 
@@ -17,19 +28,10 @@ class ImageToPdfPage extends StatefulWidget {
 }
 
 class _ImageToPdfPageState extends State<ImageToPdfPage> {
-  /// 已选择的图片路径列表
   List<String> _selectedImages = [];
-
-  /// 转换状态信息
-  String _statusMessage = '请选择图片开始转换';
-
-  /// 是否正在转换中
+  String _statusMessage = '';
   bool _isConverting = false;
-
-  /// 导出记录列表
   List<ExportRecord> _exportRecords = [];
-
-  /// 当前显示的tab（0=图片转换，1=导出记录）
   int _currentTab = 0;
 
   @override
@@ -38,605 +40,349 @@ class _ImageToPdfPageState extends State<ImageToPdfPage> {
     _loadExportRecords();
   }
 
-  /// 加载导出记录列表
   Future<void> _loadExportRecords() async {
     final records = await ImageToPdfController.getExportRecords();
     if (mounted) {
-      setState(() {
-        _exportRecords = records;
-      });
+      setState(() => _exportRecords = records);
     }
   }
 
-  /// 处理选择图片按钮点击
   Future<void> _onSelectImagesPressed() async {
     final images = await ImageToPdfController.selectImages();
-
-    if (mounted) {
+    if (mounted && images.isNotEmpty) {
       setState(() {
-        if (images.isNotEmpty) {
-          _selectedImages = images;
-          _statusMessage = '已选择 ${_selectedImages.length} 张图片，点击下方按钮开始转换';
-        }
+        _selectedImages = images;
+        _statusMessage = '';
       });
     }
   }
 
-  /// 删除指定索引的图片
   void _removeImage(int index) {
+    setState(() => _selectedImages.removeAt(index));
+  }
+
+  /// 拖动重新排序（调用 Controller.reorderImages，符合分层约束）。
+  /// 注意：onReorder 回调的 newIndex 已是「源列表移除后的目标位置」，
+  /// 由 Controller.reorderImages 内部自行做 removeAt/insert，此处不再预减，
+  /// 否则会造成双重偏移导致排序错乱。
+  void _onReorder(int oldIndex, int newIndex) {
     setState(() {
-      _selectedImages.removeAt(index);
-      _statusMessage = _selectedImages.isEmpty
-          ? '请选择图片'
-          : '已选择 ${_selectedImages.length} 张图片';
+      _selectedImages = ImageToPdfController.reorderImages(
+        _selectedImages,
+        oldIndex,
+        newIndex,
+      );
     });
   }
 
-  /// 处理转换为PDF按钮点击
   Future<void> _onConvertPressed() async {
-    if (_selectedImages.isEmpty) {
-      if (mounted) {
-        setState(() {
-          _statusMessage = '请先选择图片';
-        });
-      }
-      return;
-    }
+    if (_selectedImages.isEmpty) return;
 
-    if (mounted) {
-      setState(() {
-        _isConverting = true;
-        _statusMessage = '正在转换...';
-      });
-    }
+    setState(() {
+      _isConverting = true;
+      _statusMessage = '';
+    });
 
-    // 获取输出文件名（当前时间戳）
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final pdfFileName = 'images_$timestamp.pdf';
 
     try {
-      // 执行转换
       final result = await ImageToPdfController.convertToPdf(
         imagePaths: _selectedImages,
         pdfFileName: pdfFileName,
       );
 
-      if (mounted) {
-        setState(() {
-          _isConverting = false;
-          _statusMessage = result.message;
-          if (result.success) {
-            _selectedImages = [];
-            // 刷新导出记录列表
-            _loadExportRecords();
-          }
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _isConverting = false;
+        _statusMessage = result.message;
+        if (result.success) {
+          _selectedImages = [];
+          _loadExportRecords();
+        }
+      });
     } catch (e, st) {
       debugPrint('转换异常: $e');
-      debugPrint('$st');
       await FilepickerDiagnostics.writeLog('ui _onConvertPressed 异常: $e\n$st');
-      if (mounted) {
-        setState(() {
-          _isConverting = false;
-          _statusMessage = '转换异常: ${e.toString()}';
-        });
-      }
-    }
-  }
-
-  /// 处理从导出记录中删除
-  Future<void> _onDeleteRecord(String recordId) async {
-    final success = await ImageToPdfController.deleteExportRecord(recordId);
-
-    if (mounted) {
+      if (!mounted) return;
       setState(() {
-        if (success) {
-          _exportRecords.removeWhere((r) => r.id == recordId);
-          _statusMessage = '删除成功';
-        } else {
-          _statusMessage = '删除失败';
-        }
+        _isConverting = false;
+        _statusMessage = '${LocalizationEngine.text('conv_convert_failed')}: $e';
       });
     }
   }
 
-  void _showImageDeletePopover(BuildContext context, int index, {Offset? anchorPosition}) {
-    final overlayState = Overlay.of(context, rootOverlay: true);
+  Future<void> _onDeleteRecord(String recordId) async {
+    final ok = await confirmConversionDelete(context);
+    if (!ok) return;
+    final success = await ImageToPdfController.deleteExportRecord(recordId);
+    if (mounted && success) {
+      setState(() => _exportRecords.removeWhere((r) => r.id == recordId));
+    }
+  }
 
-    late final OverlayEntry overlayEntry;
-    overlayEntry = OverlayEntry(
-      builder: (overlayContext) {
-        final targetPosition = anchorPosition ?? const Offset(0, 0);
-        final mediaQuery = MediaQuery.of(overlayContext);
-        final screenWidth = mediaQuery.size.width;
-        final screenHeight = mediaQuery.size.height;
-        final menuWidth = 168.0;
-        final menuHeight = 64.0;
-        final safeLeft = (targetPosition.dx - menuWidth / 2).clamp(12.0, screenWidth - menuWidth - 12.0);
-        final safeTop = (targetPosition.dy + 8.0).clamp(12.0, screenHeight - menuHeight - 12.0);
-
-        return Stack(
-          children: [
-            GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onTap: () => overlayEntry.remove(),
-              child: Container(color: CupertinoColors.transparent),
-            ),
-            Positioned(
-              left: safeLeft,
-              top: safeTop,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: Container(
-                  width: menuWidth,
-                  decoration: BoxDecoration(
-                    color: CupertinoColors.systemBackground.resolveFrom(overlayContext),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: CupertinoColors.systemGrey4.resolveFrom(overlayContext)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: CupertinoColors.black.withOpacity(0.12),
-                        blurRadius: 12,
-                        offset: const Offset(0, 6),
-                      ),
-                    ],
-                  ),
-                  child: CupertinoButton(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                    onPressed: () {
-                      overlayEntry.remove();
-                      _removeImage(index);
-                    },
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        '删除',
-                        style: const TextStyle(color: CupertinoColors.destructiveRed),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        );
+  Future<void> _onAddToShelf(ExportRecord record) async {
+    final result = await ImageToPdfController.addExportedPdfToShelf(
+      record,
+      (file) async {
+        try {
+          await BookshelfService().importPdf(file);
+          return true;
+        } catch (e) {
+          debugPrint('添加到书架失败: $e');
+          return false;
+        }
       },
     );
 
-    overlayState.insert(overlayEntry);
+    if (!mounted) return;
+    setState(() {
+      if (result) {
+        final i = _exportRecords.indexWhere((r) => r.id == record.id);
+        if (i >= 0) {
+          _exportRecords[i] = record.copyWith(addedToShelf: true);
+        }
+      }
+    });
   }
 
-  /// 构建图片预览项
-  /// 【桌面端布局修复】外层 Container 设置固定宽度 80，防止横向 ListView 无限宽度导致的渲染崩溃
-  /// 内层序号标签通过 Column.crossAxisAlignment.stretch 实现等宽，移除 width: double.infinity
-  Widget _buildImagePreviewItem(String imagePath, int index) {
-    return GestureDetector(
-      onLongPressStart: (details) => _showImageDeletePopover(
-        context,
-        index,
-        anchorPosition: details.globalPosition,
-      ),
-      child: Container(
-        width: 80, // 【FIX】设置固定宽度，防止 ListView 中的无限宽度崩溃
-        margin: const EdgeInsets.only(right: 12),
-        decoration: BoxDecoration(
-          border: Border.all(color: CupertinoColors.systemGrey4),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch, // 【FIX】使用 stretch 而不是 double.infinity
-          children: [
-            // 图片缩略图
-            ClipRRect(
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(7),
-                topRight: Radius.circular(7),
-              ),
-              child: Image(
-                image: ResizeImage(
-                  FileImage(File(imagePath)),
-                  // 按缩略图尺寸请求解码，减小内存与解码时间
-                  width: 160,
-                  height: 160,
-                ),
-                width: 80,
-                height: 80,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    width: 80,
-                    height: 80,
-                    color: CupertinoColors.systemGrey6,
-                    child: const Icon(CupertinoIcons.photo),
-                  );
-                },
-              ),
-            ),
-            // 序号标签
-            Container(
-              // 【FIX】移除 width: double.infinity，由外层 Column.crossAxisAlignment.stretch 实现等宽
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              decoration: const BoxDecoration(
-                color: CupertinoColors.systemGrey6,
-                borderRadius: BorderRadius.only(
-                  bottomLeft: Radius.circular(7),
-                  bottomRight: Radius.circular(7),
-                ),
-              ),
-              child: Text(
-                '${index + 1}',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+  @override
+  Widget build(BuildContext context) {
+    return ConversionScaffold(
+      title: LocalizationEngine.text('tool_img_pdf_title'),
+      currentTab: _currentTab,
+      onTabChanged: (v) => setState(() => _currentTab = v),
+      convertTab: _buildConvertTab(),
+      recordsTab: _buildRecordsTab(),
     );
   }
 
-  /// 构建导出记录项
-  Widget _buildExportRecordItem(ExportRecord record) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: CupertinoColors.systemGrey6,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 文件名和日期
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _buildConvertTab() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        ConversionInfoCard(
+          icon: CupertinoIcons.info_circle,
+          text: LocalizationEngine.text('conv_tip_image'),
+        ),
+        const SizedBox(height: 16),
+        ConversionPrimaryButton(
+          label: LocalizationEngine.text('conv_select_images'),
+          icon: CupertinoIcons.photo_on_rectangle,
+          onPressed: _isConverting ? null : _onSelectImagesPressed,
+        ),
+        if (_selectedImages.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          Text(
+            LocalizationEngine.text('conv_selected_count')
+                .replaceFirst('%d', '${_selectedImages.length}'),
+            style: AppTextStyles.body(context)
+                .copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 116,
+            // ReorderableListView 是 Material 组件，纯 Cupertino 树中缺少
+            // MaterialLocalizations 会断言崩溃（选图后直接闪退）。
+            // 参考 daily_sentence_page 的修法：用 Localizations 仅包裹列表、
+            // 提供其所需的 Material 文案环境（不引入 MaterialApp，避免嵌套导航冲突）。
+            child: Localizations(
+              locale: const Locale('en'),
+              delegates: const [
+                DefaultWidgetsLocalizations.delegate,
+                DefaultMaterialLocalizations.delegate,
+              ],
+              child: ReorderableListView.builder(
+                scrollDirection: Axis.horizontal,
+                // 关闭默认拖拽手柄（默认手柄依赖 Material），改用自绘手柄
+                buildDefaultDragHandles: false,
+                proxyDecorator: (child, index, animation) => child,
+                itemCount: _selectedImages.length,
+                onReorder: _onReorder,
+                itemBuilder: (context, index) => _buildImageThumb(
+                  _selectedImages[index],
+                  index,
+                  key: ValueKey(_selectedImages[index]),
+                ),
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 16),
+        ConversionPrimaryButton(
+          label: LocalizationEngine.text('conv_start'),
+          loadingLabel: LocalizationEngine.text('conv_converting'),
+          icon: CupertinoIcons.arrow_right_circle,
+          loading: _isConverting,
+          onPressed: _selectedImages.isEmpty ? null : _onConvertPressed,
+        ),
+        if (_statusMessage.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          Text(
+            _statusMessage,
+            textAlign: TextAlign.center,
+            style: AppTextStyles.secondary(context),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// 缩略图 + 序号 + 右上角删除角标。
+  ///
+  /// 整张卡片作为拖拽手柄（[ReorderableDragStartListener]），长按即可重新排序。
+  Widget _buildImageThumb(String imagePath, int index, {required Key key}) {
+    return ReorderableDragStartListener(
+      key: key,
+      index: index,
+      child: Padding(
+        padding: const EdgeInsets.only(right: 12),
+        child: SizedBox(
+          width: 88,
+          child: Stack(
             children: [
-              Expanded(
+              Container(
+                width: 88,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: CupertinoColors.systemGrey4.resolveFrom(context),
+                  ),
+                ),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text(
-                      record.fileName,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
+                    ClipRRect(
+                      borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(9),
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                      child: Image(
+                        image: ResizeImage(
+                          FileImage(File(imagePath)),
+                          width: 176,
+                          height: 176,
+                        ),
+                        width: 88,
+                        height: 80,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) => Container(
+                          width: 88,
+                          height: 80,
+                          color: CupertinoColors.secondarySystemFill
+                              .resolveFrom(context),
+                          child: const Icon(CupertinoIcons.photo),
+                        ),
+                      ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${record.imageCount} 张图片 • ${ImageToPdfController.formatFileSize(record.fileSize)}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: CupertinoColors.systemGrey,
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Text(
+                        '${index + 1}',
+                        textAlign: TextAlign.center,
+                        style: AppTextStyles.caption(context),
                       ),
                     ),
                   ],
                 ),
               ),
-              // 时间
-              Text(
-                _formatDateTime(record.exportedAt),
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: CupertinoColors.systemGrey,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          // 操作按钮
-          Row(
-            children: [
-              // 查看 PDF 按钮
-              Expanded(
-                child: CupertinoButton(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  onPressed: () async {
-                    final file = File(record.filePath);
-                    if (await file.exists()) {
-                      // 【完善】使用 OpenFilex 打开 PDF 文件
-                      final result = await OpenFilex.open(record.filePath);
-                      if (result.type != ResultType.done) {
-                        if (mounted) {
-                          setState(() {
-                            _statusMessage = '无法打开PDF: ${result.message}';
-                          });
-                        }
-                      }
-                    } else {
-                      if (mounted) {
-                        setState(() {
-                          _statusMessage = 'PDF文件不存在: ${record.filePath}';
-                        });
-                      }
-                    }
-                  },
-                  child: const Text('查看'),
-                ),
-              ),
-              const SizedBox(width: 8),
-
-              // 加入书架按钮
-              if (!record.addedToShelf)
-                Expanded(
-                  child: CupertinoButton(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    onPressed: () async {
-                      // 【完善】打通与 Controller 的调用链
-                      final result = await ImageToPdfController.addExportedPdfToShelf(
-                        record,
-                        (file) async {
-                          // 【已完善】真实的业务入库逻辑：调用 BookshelfService.importPdf()
-                          try {
-                            final bookshelfService = BookshelfService();
-                            await bookshelfService.importPdf(file);
-                            return true;
-                          } catch (e) {
-                            debugPrint('添加到书架失败: $e');
-                            return false;
-                          }
-                        },
-                      );
-
-                      if (mounted && result) {
-                        // 【完善】成功时更新 UI 状态
-                        setState(() {
-                          // 查找并更新对应的导出记录状态
-                          final recordIndex = _exportRecords.indexWhere((r) => r.id == record.id);
-                          if (recordIndex >= 0) {
-                            _exportRecords[recordIndex] = record.copyWith(addedToShelf: true);
-                          }
-                          _statusMessage = '已添加到书架: ${record.fileName}';
-                        });
-                      } else if (mounted) {
-                        setState(() {
-                          _statusMessage = '添加到书架失败';
-                        });
-                      }
-                    },
-                    child: const Text('加入书架'),
-                  ),
-                )
-              else
-                Expanded(
+              // 右上角删除角标
+              Positioned(
+                top: -4,
+                right: -4,
+                child: GestureDetector(
+                  onTap: () => _removeImage(index),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    decoration: BoxDecoration(
-                      color: CupertinoColors.systemGreen.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(4),
+                    padding: const EdgeInsets.all(2),
+                    decoration: const BoxDecoration(
+                      color: CupertinoColors.systemRed,
+                      shape: BoxShape.circle,
                     ),
-                    child: const Text(
-                      '已加入书架',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: CupertinoColors.systemGreen,
-                      ),
+                    child: const Icon(
+                      CupertinoIcons.clear,
+                      size: 14,
+                      color: CupertinoColors.white,
                     ),
                   ),
                 ),
-              const SizedBox(width: 8),
-
-              // 删除按钮
-              CupertinoButton(
-                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                onPressed: () => _onDeleteRecord(record.id),
-                child: const Icon(
-                  CupertinoIcons.trash,
-                  color: CupertinoColors.systemRed,
-                  size: 20,
+              ),
+              // 左下角拖拽指示图标
+              Positioned(
+                left: 2,
+                bottom: 18,
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: CupertinoColors.systemFill
+                        .resolveFrom(context)
+                        .withOpacity(0.7),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Icon(
+                    CupertinoIcons.line_horizontal_3,
+                    size: 14,
+                    color: CupertinoColors.white,
+                  ),
                 ),
               ),
             ],
           ),
-        ],
-      ),
-    );
-  }
-
-  /// 格式化日期时间
-  String _formatDateTime(DateTime dateTime) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final targetDay = DateTime(dateTime.year, dateTime.month, dateTime.day);
-
-    if (targetDay == today) {
-      return '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
-    } else if (targetDay == today.subtract(const Duration(days: 1))) {
-      return '昨天';
-    } else {
-      return '${dateTime.month}月${dateTime.day}日';
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = CupertinoTheme.of(context);
-
-    return CupertinoPageScaffold(
-      navigationBar: CupertinoNavigationBar(
-        leading: CupertinoButton(
-          padding: EdgeInsets.zero,
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Icon(CupertinoIcons.back),
-        ),
-        middle: const Text('图片转PDF'),
-      ),
-      child: SafeArea(
-        child: Column(
-          children: [
-            // Tab 选择器
-            CupertinoSegmentedControl<int>(
-              children: const {
-                0: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16),
-                  child: Text('转换'),
-                ),
-                1: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16),
-                  child: Text('记录'),
-                ),
-              },
-              groupValue: _currentTab,
-              onValueChanged: (value) {
-                setState(() {
-                  _currentTab = value;
-                });
-              },
-            ),
-            const SizedBox(height: 16),
-
-            // 内容区域
-            Expanded(
-              child: _currentTab == 0
-                  ? _buildConversionTab(theme)
-                  : _buildRecordsTab(),
-            ),
-          ],
         ),
       ),
     );
   }
 
-  /// 构建转换 Tab
-  Widget _buildConversionTab(CupertinoThemeData theme) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // 说明文本
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: CupertinoColors.systemGrey6,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              '支持选择多张图片，将按照显示顺序转换为单个PDF文件\n长按图片可删除，拖拽重新排序',
-              style: TextStyle(
-                fontSize: 14,
-                color: CupertinoColors.systemGrey,
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          // 选择图片按钮
-          CupertinoButton.filled(
-            onPressed: _isConverting ? null : _onSelectImagesPressed,
-            child: const Text('选择图片（支持多选）'),
-          ),
-          const SizedBox(height: 16),
-
-          // 图片预览列表
-          if (_selectedImages.isNotEmpty)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '已选择 ${_selectedImages.length} 张图片',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: theme.primaryColor,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  height: 100,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _selectedImages.length,
-                    itemBuilder: (context, index) =>
-                        _buildImagePreviewItem(_selectedImages[index], index),
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
-
-          // 转换为PDF按钮
-          CupertinoButton.filled(
-            onPressed: _isConverting ? null : _onConvertPressed,
-            child: _isConverting
-                ? const SizedBox(
-                    height: 20,
-                    width: 20,
-                    child: CupertinoActivityIndicator(),
-                  )
-                : const Text('转换为PDF'),
-          ),
-          const SizedBox(height: 16),
-
-          // 状态信息显示
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: CupertinoColors.systemGrey6,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              _statusMessage,
-              style: const TextStyle(
-                fontSize: 14,
-                height: 1.5,
-              ),
-              maxLines: 5,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 构建导出记录 Tab
   Widget _buildRecordsTab() {
     if (_exportRecords.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              CupertinoIcons.doc,
-              size: 64,
-              color: CupertinoColors.systemGrey,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              '暂无导出记录',
-              style: TextStyle(
-                fontSize: 16,
-                color: CupertinoColors.systemGrey,
-              ),
-            ),
-          ],
-        ),
+      return ConversionEmptyState(
+        icon: CupertinoIcons.doc_on_doc,
+        message: LocalizationEngine.text('conv_no_record'),
       );
     }
-
-    return ListView(
+    return ListView.builder(
       padding: const EdgeInsets.all(16),
-      children: [
-        Text(
-          '导出历史 (${_exportRecords.length})',
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 12),
-        ..._exportRecords.map((record) => _buildExportRecordItem(record)),
-      ],
+      itemCount: _exportRecords.length,
+      itemBuilder: (context, index) {
+        final record = _exportRecords[index];
+        final countText = LocalizationEngine.text('conv_image_count')
+            .replaceFirst('%d', '${record.imageCount}');
+        return ConversionRecordCard(
+          title: record.fileName,
+          subtitle:
+              '$countText · ${ConversionFormat.fileSize(record.fileSize)}',
+          time: ConversionFormat.dateTime(record.exportedAt),
+          actions: [
+            ConversionRecordActions.primary(
+              context: context,
+              label: LocalizationEngine.text('conv_view'),
+              icon: CupertinoIcons.eye,
+              onPressed: () => openConversionFile(
+                context,
+                record.filePath,
+                onMessage: (m) => setState(() => _statusMessage = m),
+              ),
+            ),
+            ConversionRecordActions.gap,
+            if (record.addedToShelf)
+              ConversionRecordActions.successBadge(
+                context: context,
+                label: LocalizationEngine.text('conv_added_shelf'),
+              )
+            else
+              ConversionRecordActions.primary(
+                context: context,
+                label: LocalizationEngine.text('conv_add_shelf'),
+                icon: CupertinoIcons.book,
+                onPressed: () => _onAddToShelf(record),
+              ),
+            ConversionRecordActions.gap,
+            ConversionRecordActions.danger(
+              context: context,
+              onPressed: () => _onDeleteRecord(record.id),
+            ),
+          ],
+        );
+      },
     );
   }
 }

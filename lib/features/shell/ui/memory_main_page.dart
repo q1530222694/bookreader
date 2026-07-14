@@ -178,6 +178,8 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
           builder: (context) => EpubViewerPage(
             title: book.title,
             filePath: book.path,
+            bookId: book.id,
+            controller: _controller,
           ),
         ),
       );
@@ -206,6 +208,8 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
           builder: (context) => ComicViewerPage(
             title: book.title,
             filePath: book.path,
+            bookId: book.id,
+            controller: _controller,
           ),
         ),
       );

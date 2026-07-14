@@ -7,6 +7,8 @@ import '../../../engine/localization_engine.dart';
 import '../controller/bookshelf_controller.dart';
 import '../model/book_model.dart';
 import '../model/reading_stats_model.dart';
+import '../service/app_stats_service.dart';
+import '../service/reading_session_service.dart';
 import 'book_viewer_page.dart';
 import 'comic_viewer_page.dart';
 import 'epub_viewer_page.dart';
@@ -14,7 +16,7 @@ import 'reading_records_page.dart';
 import 'txt_viewer_page.dart';
 
 /// MemoryPage —— 阅读统计详情页。
-/// 布局严格参照设计稿（周期选择器 → 区间切换 → 四项数据 → 时长趋势 → 热力图 → 类型分布 → 时间分布 → 阅读记录），
+/// 布局严格参照设计稿（周期选择器 → 区间切换 → 四项数据 → 时长趋势 → 热力图 → 时间分布 → 阅读记录），
 /// 所有颜色走主题系统，不硬编码色值；文本全部走 LocalizationEngine。
 class MemoryPage extends StatefulWidget {
   const MemoryPage({super.key});
@@ -23,8 +25,8 @@ class MemoryPage extends StatefulWidget {
   State<MemoryPage> createState() => _MemoryPageState();
 }
 
-/// 统计周期枚举：周 / 月 / 年 / 全部
-enum _StatsPeriod { week, month, year, all }
+/// 统计周期枚举：日 / 周 / 月 / 年 / 全部
+enum _StatsPeriod { day, week, month, year, all }
 
 class _MemoryPageState extends State<MemoryPage> {
   final BookshelfController _controller = BookshelfController();
@@ -41,6 +43,9 @@ class _MemoryPageState extends State<MemoryPage> {
   /// 当前展示的年份（用于「年」视图区间切换）
   int _displayYear;
 
+  /// 当前选中的「日」（用于「日」视图区间切换，归一到零点）
+  DateTime _selectedDay;
+
   /// 时间分布切换索引（0=时段, 1=频率）
   int _timeDistTabIndex = 0;
 
@@ -52,7 +57,9 @@ class _MemoryPageState extends State<MemoryPage> {
         _displayMonth = DateTime(DateTime.now().year, DateTime.now().month),
         _weekAnchor = DateTime.now().subtract(
             Duration(days: DateTime.now().weekday - 1)),
-        _displayYear = DateTime.now().year;
+        _displayYear = DateTime.now().year,
+        _selectedDay = DateTime(
+            DateTime.now().year, DateTime.now().month, DateTime.now().day);
 
   final DateTime _now;
 
@@ -67,6 +74,10 @@ class _MemoryPageState extends State<MemoryPage> {
   /// 根据当前周期与导航状态，返回统计区间的起止时间（左闭右开）。
   ({DateTime start, DateTime end}) _rangeBounds(ReadingStats stats) {
     switch (_period) {
+      case _StatsPeriod.day:
+        final start =
+            DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day);
+        return (start: start, end: start.add(const Duration(days: 1)));
       case _StatsPeriod.week:
         final start =
             DateTime(_weekAnchor.year, _weekAnchor.month, _weekAnchor.day);
@@ -94,9 +105,24 @@ class _MemoryPageState extends State<MemoryPage> {
   }
 
   /// 返回当前区间内的趋势数据点（按周期自适应粒度）：
-  /// 周/月 → 按天；年/全部 → 按月聚合。
+  /// 日 → 按小时（0~23 时）；周/月 → 按天；年/全部 → 按月聚合。
   List<MapEntry<DateTime, int>> _trendEntries(ReadingStats stats) {
     final (:start, :end) = _rangeBounds(stats);
+
+    if (_period == _StatsPeriod.day) {
+      // 日视图：以选中日的 24 个小时为横轴，每点 = 该小时阅读分钟数
+      final dayKey =
+          DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day);
+      final hourly = stats.dailyHourlyMinutes[dayKey] ?? List.filled(24, 0);
+      final list = <MapEntry<DateTime, int>>[];
+      for (var h = 0; h < 24; h++) {
+        list.add(MapEntry(
+          DateTime(dayKey.year, dayKey.month, dayKey.day, h),
+          hourly[h],
+        ));
+      }
+      return list;
+    }
 
     if (_period == _StatsPeriod.week || _period == _StatsPeriod.month) {
       final map = stats.dailyMinutes.entries
@@ -222,6 +248,10 @@ class _MemoryPageState extends State<MemoryPage> {
 
                   // ③ 四项数据卡片（时长 / 书籍 / 页数 / 笔记）
                   _buildFourStatCards(theme, books, stats),
+                  const SizedBox(height: 12),
+
+                  // ③-b 追加两项统计框：软件打开次数 / 累计阅读天数（布局与上方一致）
+                  _buildExtraStatCards(theme, stats),
                   const SizedBox(height: 16),
 
                   // ④ 阅读时长趋势（条形 / 折线 可切换）
@@ -232,15 +262,11 @@ class _MemoryPageState extends State<MemoryPage> {
                   _buildHeatmapSection(theme, stats),
                   const SizedBox(height: 16),
 
-                  // ⑥ 阅读类型分布（甜甜圈图）
-                  _buildTypeDistribution(theme, books),
-                  const SizedBox(height: 16),
-
-                  // ⑦ 阅读时间分布（时段 / 频率 切换，均来自真实数据）
+                  // ⑥ 阅读时间分布（时段 / 频率 切换，均来自真实数据）
                   _buildTimeDistribution(theme, stats),
                   const SizedBox(height: 16),
 
-                  // ⑧ 阅读记录（按当前周期筛选：看完了 / 在读 两组）
+                  // ⑦ 阅读记录（按当前周期筛选：看完了 / 在读 两组）
                   _buildMonthlyRecords(theme, books, stats),
                 ],
               ),
@@ -257,6 +283,7 @@ class _MemoryPageState extends State<MemoryPage> {
 
   Widget _buildPeriodTabs(CupertinoThemeData theme) {
     final tabs = [
+      LocalizationEngine.text('stats_tab_day'), // 日
       LocalizationEngine.text('stats_tab_week'), // 周
       LocalizationEngine.text('stats_tab_month'), // 月
       LocalizationEngine.text('stats_tab_year'), // 年
@@ -308,6 +335,15 @@ class _MemoryPageState extends State<MemoryPage> {
     late final VoidCallback onNext;
 
     switch (_period) {
+      case _StatsPeriod.day:
+        final start =
+            DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day);
+        label = '${start.month}/${start.day}';
+        onPrev = () => setState(
+            () => _selectedDay = _selectedDay.subtract(const Duration(days: 1)));
+        onNext = () =>
+            setState(() => _selectedDay = _selectedDay.add(const Duration(days: 1)));
+        break;
       case _StatsPeriod.week:
         final start =
             DateTime(_weekAnchor.year, _weekAnchor.month, _weekAnchor.day);
@@ -422,6 +458,36 @@ class _MemoryPageState extends State<MemoryPage> {
     );
   }
 
+  /// ③-b 追加的两项统计框：软件打开次数（全局）、累计阅读天数（当前区间）。
+  /// 复用 _MetricTile 与上方四项保持完全相同的卡片样式。
+  Widget _buildExtraStatCards(CupertinoThemeData theme, ReadingStats stats) {
+    final (:start, :end) = _rangeBounds(stats);
+    // 软件打开次数：按当前统计区间统计（与阅读统计口径一致），而非全局累计
+    final openCount = AppStatsService.getAppLaunchCountInRange(start, end);
+    final readingDays = stats.activeDaysInRange(start, end); // 当前区间内阅读天数
+
+    final items = <_MetricCard>[
+      _MetricCard(
+        icon: CupertinoIcons.app_badge,
+        value: '$openCount',
+        label: LocalizationEngine.text('app_open_count_label'),
+      ),
+      _MetricCard(
+        icon: CupertinoIcons.calendar,
+        value: '$readingDays',
+        label: LocalizationEngine.text('cumulative_reading_days_label'),
+      ),
+    ];
+
+    return Row(
+      children: items.map((item) {
+        return Expanded(
+          child: _MetricTile(theme: theme, item: item),
+        );
+      }).toList(),
+    );
+  }
+
   // ══════════════════════════════════════════════════
   // ④ 阅读时长趋势（标题 + 区间时长 + 条形/折线切换 + 图表）
   // ══════════════════════════════════════════════════
@@ -431,6 +497,11 @@ class _MemoryPageState extends State<MemoryPage> {
     final (:start, :end) = _rangeBounds(stats);
     final hours = (stats.minutesBetween(start, end) / 60).round();
     final entries = _trendEntries(stats);
+
+    // 「日」视图下横轴为小时，使用小时标签；其余周期沿用「月/日」标签。
+    final xLabelBuilder = _period == _StatsPeriod.day
+        ? (DateTime d) => '${d.hour}'
+        : null;
 
     // 自动计算纵坐标：区间内单点最大阅读量 ≤ 3 小时时按「分钟」刻度，
     // 否则按「小时」；纵坐标上限取整为易读的「漂亮数」（1/2/2.5/5 × 10ⁿ），
@@ -510,6 +581,7 @@ class _MemoryPageState extends State<MemoryPage> {
                         axisMax: axisMax,
                         unit: unit,
                         unitLabel: unitLabel,
+                        xLabelBuilder: xLabelBuilder,
                       )
                     : _TrendLineChart(
                         entries: entries,
@@ -517,6 +589,7 @@ class _MemoryPageState extends State<MemoryPage> {
                         axisMax: axisMax,
                         unit: unit,
                         unitLabel: unitLabel,
+                        xLabelBuilder: xLabelBuilder,
                       ),
           ),
         ],
@@ -568,6 +641,8 @@ class _MemoryPageState extends State<MemoryPage> {
   /// 返回当前周期的短标签文本（如"本月阅读"/"本周阅读"/"今年阅读"/"全部"）。
   String _periodLabelShort() {
     switch (_period) {
+      case _StatsPeriod.day:
+        return LocalizationEngine.text('today_reading_label');
       case _StatsPeriod.week:
         return LocalizationEngine.text('this_week_reading');
       case _StatsPeriod.month:
@@ -589,6 +664,12 @@ class _MemoryPageState extends State<MemoryPage> {
     late final Widget grid;
 
     switch (_period) {
+      case _StatsPeriod.day:
+        final dayKey =
+            DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day);
+        headerLabel = '${dayKey.month}/${dayKey.day}';
+        grid = _buildDayHeatGrid(theme, stats, dayKey);
+        break;
       case _StatsPeriod.week:
         final (:start, :end) = _rangeBounds(stats);
         final last = end.subtract(const Duration(days: 1));
@@ -651,11 +732,20 @@ class _MemoryPageState extends State<MemoryPage> {
           ),
           const SizedBox(height: 10),
           grid,
-          // 周/月为四象限日历热力图，补充「每格 4 块=4 个 6 小时段」说明；年/全部(贡献图)不显示
+          // 周/月为四象限日历热力图，补充说明；「日」视图说明每小时切 4 格；年/全部(贡献图)不显示
           if (_period == _StatsPeriod.week || _period == _StatsPeriod.month) ...[
             const SizedBox(height: 8),
             Text(
               LocalizationEngine.text('heatmap_block_hint'),
+              style: TextStyle(
+                fontSize: 11,
+                color: CupertinoColors.tertiaryLabel.resolveFrom(context),
+              ),
+            ),
+          ] else if (_period == _StatsPeriod.day) ...[
+            const SizedBox(height: 8),
+            Text(
+              LocalizationEngine.text('heatmap_day_block_hint'),
               style: TextStyle(
                 fontSize: 11,
                 color: CupertinoColors.tertiaryLabel.resolveFrom(context),
@@ -959,158 +1049,107 @@ class _MemoryPageState extends State<MemoryPage> {
     );
   }
 
-  // ══════════════════════════════════════════════════
-  // ⑥ 阅读类型分布（甜甜圈图 + 图例）
-  // ══════════════════════════════════════════════════
-
-  Widget _buildTypeDistribution(
+  /// 日热力图：将选中的一天按「15 分钟段」展开为紧凑小方格网格，风格与周视图一致。
+  /// 4 行 = 4 个「6 小时段」（0-6 / 6-12 / 12-18 / 18-24）；每行 6 个小时，
+  /// 每个小时再切成 4 个小方格（每格 = 1 个 15 分钟段），共 4×6×4 = 96 格。
+  /// 小方格内不显示数字，颜色深浅对应该 15 分钟段的阅读分钟数。
+  Widget _buildDayHeatGrid(
     CupertinoThemeData theme,
-    List<BookModel> books,
+    ReadingStats stats,
+    DateTime day,
   ) {
-    final primary = theme.primaryColor;
+    final ctx = context;
+    final quarters = stats.dailyQuarterMinutes[day] ?? List.filled(96, 0);
 
-    // 根据书名关键词推导分类占比（无真实分类字段时的合理估算）
-    final totalCount = books.length > 0 ? books.length : 1;
-    final techRatio = (books.where((b) =>
-                b.title.contains('Flutter') ||
-                b.title.contains('Dart') ||
-                b.title.contains('编程') ||
-                b.title.contains('技术'))
-            .length /
-            totalCount)
-        .clamp(0.25, 0.55);
-    final novelRatio = (books.where((b) =>
-                b.title.contains('三体') ||
-                b.title.contains('小说') ||
-                b.title.contains('文学'))
-            .length /
-            totalCount)
-        .clamp(0.08, 0.20);
-    final otherRatio = 0.10;
-    final thoughtRatio = 1.0 - techRatio - novelRatio - otherRatio;
+    const bands = ['0-6', '6-12', '12-18', '18-24']; // 4 个时段行标签
+    const subGap = 2.0;
 
-    final segments = <_DonutSegment>[
-      _DonutSegment(
-        label: LocalizationEngine.text('type_tech'),
-        percent: techRatio,
-        color: primary,
-      ),
-      _DonutSegment(
-        label: LocalizationEngine.text('type_thought'),
-        percent: thoughtRatio,
-        color: primary.withValues(alpha: 0.65),
-      ),
-      _DonutSegment(
-        label: LocalizationEngine.text('type_novel'),
-        percent: novelRatio,
-        color: primary.withValues(alpha: 0.38),
-      ),
-      _DonutSegment(
-        label: LocalizationEngine.text('type_other'),
-        percent: otherRatio,
-        color: primary.withValues(alpha: 0.20),
-      ),
-    ];
-
-    final centerText = '$totalCount${LocalizationEngine.text('books_short')}';
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: CupertinoColors.secondarySystemBackground.resolveFrom(context),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: CupertinoColors.systemGrey.withValues(alpha: 0.06),
-            blurRadius: 18,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            LocalizationEngine.text('detail_type_distribution'),
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-              color: CupertinoColors.label.resolveFrom(context),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              // 甜甜圈图
-              SizedBox(
-                width: 110,
-                height: 110,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    CustomPaint(
-                      size: const Size(110, 110),
-                      painter: _DonutPainter(segments: segments),
-                    ),
-                    Text(
-                      centerText,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                        color: CupertinoColors.label.resolveFrom(context),
-                      ),
-                    ),
-                  ],
+    // 单个 15 分钟段小方格（无数字，纯色块，颜色深浅表示该段阅读量）
+    Widget _quarterCell(int quarterIndex) {
+      final m = quarters[quarterIndex];
+      return Expanded(
+        child: Padding(
+          padding: const EdgeInsets.only(right: subGap / 2),
+          child: AspectRatio(
+            aspectRatio: 1, // 紧凑正方形，与周视图小方格一致
+            child: Container(
+              decoration: BoxDecoration(
+                color: _quarterColor(m, theme, ctx),
+                borderRadius: BorderRadius.circular(2),
+                border: Border.all(
+                  color: CupertinoColors.separator
+                      .resolveFrom(ctx)
+                      .withValues(alpha: 0.35),
+                  width: 0.5,
                 ),
               ),
-              const SizedBox(width: 16),
-              // 图例列表
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children: List.generate(4, (band) {
+        final startHour = band * 6;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: subGap * 1.5),
+          child: Row(
+            children: [
+              // 时段标签（左侧）
+              SizedBox(
+                width: 44,
+                child: Text(
+                  '${bands[band]}${LocalizationEngine.text('hour_unit')}',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: CupertinoColors.tertiaryLabel.resolveFrom(ctx),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              // 6 个小时 × 每列 4 个 15 分钟段小方格
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: segments.map((s) {
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 9,
-                            height: 9,
-                            decoration: BoxDecoration(
-                              color: s.color,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              s.label,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: CupertinoColors.label.resolveFrom(context),
-                              ),
-                            ),
-                          ),
-                          Text(
-                            '${(s.percent * 100).round()}%',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: primary,
-                            ),
-                          ),
-                        ],
+                child: Row(
+                  children: List.generate(6, (col) {
+                    final hour = startHour + col;
+                    return Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(right: col < 5 ? subGap : 0),
+                        child: Row(
+                          children: List.generate(4, (q) {
+                            final quarterIndex = hour * 4 + q;
+                            return _quarterCell(quarterIndex);
+                          }),
+                        ),
                       ),
                     );
-                  }).toList(),
+                  }),
                 ),
               ),
             ],
           ),
-        ],
-      ),
+        );
+      }),
     );
   }
+
+  /// 根据单个「15 分钟段」的阅读分钟数返回对应颜色（主题主色派生，不写死十六进制）。
+  /// 阈值按 15 分钟段设定：无数据=极浅灰；其余按 0.20/0.40/0.65/主色 四档。
+  Color _quarterColor(
+    int minutes,
+    CupertinoThemeData theme,
+    BuildContext ctx,
+  ) {
+    if (minutes <= 0) {
+      return CupertinoColors.systemGrey5.resolveFrom(ctx); // 无数据：浅灰底
+    }
+    if (minutes < 4) return theme.primaryColor.withValues(alpha: 0.20); // Level 1
+    if (minutes < 8) return theme.primaryColor.withValues(alpha: 0.40); // Level 2
+    if (minutes < 12) return theme.primaryColor.withValues(alpha: 0.65); // Level 3
+    return theme.primaryColor; // Level 4+：主色最深
+  }
+
 
   // ══════════════════════════════════════════════════
   // ⑦ 阅读时间分布（时段 / 频率 切换，均来自真实数据）
@@ -1118,7 +1157,19 @@ class _MemoryPageState extends State<MemoryPage> {
 
   Widget _buildTimeDistribution(CupertinoThemeData theme, ReadingStats stats) {
     final primary = theme.primaryColor;
-    final h = stats.hourlyMinutes;
+
+    // 时段分布所用的「小时→分钟」映射：
+    // 非「日」视图用全局小时分布；「日」视图用选中当天按小时的明细，
+    // 使下方「时间分布」区块与当天数据保持一致（与周视图布局相同）。
+    final Map<int, int> h;
+    if (_period == _StatsPeriod.day) {
+      final dayKey =
+          DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day);
+      final list = stats.dailyHourlyMinutes[dayKey] ?? List.filled(24, 0);
+      h = {for (var i = 0; i < 24; i++) i: list[i]};
+    } else {
+      h = stats.hourlyMinutes;
+    }
 
     // 按时段聚合真实小时分布（4 个「6 小时段」，与热力图口径完全一致）：
     // 白天 6-11 / 午后 12-17 / 晚上 18-23 / 深夜 0-5
@@ -1318,7 +1369,7 @@ class _MemoryPageState extends State<MemoryPage> {
     List<BookModel> books,
     ReadingStats stats,
   ) {
-    // 按当前周期（周/月/年/全部）筛选：仅保留「最后阅读时间」落在选中区间内的书籍。
+    // 按当前周期筛选区间
     final (:start, :end) = _rangeBounds(stats);
     bool inRange(BookModel b) {
       final lr = b.lastReadAt;
@@ -1326,24 +1377,53 @@ class _MemoryPageState extends State<MemoryPage> {
       return !lr.isBefore(start) && lr.isBefore(end);
     }
 
-    // 看完了：进度达到 100%，且在当前周期内阅读过。
+    // 反查表：bookId -> BookModel，用于将会话映射到书名/封面
+    final bookMap = <String, BookModel>{for (final b in books) b.id: b};
+
+    // 区间内的阅读会话（会话级数据：几点开始、读了多久、是否读完）
+    final sessions = ReadingSessionService.sessionsInRange(start, end);
+    final sessionRows = sessions.take(5).map((s) {
+      final book = bookMap[s.bookId];
+      return _SessionRow(
+        theme: theme,
+        book: book,
+        session: s,
+        onTap: () => _openBook(book),
+      );
+    }).toList();
+
+    // 读完了：进度 100% 且区间内阅读过；累计这些书的阅读总时长
     final finished = books
         .where((b) => b.progress >= 1.0 && inRange(b))
         .toList()
       ..sort((a, b) =>
           (b.lastReadAt ?? DateTime(2000)).compareTo(a.lastReadAt ?? DateTime(2000)));
-    // 在读：有阅读行为但未读完，且在当前周期内阅读过。
-    final reading = books
-        .where((b) =>
-            (b.progress > 0 || b.readingDurationSeconds > 0) &&
-            b.progress < 1.0 &&
-            inRange(b))
-        .toList()
-      ..sort((a, b) =>
-          (b.lastReadAt ?? DateTime(2000)).compareTo(a.lastReadAt ?? DateTime(2000)));
+    final finishedSeconds =
+        finished.fold<int>(0, (sum, b) => sum + b.readingDurationSeconds);
 
     final children = <Widget>[];
+    // 概览：阅读次数 / 读完本数 / 读完耗时
+    children.add(_buildRecordSummary(theme, sessions.length, finished.length, finishedSeconds));
+    children.add(const SizedBox(height: 14));
+    // 阅读明细（会话列表）
+    children.add(_recordSectionHeader(LocalizationEngine.text('records_detail')));
+    if (sessionRows.isEmpty) {
+      children.add(Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Text(
+          LocalizationEngine.text('records_detail_empty'),
+          style: TextStyle(
+            fontSize: 13,
+            color: CupertinoColors.secondaryLabel.resolveFrom(context),
+          ),
+        ),
+      ));
+    } else {
+      children.addAll(sessionRows);
+    }
+    // 读完了
     if (finished.isNotEmpty) {
+      children.add(const SizedBox(height: 14));
       children.add(_recordSectionHeader(
           '${LocalizationEngine.text('records_finished')} (${finished.length})'));
       children.addAll(finished.take(3).map((book) => _RecordCard(
@@ -1351,32 +1431,6 @@ class _MemoryPageState extends State<MemoryPage> {
             book: book,
             onTap: () => _openBook(book),
           )));
-    }
-    if (reading.isNotEmpty) {
-      if (finished.isNotEmpty) children.add(const SizedBox(height: 14));
-      children.add(_recordSectionHeader(
-          '${LocalizationEngine.text('records_reading')} (${reading.length})'));
-      children.addAll(reading.take(3).map((book) => _RecordCard(
-            theme: theme,
-            book: book,
-            onTap: () => _openBook(book),
-          )));
-    }
-    if (finished.isEmpty && reading.isEmpty) {
-      children.add(
-        Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 20),
-            child: Text(
-              LocalizationEngine.text('forgotten_empty'),
-              style: TextStyle(
-                fontSize: 13,
-                color: CupertinoColors.secondaryLabel.resolveFrom(context),
-              ),
-            ),
-          ),
-        ),
-      );
     }
 
     return Container(
@@ -1432,6 +1486,74 @@ class _MemoryPageState extends State<MemoryPage> {
     );
   }
 
+  /// 阅读记录概览：阅读次数 / 读完本数 / 读完耗时 三块统计。
+  Widget _buildRecordSummary(
+    CupertinoThemeData theme,
+    int sessionCount,
+    int finishedCount,
+    int finishedSeconds,
+  ) {
+    return Row(
+      children: [
+        Expanded(
+          child: _RecordStatTile(
+            value: '$sessionCount',
+            label: LocalizationEngine.text('records_session_count'),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _RecordStatTile(
+            value: '$finishedCount',
+            label: LocalizationEngine.text('records_finished_count'),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _RecordStatTile(
+            value: formatSessionDuration(finishedSeconds),
+            label: LocalizationEngine.text('records_finished_time'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 阅读记录概览单块统计（数值 + 标签）。
+  Widget _RecordStatTile({
+    required String value,
+    required String label,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: BoxDecoration(
+        color: CupertinoColors.tertiarySystemFill.resolveFrom(context),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: CupertinoColors.label.resolveFrom(context),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: CupertinoColors.secondaryLabel.resolveFrom(context),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+
   /// 阅读记录分组的子标题（如「看完了 (3)」）。
   Widget _recordSectionHeader(String label) {
     return Padding(
@@ -1465,6 +1587,8 @@ class _MemoryPageState extends State<MemoryPage> {
         builder: (_) => EpubViewerPage(
           title: book.title,
           filePath: book.path,
+          bookId: book.id,
+          controller: _controller,
         ),
       ));
     } else if (path.endsWith('.txt')) {
@@ -1485,6 +1609,8 @@ class _MemoryPageState extends State<MemoryPage> {
         builder: (_) => ComicViewerPage(
           title: book.title,
           filePath: book.path,
+          bookId: book.id,
+          controller: _controller,
         ),
       ));
     }
@@ -1590,6 +1716,7 @@ class _TrendBarChart extends StatelessWidget {
   final double axisMax; // 纵坐标上限（以 unit 为单位）
   final double unit; // 每分钟对应的刻度单位：1=分钟，60=小时
   final String unitLabel; // 纵坐标单位文案（分/时）
+  final String? Function(DateTime)? xLabelBuilder; // 横轴标签自定义（日视图按小时）
 
   const _TrendBarChart({
     super.key,
@@ -1598,6 +1725,7 @@ class _TrendBarChart extends StatelessWidget {
     required this.axisMax,
     required this.unit,
     required this.unitLabel,
+    this.xLabelBuilder,
   });
 
   @override
@@ -1610,6 +1738,7 @@ class _TrendBarChart extends StatelessWidget {
         axisMax: axisMax,
         unit: unit,
         unitLabel: unitLabel,
+        xLabelBuilder: xLabelBuilder,
       ),
     );
   }
@@ -1621,6 +1750,7 @@ class _TrendPainter extends CustomPainter {
   final double axisMax;
   final double unit;
   final String unitLabel;
+  final String? Function(DateTime)? xLabelBuilder;
 
   _TrendPainter({
     required this.entries,
@@ -1628,6 +1758,7 @@ class _TrendPainter extends CustomPainter {
     required this.axisMax,
     required this.unit,
     required this.unitLabel,
+    this.xLabelBuilder,
   });
 
   @override
@@ -1694,7 +1825,8 @@ class _TrendPainter extends CustomPainter {
     for (var i = 0; i < entries.length; i += step) {
       final x = gap + i * (barW + gap) + barW / 2;
       final d = entries[i].key;
-      final label = '${d.month}/${d.day}';
+      final label =
+          xLabelBuilder != null ? xLabelBuilder!(d) : '${d.month}/${d.day}';
       textPainter.text = TextSpan(
         text: label,
         style: const TextStyle(fontSize: 9, color: CupertinoColors.systemGrey),
@@ -1718,6 +1850,7 @@ class _TrendLineChart extends StatelessWidget {
   final double axisMax; // 纵坐标上限（以 unit 为单位）
   final double unit; // 每分钟对应的刻度单位：1=分钟，60=小时
   final String unitLabel; // 纵坐标单位文案（分/时）
+  final String? Function(DateTime)? xLabelBuilder; // 横轴标签自定义（日视图按小时）
 
   const _TrendLineChart({
     super.key,
@@ -1726,6 +1859,7 @@ class _TrendLineChart extends StatelessWidget {
     required this.axisMax,
     required this.unit,
     required this.unitLabel,
+    this.xLabelBuilder,
   });
 
   @override
@@ -1738,6 +1872,7 @@ class _TrendLineChart extends StatelessWidget {
         axisMax: axisMax,
         unit: unit,
         unitLabel: unitLabel,
+        xLabelBuilder: xLabelBuilder,
       ),
     );
   }
@@ -1749,6 +1884,7 @@ class _TrendLinePainter extends CustomPainter {
   final double axisMax;
   final double unit;
   final String unitLabel;
+  final String? Function(DateTime)? xLabelBuilder;
 
   _TrendLinePainter({
     required this.entries,
@@ -1756,6 +1892,7 @@ class _TrendLinePainter extends CustomPainter {
     required this.axisMax,
     required this.unit,
     required this.unitLabel,
+    this.xLabelBuilder,
   });
 
   @override
@@ -1831,13 +1968,15 @@ class _TrendLinePainter extends CustomPainter {
       canvas.drawCircle(p, 2.5, Paint()..color = accentColor);
     }
 
-    // X轴日期标签
+    // X轴标签
     final step = n > 15 ? (n ~/ 15).clamp(3, 7) : 1;
     for (var i = 0; i < n; i += step) {
       final x = n > 1 ? x0 + i * stepX : x0;
       final d = entries[i].key;
+      final label =
+          xLabelBuilder != null ? xLabelBuilder!(d) : '${d.month}/${d.day}';
       textPainter.text = TextSpan(
-        text: '${d.month}/${d.day}',
+        text: label,
         style: const TextStyle(fontSize: 9, color: CupertinoColors.systemGrey),
       );
       textPainter.layout(minWidth: 0, maxWidth: 36);
@@ -1864,52 +2003,6 @@ class _DayCell {
   }) : blockMinutes = blockMinutes ?? [0, 0, 0, 0];
 }
 
-/// 类型分布甜甜圈扇区
-class _DonutSegment {
-  final String label;
-  final double percent;
-  final Color color;
-
-  _DonutSegment({
-    required this.label,
-    required this.percent,
-    required this.color,
-  });
-}
-
-/// 甜甜圈画笔
-class _DonutPainter extends CustomPainter {
-  final List<_DonutSegment> segments;
-
-  _DonutPainter({required this.segments});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    const outerR = 48.0;
-    const innerR = 34.0; // 环宽
-
-    var startAngle = -math.pi / 2;
-    for (final seg in segments) {
-      final sweep = seg.percent * 2 * math.pi;
-      canvas.drawArc(
-        Rect.fromCircle(center: center, radius: outerR),
-        startAngle,
-        sweep,
-        false,
-        Paint()
-          ..color = seg.color
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = outerR - innerR
-          ..strokeCap = StrokeCap.butt,
-      );
-      startAngle += sweep;
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
 
 /// 时间分布环形扇区
 class _RingSegment {
@@ -2078,6 +2171,96 @@ class _RecordCard extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 单次阅读会话行：封面 + 书名 + 「HH:MM 开始 · 读了 Y 分钟」。
+/// 用于「阅读记录」的阅读明细：每次打开阅读器即产生一条会话记录。
+class _SessionRow extends StatelessWidget {
+  final CupertinoThemeData theme;
+  final BookModel? book;
+  final ReadingSession session;
+  final VoidCallback onTap;
+
+  const _SessionRow({
+    required this.theme,
+    required this.book,
+    required this.session,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cover = book?.coverBytes;
+    final title = book?.title ?? LocalizationEngine.text('unknown_book');
+    // 副标题：开始时间 + 本次阅读时长（均走本地化）
+    final timeText =
+        '${formatSessionTime(session.startedAt)}${LocalizationEngine.text('session_start_suffix')} · ${LocalizationEngine.text('session_read_prefix')}${formatSessionDuration(session.durationSeconds)}';
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Row(
+          children: [
+            // 封面缩略图（无书籍时显示占位图标）
+            Container(
+              width: 44,
+              height: 58,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(6),
+                color: CupertinoColors.systemGrey5,
+              ),
+              child: cover != null
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: Image.memory(cover, fit: BoxFit.cover),
+                    )
+                  : const Icon(
+                      CupertinoIcons.book,
+                      size: 20,
+                      color: CupertinoColors.systemGrey,
+                    ),
+            ),
+            const SizedBox(width: 10),
+            // 书名 + 开始时间 / 时长
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: CupertinoColors.label.resolveFrom(context),
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    timeText,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 6),
+            Icon(
+              CupertinoIcons.chevron_right,
+              size: 15,
+              color: CupertinoColors.tertiaryLabel.resolveFrom(context),
             ),
           ],
         ),

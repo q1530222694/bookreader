@@ -48,4 +48,12 @@ class AppTextStyles {
           color: CupertinoColors.label.resolveFrom(context),
         );
   }
+
+  /// caption 说明/时间等更小的辅助文字（12 号，三级标签色）。
+  static TextStyle caption(BuildContext context) {
+    return CupertinoTheme.of(context).textTheme.textStyle.copyWith(
+          fontSize: 12,
+          color: CupertinoColors.tertiaryLabel.resolveFrom(context),
+        );
+  }
 }

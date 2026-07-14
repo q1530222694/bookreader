@@ -100,4 +100,9 @@ class DocToPdfController {
       filePath: filePath,
     );
   }
+
+  /// 删除转换记录及其文件（按时间戳唯一标识）
+  static Future<bool> deleteExportRecord(int timestamp) async {
+    return DocToPdfService.deleteExportRecord(timestamp);
+  }
 }

@@ -74,12 +74,78 @@ class ImageToPdfService {
     }
   }
 
-  /// 根据图片尺寸智能选择PDF页面格式
-  /// 若图片宽度大于高度，使用横向；否则使用纵向
+  /// 根据图片原始尺寸计算 PDF 页面尺寸，使每页与图片同比例、铺满且不变形。
+  ///
+  /// [imageBytes] 图片二进制；支持 PNG / JPEG 解析宽高，其它格式按 A4 兜底。
   static pdf.PdfPageFormat _getPageFormatFromImage(Uint8List imageBytes) {
-    // 简单起见，这里使用通用的A4格式
-    // 实际项目中可以解析图片meta数据获取真实尺寸
-    return pdf.PdfPageFormat.a4;
+    final size = _imageSize(imageBytes);
+    if (size == null) return pdf.PdfPageFormat.a4;
+
+    final double w = size.$1.toDouble();
+    final double h = size.$2.toDouble();
+    if (w <= 0 || h <= 0) return pdf.PdfPageFormat.a4;
+
+    // 限制最大边为 2000pt，避免超大像素导致 PDF 页面尺寸离谱
+    final double maxSide = w >= h ? w : h;
+    final double scale = maxSide > 2000 ? 2000 / maxSide : 1.0;
+    return pdf.PdfPageFormat(w * scale, h * scale);
+  }
+
+  /// 读取图片像素尺寸（PNG / JPEG），失败返回 null。
+  static (int, int)? _imageSize(Uint8List bytes) {
+    try {
+      if (bytes.length > 8 &&
+          bytes[0] == 0x89 &&
+          bytes[1] == 0x50 &&
+          bytes[2] == 0x4E &&
+          bytes[3] == 0x47) {
+        // PNG：IHDR 在偏移 16 起，宽 4 字节、高 4 字节（大端）
+        final w = _readUint32BE(bytes, 16);
+        final h = _readUint32BE(bytes, 20);
+        return (w, h);
+      }
+      if (bytes.length > 3 && bytes[0] == 0xFF && bytes[1] == 0xD8) {
+        // JPEG：扫描 SOF 标记获取尺寸
+        int i = 2;
+        while (i < bytes.length - 9) {
+          if (bytes[i] != 0xFF) {
+            i++;
+            continue;
+          }
+          final marker = bytes[i + 1];
+          // SOF0..SOF15（排除 C4/C8/CC 等保留标记）
+          if (marker >= 0xC0 &&
+              marker <= 0xCF &&
+              marker != 0xC4 &&
+              marker != 0xC8 &&
+              marker != 0xCC) {
+            final h = _readUint16BE(bytes, i + 5);
+            final w = _readUint16BE(bytes, i + 7);
+            return (w, h);
+          }
+          // 段长度
+          final len = _readUint16BE(bytes, i + 2);
+          if (len <= 0) break;
+          i += 2 + len;
+        }
+      }
+    } catch (_) {
+      // 解析失败忽略，返回 null 由调用方兜底
+    }
+    return null;
+  }
+
+  /// 大端读取 32 位无符号整数。
+  static int _readUint32BE(Uint8List b, int offset) {
+    return (b[offset] << 24) |
+        (b[offset + 1] << 16) |
+        (b[offset + 2] << 8) |
+        b[offset + 3];
+  }
+
+  /// 大端读取 16 位无符号整数。
+  static int _readUint16BE(Uint8List b, int offset) {
+    return (b[offset] << 8) | b[offset + 1];
   }
 
   /// 获取PDF输出目录路径
@@ -247,11 +313,13 @@ Future<Map<String, dynamic>> generatePdfAndSave(Map<String, dynamic> args) async
       final imageBytes = await imageFile.readAsBytes();
       final image = pw.MemoryImage(imageBytes);
 
+      // 页面尺寸与图片同比例，图片铺满且不变形
+      final pageFormat = ImageToPdfService._getPageFormatFromImage(imageBytes);
       pdfDoc.addPage(
         pw.Page(
-          pageFormat: pdf.PdfPageFormat.a4,
+          pageFormat: pageFormat,
           build: (context) {
-            return pw.Image(image);
+            return pw.Image(image, fit: pw.BoxFit.fill);
           },
         ),
       );

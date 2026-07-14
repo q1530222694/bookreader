@@ -2,6 +2,12 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Flutter: Run App (Standard)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart"
+    },
+    {
       "name": "Flutter: Run Desktop (Offline)",
       "request": "launch",
       "type": "dart",
@@ -9,12 +15,6 @@
       "toolArgs": ["--no-pub"],
       "preLaunchTask": "Flutter Pub Get Offline",
       "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Flutter: Run App (Standard)",
-      "request": "launch",
-      "type": "dart",
-      "program": "lib/main.dart"
     },
     {
       "name": "Flutter: Run Tests",

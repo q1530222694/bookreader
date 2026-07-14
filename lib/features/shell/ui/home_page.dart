@@ -8,7 +8,6 @@ import '../controller/bookshelf_controller.dart';
 import '../controller/settings_controller.dart';
 import '../model/book_model.dart';
 import '../model/reading_stats_model.dart';
-import '../model/daily_sentence_model.dart';
 import '../service/app_stats_service.dart';
 import '../service/daily_sentence_service.dart';
 import 'book_viewer_page.dart';
@@ -39,10 +38,25 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     _ownsController = widget.controller == null;
     _controller = widget.controller ?? BookshelfController();
+    // 每日一句：初始化展示内容，并监听开关 / 自定义列表变化以重新同步
+    DailySentenceService.initDisplaySentence();
+    DailySentenceService.loadSentences().then((_) {
+      if (mounted) DailySentenceService.syncDisplaySentence();
+    });
+    SettingsController.dailySentenceUseBuiltin.addListener(_onDailySourceChanged);
+    DailySentenceService.sentencesNotifier.addListener(_onDailySourceChanged);
+  }
+
+  /// 开关或自定义列表变化时，重新同步每日一句展示内容。
+  void _onDailySourceChanged() {
+    DailySentenceService.syncDisplaySentence();
   }
 
   @override
   void dispose() {
+    SettingsController.dailySentenceUseBuiltin
+        .removeListener(_onDailySourceChanged);
+    DailySentenceService.sentencesNotifier.removeListener(_onDailySourceChanged);
     if (_ownsController) {
       _controller.dispose();
     }
@@ -68,7 +82,7 @@ class _HomePageState extends State<HomePage> {
 
     if (path.endsWith('.epub')) {
       Navigator.of(context).push(
-        CupertinoPageRoute(builder: (_) => EpubViewerPage(title: book.title, filePath: book.path)),
+        CupertinoPageRoute(builder: (_) => EpubViewerPage(title: book.title, filePath: book.path, bookId: book.id, controller: _controller)),
       );
       return;
     }
@@ -89,7 +103,7 @@ class _HomePageState extends State<HomePage> {
 
     if (path.endsWith('.cbz') || path.endsWith('.cbr') || path.endsWith('.cb7') || path.endsWith('.cbt') || path.endsWith('.zip')) {
       Navigator.of(context).push(
-        CupertinoPageRoute(builder: (_) => ComicViewerPage(title: book.title, filePath: book.path)),
+        CupertinoPageRoute(builder: (_) => ComicViewerPage(title: book.title, filePath: book.path, bookId: book.id, controller: _controller)),
       );
       return;
     }
@@ -495,7 +509,6 @@ class _HomePageState extends State<HomePage> {
                             context,
                             _formatReadingDuration(stats.monthMinutes, language),
                             LocalizationEngine.text('monthly_reading'),
-                            accentColor: const Color(0xFF2F80ED),
                           ),
                         ),
                       ),
@@ -506,7 +519,6 @@ class _HomePageState extends State<HomePage> {
                             context,
                             _formatReadingDuration(stats.yearMinutes, language),
                             LocalizationEngine.text('yearly_reading'),
-                            accentColor: const Color(0xFF27AE60),
                           ),
                         ),
                       ),
@@ -517,7 +529,6 @@ class _HomePageState extends State<HomePage> {
                             context,
                             _formatReadingDays(stats.activeDays, language),
                             LocalizationEngine.text('cumulative_reading'),
-                            accentColor: const Color(0xFFE67E22),
                           ),
                         ),
                       ),
@@ -532,7 +543,6 @@ class _HomePageState extends State<HomePage> {
                                 context,
                                 displayValue,
                                 launchCountLabel,
-                                accentColor: const Color(0xFF9B51E0),
                               );
                             },
                           ),
@@ -549,13 +559,13 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // 辅助方法：构建单个统计卡片
-  Widget _buildStatCard(BuildContext context, String value, String label, {required Color accentColor}) {
+  // 辅助方法：构建单个统计卡片（与主页「阅读统计」大卡片一致的白底无边框 + 柔和阴影格式）
+  Widget _buildStatCard(BuildContext context, String value, String label) {
     final theme = CupertinoTheme.of(context);
     final parts = value.split(' ');
     final primaryText = parts.isNotEmpty ? parts.first : value;
     final secondaryText = parts.length > 1 ? value.substring(value.indexOf(' ')).trim() : '';
-    final cardColor = CupertinoColors.secondarySystemBackground.resolveFrom(context);
+    final cardColor = theme.scaffoldBackgroundColor;
 
     return Container(
       width: double.infinity,
@@ -565,9 +575,8 @@ class _HomePageState extends State<HomePage> {
       decoration: BoxDecoration(
         color: cardColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: CupertinoColors.separator.resolveFrom(context).withOpacity(0.7)),
         boxShadow: [
-          BoxShadow(color: CupertinoColors.systemGrey.withOpacity(0.06), blurRadius: 8, offset: const Offset(0, 3)),
+          BoxShadow(color: CupertinoColors.systemGrey.withOpacity(0.06), blurRadius: 12, offset: const Offset(0, 6)),
         ],
       ),
       child: Row(
@@ -730,36 +739,56 @@ class _HomePageState extends State<HomePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            LocalizationEngine.text('daily_sentence'),
-            style: theme.textTheme.textStyle.copyWith(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: CupertinoColors.label.resolveFrom(context),
-            ),
+          // 标题行：标题 + 刷新按钮（与主页阅读统计卡片风格一致）
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Text(
+                  LocalizationEngine.text('daily_sentence'),
+                  style: theme.textTheme.textStyle.copyWith(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: CupertinoColors.label.resolveFrom(context),
+                  ),
+                ),
+              ),
+              CupertinoButton(
+                padding: const EdgeInsets.all(6),
+                minSize: 36,
+                onPressed: () => DailySentenceService.refreshDisplaySentence(),
+                child: Icon(
+                  CupertinoIcons.refresh,
+                  size: 18,
+                  color: theme.primaryColor,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
+          // 内容框：白底无边框 + 柔和阴影（与阅读统计卡片格式一致）
           Container(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
             constraints: const BoxConstraints(minHeight: 70, maxHeight: 88),
             decoration: BoxDecoration(
               color: theme.scaffoldBackgroundColor,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: CupertinoColors.separator.resolveFrom(context)),
               boxShadow: [
-                BoxShadow(color: CupertinoColors.systemGrey.withOpacity(0.04), blurRadius: 6, offset: const Offset(0, 3)),
+                BoxShadow(color: CupertinoColors.systemGrey.withOpacity(0.06), blurRadius: 12, offset: const Offset(0, 6)),
               ],
             ),
-            child: ValueListenableBuilder<List<DailySentenceModel>>(
-              valueListenable: DailySentenceService.sentencesNotifier,
-              builder: (context, sentences, child) {
-                final latest = sentences.isNotEmpty ? sentences.last.content : '知识改变命运，阅读点亮人生。';
+            child: ValueListenableBuilder<String>(
+              valueListenable: DailySentenceService.displaySentenceNotifier,
+              builder: (context, displayText, child) {
+                final text = displayText.isEmpty
+                    ? LocalizationEngine.text('daily_sentence_empty_custom')
+                    : displayText;
                 return Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
                       child: Text(
-                        latest,
+                        text,
                         style: theme.textTheme.textStyle.copyWith(
                           fontSize: 13,
                           height: 1.5,

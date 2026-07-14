@@ -233,6 +233,8 @@ class _ForgottenBooksPageState extends State<ForgottenBooksPage> {
           builder: (context) => EpubViewerPage(
             title: book.title,
             filePath: book.path,
+            bookId: book.id,
+            controller: _controller,
           ),
         ),
       );
@@ -261,6 +263,8 @@ class _ForgottenBooksPageState extends State<ForgottenBooksPage> {
           builder: (context) => ComicViewerPage(
             title: book.title,
             filePath: book.path,
+            bookId: book.id,
+            controller: _controller,
           ),
         ),
       );

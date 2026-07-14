@@ -470,7 +470,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (path.endsWith('.epub')) {
       Navigator.push(
         context,
-        CupertinoPageRoute(builder: (context) => EpubViewerPage(title: book.title, filePath: book.path)),
+        CupertinoPageRoute(builder: (context) => EpubViewerPage(title: book.title, filePath: book.path, bookId: book.id, controller: _controller)),
       );
       return;
     }
@@ -495,7 +495,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (path.endsWith('.cbz') || path.endsWith('.cbr') || path.endsWith('.cb7') || path.endsWith('.cbt') || path.endsWith('.zip')) {
       Navigator.push(
         context,
-        CupertinoPageRoute(builder: (context) => ComicViewerPage(title: book.title, filePath: book.path)),
+        CupertinoPageRoute(builder: (context) => ComicViewerPage(title: book.title, filePath: book.path, bookId: book.id, controller: _controller)),
       );
       return;
     }

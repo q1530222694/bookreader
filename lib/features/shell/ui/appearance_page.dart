@@ -1,9 +1,13 @@
 import 'package:flutter/cupertino.dart';
 
 import '../../../engine/localization_engine.dart';
+import '../../../engine/permission_engine.dart';
 import '../../../engine/settings_engine.dart';
 import '../../../shared/ui/app_text_styles.dart';
 import '../controller/settings_controller.dart';
+import '../model/custom_theme_color_model.dart';
+import '../../membership/ui/membership_page.dart';
+import 'custom_color_picker_sheet.dart';
 import 'splash_settings_page.dart';
 
 /// AppearancePage 提供应用外观模式与主题配色设置。
@@ -11,24 +15,6 @@ import 'splash_settings_page.dart';
 /// 该页面遵循项目全局 Theme 引擎与语义化样式要求，避免使用弹窗式选择。
 class AppearancePage extends StatelessWidget {
   const AppearancePage({super.key});
-
-  Color _resolveThemeColor(BuildContext context, String themeColor) {
-    switch (themeColor) {
-      case SettingsEngine.themeColorGreen:
-        return CupertinoColors.activeGreen;
-      case SettingsEngine.themeColorPink:
-        return CupertinoColors.systemPink;
-      case SettingsEngine.themeColorOrange:
-        return CupertinoColors.systemOrange;
-      case SettingsEngine.themeColorPurple:
-        return CupertinoColors.systemIndigo;
-      case SettingsEngine.themeColorRed:
-        return CupertinoColors.systemRed;
-      case SettingsEngine.themeColorBlue:
-      default:
-        return CupertinoColors.activeBlue;
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -96,42 +82,54 @@ class AppearancePage extends StatelessWidget {
             ValueListenableBuilder<String>(
               valueListenable: SettingsController.themeColor,
               builder: (context, themeColor, child) {
-                final primaryColor = _resolveThemeColor(context, themeColor);
-                final colorKeys = [
-                  SettingsEngine.themeColorBlue,
-                  SettingsEngine.themeColorGreen,
-                  SettingsEngine.themeColorPink,
-                  SettingsEngine.themeColorOrange,
-                  SettingsEngine.themeColorPurple,
-                  SettingsEngine.themeColorRed,
-                ];
+                return ValueListenableBuilder<String?>(
+                  valueListenable: SettingsController.activeCustomColorId,
+                  builder: (context, activeId, _) {
+                    final colorKeys = [
+                      SettingsEngine.themeColorBlue,
+                      SettingsEngine.themeColorGreen,
+                      SettingsEngine.themeColorPink,
+                      SettingsEngine.themeColorOrange,
+                      SettingsEngine.themeColorPurple,
+                      SettingsEngine.themeColorRed,
+                    ];
 
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: colorKeys.map((colorKey) {
-                        final color = _resolveThemeColor(context, colorKey);
-                        final selected = themeColor == colorKey;
-                        return Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                            child: _ThemeColorTile(
-                              color: color,
-                              label: LocalizationEngine.text('theme_color_$colorKey'),
-                              selected: selected,
-                              onTap: () => SettingsController.setThemeColor(colorKey),
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      LocalizationEngine.text('theme_color_description'),
-                      style: AppTextStyles.secondary(context),
-                    ),
-                  ],
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: colorKeys.map((colorKey) {
+                            final color =
+                                SettingsController.resolveThemeColor(colorKey);
+                            final selected =
+                                activeId == null && themeColor == colorKey;
+                            return Expanded(
+                              child: Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 4),
+                                child: _ThemeColorTile(
+                                  color: color,
+                                  label: LocalizationEngine.text(
+                                      'theme_color_$colorKey'),
+                                  selected: selected,
+                                  onTap: () =>
+                                      SettingsController.setPresetColor(colorKey),
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          LocalizationEngine.text('theme_color_description'),
+                          style: AppTextStyles.secondary(context),
+                        ),
+                        const SizedBox(height: 24),
+                        // 自定义配色区：会员功能，受 PermissionEngine 统一管控。
+                        const _CustomColorSection(),
+                      ],
+                    );
+                  },
                 );
               },
             ),
@@ -349,6 +347,297 @@ class _ThemeColorTile extends StatelessWidget {
               style: AppTextStyles.secondary(context).copyWith(fontSize: 12),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// _CustomColorSection 承载「应用外观」页的自定义配色能力（会员功能）：
+/// 自定义配色网格大小一致、每行最多 7 个、放不下自动换行，末尾一个同尺寸的
+/// 「添加」框。自定义配色支持点按应用、长按编辑/删除，并受会员权限控制。
+class _CustomColorSection extends StatelessWidget {
+  const _CustomColorSection();
+
+  /// 自定义配色是否可用（由权限引擎统一判定，符合服务端驱动权限铁律）。
+  bool get _canCustomize => PermissionEngine.hasPermission('theme.customColor');
+
+  /// 跳转会员页（未开通会员时，锁定入口引导至此）。
+  void _goMembership(BuildContext context) {
+    Navigator.of(context).push(
+      CupertinoPageRoute(builder: (context) => const MembershipPage()),
+    );
+  }
+
+  /// 打开取色弹层：existing 为空表示新增，否则为编辑已有配色。
+  Future<void> _openPicker(BuildContext context,
+      {CustomThemeColor? existing}) async {
+    final initialColor =
+        existing?.color ?? CupertinoTheme.of(context).primaryColor;
+    await showCustomColorPicker(
+      context: context,
+      initialColor: initialColor,
+      initialName: existing?.name,
+      onConfirm: (color, name) async {
+        if (existing != null) {
+          await SettingsController.updateCustomColor(
+            existing.id,
+            color,
+            name: name.isEmpty ? null : name,
+          );
+        } else {
+          await SettingsController.addCustomColor(
+            color,
+            name: name.isEmpty ? null : name,
+          );
+        }
+      },
+    );
+  }
+
+  /// 长按自定义色块：弹出编辑 / 删除操作表。
+  void _showEditActionSheet(BuildContext context, CustomThemeColor item) {
+    showCupertinoModalPopup<void>(
+      context: context,
+      builder: (sheetContext) {
+        return CupertinoActionSheet(
+          title: Text(
+            item.name?.isNotEmpty == true
+                ? item.name!
+                : LocalizationEngine.text('custom_theme_color'),
+          ),
+          actions: [
+            CupertinoActionSheetAction(
+              onPressed: () {
+                Navigator.of(sheetContext).pop();
+                _openPicker(context, existing: item);
+              },
+              child: Text(LocalizationEngine.text('edit')),
+            ),
+            CupertinoActionSheetAction(
+              isDestructiveAction: true,
+              onPressed: () {
+                Navigator.of(sheetContext).pop();
+                _confirmDelete(context, item);
+              },
+              child: Text(LocalizationEngine.text('custom_color_delete')),
+            ),
+          ],
+          cancelButton: CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(sheetContext).pop(),
+            child: Text(LocalizationEngine.text('cancel')),
+          ),
+        );
+      },
+    );
+  }
+
+  /// 删除二次确认弹窗。
+  void _confirmDelete(BuildContext context, CustomThemeColor item) {
+    showCupertinoDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return CupertinoAlertDialog(
+          title: Text(LocalizationEngine.text('custom_color_delete')),
+          content: Text(LocalizationEngine.text('custom_color_delete_confirm')),
+          actions: [
+            CupertinoDialogAction(
+              isDestructiveAction: true,
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                SettingsController.deleteCustomColor(item.id);
+              },
+              child: Text(LocalizationEngine.text('custom_color_delete')),
+            ),
+            CupertinoDialogAction(
+              child: Text(LocalizationEngine.text('cancel')),
+              onPressed: () => Navigator.of(dialogContext).pop(),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          LocalizationEngine.text('custom_theme_color'),
+          style: AppTextStyles.sectionTitle(context),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          LocalizationEngine.text('custom_color_section_hint'),
+          style: AppTextStyles.secondary(context),
+        ),
+        const SizedBox(height: 12),
+        // 自定义配色网格：大小一致、每行最多 7 个、放不下换行。
+        ValueListenableBuilder<List<CustomThemeColor>>(
+          valueListenable: SettingsController.customColors,
+          builder: (context, colors, _) {
+            return ValueListenableBuilder<String?>(
+              valueListenable: SettingsController.activeCustomColorId,
+              builder: (context, activeId, _) {
+                return LayoutBuilder(
+                  builder: (context, constraints) {
+                    const spacing = 12.0;
+                    const countPerRow = 7;
+                    final itemWidth =
+                        (constraints.maxWidth - spacing * (countPerRow - 1)) /
+                            countPerRow;
+
+                    final children = <Widget>[
+                      for (final item in colors)
+                        _CustomColorSwatch(
+                          item: item,
+                          selected: activeId == item.id,
+                          canCustomize: _canCustomize,
+                          onTap: () =>
+                              SettingsController.applyCustomColorById(item.id),
+                          onLongPress: () {
+                            if (_canCustomize) {
+                              _showEditActionSheet(context, item);
+                            } else {
+                              _goMembership(context);
+                            }
+                          },
+                        ),
+                      _CustomColorAddTile(
+                        canCustomize: _canCustomize,
+                        onTap: () {
+                          if (_canCustomize) {
+                            _openPicker(context);
+                          } else {
+                            _goMembership(context);
+                          }
+                        },
+                      ),
+                    ];
+
+                    return Wrap(
+                      spacing: spacing,
+                      runSpacing: spacing,
+                      children: children
+                          .map(
+                            (w) => SizedBox(
+                              width: itemWidth,
+                              height: itemWidth,
+                              child: w,
+                            ),
+                          )
+                          .toList(),
+                    );
+                  },
+                );
+              },
+            );
+          },
+        ),
+        if (!_canCustomize)
+          Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: Text(
+              LocalizationEngine.text('custom_color_membership_hint'),
+              style: AppTextStyles.secondary(context),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// _CustomColorSwatch 单个自定义色块（正方形，与添加框同尺寸）。
+class _CustomColorSwatch extends StatelessWidget {
+  final CustomThemeColor item;
+  final bool selected;
+  final bool canCustomize;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  const _CustomColorSwatch({
+    required this.item,
+    required this.selected,
+    required this.canCustomize,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  /// 依据底色亮度选择对比较好的前景色（白色 / 黑色）用于选中勾。
+  Color _contrastColor(Color bg) {
+    final luminance = 0.299 * bg.r + 0.587 * bg.g + 0.114 * bg.b;
+    return luminance > 0.6 ? CupertinoColors.black : CupertinoColors.white;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final borderColor = selected
+        ? CupertinoTheme.of(context).primaryColor
+        : CupertinoColors.separator.resolveFrom(context);
+
+    return GestureDetector(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      child: Stack(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: item.color,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: borderColor,
+                width: selected ? 3 : 1,
+              ),
+            ),
+          ),
+          if (selected)
+            Positioned(
+              top: 4,
+              right: 4,
+              child: Icon(
+                CupertinoIcons.check_mark_circled_solid,
+                color: _contrastColor(item.color),
+                size: 18,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// _CustomColorAddTile 末尾的「添加」框，与色块同尺寸、同形状。
+class _CustomColorAddTile extends StatelessWidget {
+  final bool canCustomize;
+  final VoidCallback onTap;
+
+  const _CustomColorAddTile({
+    required this.canCustomize,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final borderColor = CupertinoColors.separator.resolveFrom(context);
+    final primaryColor = CupertinoTheme.of(context).primaryColor;
+    final secondaryColor = CupertinoColors.secondaryLabel.resolveFrom(context);
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: CupertinoColors.tertiarySystemFill.resolveFrom(context),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: borderColor),
+        ),
+        child: Center(
+          child: Icon(
+            canCustomize ? CupertinoIcons.add : CupertinoIcons.lock_fill,
+            color: canCustomize ? primaryColor : secondaryColor,
+            size: 24,
+          ),
         ),
       ),
     );

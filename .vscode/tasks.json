@@ -4,7 +4,7 @@
     {
       "label": "Flutter Pub Get Offline",
       "type": "shell",
-      "command": "/Users/wzh/IOS-APP/flutter/bin/flutter",
+      "command": "flutter",
       "args": ["pub", "get", "--offline"],
       "problemMatcher": [],
       "group": {
@@ -24,7 +24,7 @@
     {
       "label": "Flutter Run macOS",
       "type": "shell",
-      "command": "/Users/wzh/IOS-APP/flutter/bin/flutter",
+      "command": "flutter",
       "args": ["run", "-d", "macos", "--no-pub", "-t", "lib/main.dart", "--machine"],
       "problemMatcher": [],
       "presentation": {
@@ -34,11 +34,7 @@
         "panel": "shared"
       },
       "options": {
-        "cwd": "${workspaceFolder}",
-        "env": {
-          "FLUTTER_ROOT": "/Users/wzh/IOS-APP/flutter",
-          "PATH": "/Users/wzh/IOS-APP/flutter/bin:${env:PATH}"
-        }
+        "cwd": "${workspaceFolder}"
       }
     }
   ]
