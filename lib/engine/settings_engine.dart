@@ -37,6 +37,25 @@ class SettingsEngine {
   static const String readerBackgroundColorKey = 'app.readerBackgroundColor';
   static const Color readerBackgroundColorDefault = Color(0xFFF7F3EC);
 
+  // PDF 阅读器专属视觉设置（布局 / 自动裁切 / 背景调节）
+  // 布局模式：0=单页 1=双页 2=单页连续 3=双页连续
+  static const String readerLayoutModeKey = 'app.reader.pdf.layoutMode';
+  static const int readerLayoutModeDefault = 0;
+  // 自动裁切：去除页面四周空白边距
+  static const String pdfAutoCropKey = 'app.reader.pdf.autoCrop';
+  static const bool pdfAutoCropDefault = false;
+  // 背景调节：亮度 / 对比度 / 饱和度 / 去色 / 去杂色
+  static const String pdfBgBrightnessKey = 'app.reader.pdf.bg.brightness';
+  static const double pdfBgBrightnessDefault = 1.0;
+  static const String pdfBgContrastKey = 'app.reader.pdf.bg.contrast';
+  static const double pdfBgContrastDefault = 1.0;
+  static const String pdfBgSaturationKey = 'app.reader.pdf.bg.saturation';
+  static const double pdfBgSaturationDefault = 1.0;
+  static const String pdfBgRemoveColorKey = 'app.reader.pdf.bg.removeColor';
+  static const bool pdfBgRemoveColorDefault = false;
+  static const String pdfBgDenoiseKey = 'app.reader.pdf.bg.denoise';
+  static const bool pdfBgDenoiseDefault = false;
+
   // Startup page settings
   static const String startupPageKey = 'app.startupPage';
   static const String startupPageNone = 'none';
@@ -103,6 +122,65 @@ class SettingsEngine {
 
   static void setReaderBackgroundColor(Color color) {
     Config.set(readerBackgroundColorKey, color);
+  }
+
+  // PDF 阅读器视觉设置存取
+  static int get readerLayoutMode {
+    return Config.get(readerLayoutModeKey) as int? ?? readerLayoutModeDefault;
+  }
+
+  static void setReaderLayoutMode(int value) {
+    Config.set(readerLayoutModeKey, value);
+  }
+
+  static bool get pdfAutoCrop {
+    return Config.get(pdfAutoCropKey) as bool? ?? pdfAutoCropDefault;
+  }
+
+  static void setPdfAutoCrop(bool value) {
+    Config.set(pdfAutoCropKey, value);
+  }
+
+  static double get pdfBgBrightness {
+    return Config.get(pdfBgBrightnessKey) as double? ?? pdfBgBrightnessDefault;
+  }
+
+  static void setPdfBgBrightness(double value) {
+    Config.set(pdfBgBrightnessKey, value);
+  }
+
+  static double get pdfBgContrast {
+    return Config.get(pdfBgContrastKey) as double? ?? pdfBgContrastDefault;
+  }
+
+  static void setPdfBgContrast(double value) {
+    Config.set(pdfBgContrastKey, value);
+  }
+
+  static double get pdfBgSaturation {
+    return Config.get(pdfBgSaturationKey) as double? ??
+        pdfBgSaturationDefault;
+  }
+
+  static void setPdfBgSaturation(double value) {
+    Config.set(pdfBgSaturationKey, value);
+  }
+
+  static bool get pdfBgRemoveColor {
+    return Config.get(pdfBgRemoveColorKey) as bool? ??
+        pdfBgRemoveColorDefault;
+  }
+
+  static void setPdfBgRemoveColor(bool value) {
+    Config.set(pdfBgRemoveColorKey, value);
+  }
+
+  static bool get pdfBgDenoise {
+    return Config.get(pdfBgDenoiseKey) as bool? ?? pdfBgDenoiseDefault;
+  }
+
+  static void setPdfBgDenoise(bool value) {
+    Config.set(pdfBgDenoiseKey, value);
   }
 
   // Startup page

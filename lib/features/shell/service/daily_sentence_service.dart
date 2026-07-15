@@ -19,6 +19,9 @@ class DailySentenceService {
   static final ValueNotifier<String> displaySentenceNotifier =
       ValueNotifier<String>('');
 
+  /// 自增盐值，用于保证同一次运行中批量新增的句子 id 唯一（避免同一微秒内的碰撞）。
+  static int _idSalt = 0;
+
   /// 按开关与来源选取要展示的每日一句。
   /// [useBuiltin] 为 true 时从内置池选取；false 时仅从用户自定义列表选取。
   /// [refresh] 为 true 时强制随机换一句（尽量与 [current] 不同）；否则按日期稳定返回。
@@ -109,8 +112,39 @@ class DailySentenceService {
   Future<void> addSentence(DailySentenceModel sentence) async {
     final current = List<DailySentenceModel>.from(sentencesNotifier.value)
       ..add(sentence);
+    // 先更新内存列表，保证 UI 立即反映（即使落盘失败也不影响界面）
     sentencesNotifier.value = current;
-    await _saveSentences(current);
+    try {
+      await _saveSentences(current);
+    } catch (e) {
+      debugPrint('保存每日一句失败: $e');
+    }
+  }
+
+  /// 批量新增每日一句：将多行文本逐条拆分为独立句子并一次性落盘。
+  /// [contents] 为原始文本行（可含空行），内部会自动去除首尾空白并过滤空行。
+  /// 每条句子生成唯一 id（微秒时间戳 + 自增盐值），避免同一微秒内的 id 碰撞。
+  static Future<int> addSentencesBatch(List<String> contents) async {
+    final trimmed =
+        contents.map((c) => c.trim()).where((c) => c.isNotEmpty).toList();
+    if (trimmed.isEmpty) return 0;
+
+    final current = List<DailySentenceModel>.from(sentencesNotifier.value);
+    for (final content in trimmed) {
+      _idSalt++;
+      current.add(DailySentenceModel(
+        id: '${DateTime.now().microsecondsSinceEpoch}_$_idSalt',
+        content: content,
+      ));
+    }
+    // 先更新内存列表，保证 UI 立即反映新增（即使落盘失败也不影响界面）
+    sentencesNotifier.value = current;
+    try {
+      await _saveSentences(current);
+    } catch (e) {
+      debugPrint('批量保存每日一句失败: $e');
+    }
+    return trimmed.length;
   }
 
   /// Update an existing daily sentence and persist the updated list.
@@ -123,15 +157,24 @@ class DailySentenceService {
 
     current[index] = sentence;
     sentencesNotifier.value = current;
-    await _saveSentences(current);
+    try {
+      await _saveSentences(current);
+    } catch (e) {
+      debugPrint('更新每日一句失败: $e');
+    }
   }
 
   /// Delete a daily sentence by id and persist the updated list.
   static Future<void> deleteSentence(String id) async {
     final current = List<DailySentenceModel>.from(sentencesNotifier.value)
       ..removeWhere((item) => item.id == id);
+    // 先更新内存列表，保证 UI 立即反映删除（即使落盘失败也不影响界面）
     sentencesNotifier.value = current;
-    await _saveSentences(current);
+    try {
+      await _saveSentences(current);
+    } catch (e) {
+      debugPrint('删除每日一句失败: $e');
+    }
   }
 
   /// Reorder sentences by moving item at [oldIndex] to [newIndex].

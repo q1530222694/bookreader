@@ -29,6 +29,21 @@ class DailySentenceController {
     errorText.value = null;
   }
 
+  /// 批量新增每日一句：按行拆分、过滤空行后逐条落盘。
+  /// 返回实际新增的条数（0 表示内容为空，未新增）。
+  Future<int> addSentencesBatch(List<String> contents) async {
+    final trimmed =
+        contents.map((c) => c.trim()).where((c) => c.isNotEmpty).toList();
+    if (trimmed.isEmpty) {
+      errorText.value = '内容不能为空';
+      return 0;
+    }
+
+    final count = await DailySentenceService.addSentencesBatch(trimmed);
+    errorText.value = null;
+    return count;
+  }
+
   /// Update an existing daily sentence entry.
   Future<void> updateSentence(String id, String content) async {
     if (content.trim().isEmpty) {

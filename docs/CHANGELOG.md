@@ -1004,3 +1004,83 @@
 
 **【依赖方向合规】**
 - 仅 UI 承载位置调整，底层 `settings_controller` / `custom_theme_color_service` / `permission_engine` 等不变；UI 仍仅监听 notifier、不直接写持久化；颜色/文案/字号仍走主题与 `LocalizationEngine`，未触碰 `packages/`，未引入硬编码。
+
+### [2026-07-14] 修改：应用外观页「自定义配色」与「主题预设配色」显示格式统一
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/appearance_page.dart` (应用外观页)
+  └─ **新增统一组件** `_ColorTile`：主题预设色与自定义配色共用同一 Widget，保证「框 (`secondarySystemBackground` + 圆角 16 + 选中主色描边)／28px 圆点展示配色／命名显示在下方 (`AppTextStyles.secondary` fontSize 12)／尺寸一致」四处完全对齐
+  └─ **移除** `_ThemeColorTile` / `_CustomColorSwatch` / `_CustomColorAddTile`（三者在 `_ColorTile` 中归并；`_CustomColorSwatch._contrastColor` 一并删除）
+  └─ 预设色行：仍由 `SettingsController.setPresetColor` + `resolveThemeColor` 驱动，调用方由 `_ThemeColorTile` 改为 `_ColorTile`
+  └─ 自定义网格：由 7 列改为 **6 列、间距 8**，与预设行 6 列 Expanded 单格等宽；自定义色由「整块铺满 + 内部勾选」改为「框 + 圆点 + 命名」，与预设格式一致；末尾「添加」占位同样用 `_ColorTile`（图标替代圆点、标注 `custom_color_add`）
+  └─ 依赖 ➔ `settings_controller.dart`(`setPresetColor`/`applyCustomColorById`/`addCustomColor`/`updateCustomColor`/`deleteCustomColor`/`customColors`/`activeCustomColorId`) / `permission_engine.dart`(`hasPermission('theme.customColor')`) / `localization_engine.dart`(新增 `custom_color_add`) / `app_text_styles.dart` / `custom_color_picker_sheet.dart` / `membership_page.dart`
+- `lib/engine/localization_engine.dart` (本地化引擎)
+  └─ **新增键** `custom_color_add`(添加配色 / Add Color)，zh/en 双语；供外观页「添加」占位 `_ColorTile` 的命名展示
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增 Permission / Config Key（沿用 `theme.customColor` 校验方式不变）
+- 行为未变：自定义配色仍为会员功能预留（默认开放），点按应用 / 长按编辑 / 删除 / 添加框锁形跳转会员页等交互全部保留，仅视觉格式与主题预设色统一
+
+**【依赖方向合规】**
+- 仅 UI 组件合并与视觉对齐，底层 `settings_controller` / `custom_theme_color_service` / `permission_engine` 等不变；UI 仍仅监听 notifier、不直接写持久化；颜色/文案/字号仍走主题与 `LocalizationEngine`，未触碰 `packages/`，未引入硬编码。
+
+### [2026-07-14] 修复：删除自定义每日一句崩溃 + 新增批量增加（回车分割）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/daily_sentence_service.dart` (每日一句持久化服务)
+  └─ 新增/修改 ➔ `addSentencesBatch(List<String>)` (静态：按行拆分、过滤空行、微秒时间戳+自增盐值生成唯一 id、一次性落盘、返回新增条数)
+  └─ 修改 ➔ `deleteSentence` / `addSentence` / `addSentencesBatch` / `updateSentence` 统一改为「先更新内存 `sentencesNotifier` 再 `_saveSentences` 落盘 + try/catch」，落盘异常仅 `debugPrint` 不再抛出
+  └─ 被消费 ➔ `lib/features/shell/controller/daily_sentence_controller.dart` (`addSentencesBatch`)
+  └─ 被消费 ➔ `lib/features/shell/ui/daily_sentence_edit_page.dart` (新增模式批量新增)
+  └─ 被消费 ➔ `lib/features/shell/ui/home_page.dart` (`_quickAddDailySentence` 批量新增)
+- `lib/features/shell/ui/daily_sentence_page.dart` (每日一句列表页)
+  └─ 修改 ➔ `ReorderableListView.builder` 移除 `shrinkWrap:true`（修复删除项导致列表收缩时 `SliverReorderableList` 断言崩溃；对照 `image_to_pdf_page.dart` 不带 `shrinkWrap` 可正常删除）；`_confirmDelete` 删除回调包 `try/catch`
+- `lib/features/shell/ui/daily_sentence_edit_page.dart` (新增/编辑页)
+  └─ 修改 ➔ 新增模式按 `RegExp(r'[\r\n]+')` 拆分文本框为多行，过滤空行后调用 `addSentencesBatch`（一行一个每日一句）；文本框下方展示 `batch_add_hint` 本地化提示；内容为空弹 `CupertinoAlertDialog` 提示
+- `lib/engine/localization_engine.dart`
+  └─ 新增键 ➔ `batch_add_hint` (支持批量添加：每行一句，按回车换行可一次添加多条)
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增 Config Key / 无新增 Permission Key
+- 行为说明：删除不再崩溃（先更新内存列表再落盘，落盘异常不再向上抛出导致红屏）；批量增加支持回车/换行分隔的多行文本，自动过滤空行并逐条生成唯一 id 落盘
+
+### [2026-07-14] 修复（续）：删除自定义每日一句仍崩溃 —— 改用原生 ListView 彻底解决
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/daily_sentence_page.dart` (每日一句列表页)
+  └─ **根因修正**：上一处「移除 `shrinkWrap:true`」未能彻底修复，删除仍崩溃。真正根因是纯 Cupertino（`CupertinoApp` 根）工程中使用 Material 的 `ReorderableListView`，删除项导致 `itemCount` 变小时 `SliverReorderableList` 在重建帧断言崩溃（Flutter 已知问题）。
+  └─ **彻底修复**：弃用 `ReorderableListView.builder`，改用 Cupertino 原生 `ListView.builder` 渲染列表；同步移除外层 `Localizations(delegates:[DefaultMaterialLocalizations.delegate, ...])` 包裹层与 `ReorderableDragStartListener` 拖拽手柄，`import 'package:flutter/material.dart'` 不再被本文件引用。删除 / 编辑重建均稳定。
+  └─ 排序能力保留：每条右侧「···」菜单的「上移 / 下移」仍调用 `DailySentenceService.reorderSentence`（底层不变），功能不丢；底部提示文案由「长按可拖动排序」改为「点击『···』可上移 / 下移排序」（`long_press_reorder` 键 zh 文案更新）。
+  └─ `_confirmDelete` 删除回调仍包 `try/catch`，与 service 层「先更新 notifier 再落盘 + try/catch」形成双重防御。
+- `lib/engine/localization_engine.dart`
+  └─ 修改键 ➔ `long_press_reorder` (zh: '长按可拖动排序' → '点击「···」可上移 / 下移排序')
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增 Config Key / 无新增 Permission Key
+- 行为说明：删除自定义每日一句不再触发框架断言崩溃；列表渲染层由 Material `ReorderableListView` 改为 Cupertino 原生 `ListView`，更贴合纯 Cupertino 工程，无任何 Material 依赖残留。
+
+### [2026-07-14] 新增/修改：PDF 阅读器视觉增强（布局模式 / 自动裁切 / 背景调节）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/model/pdf_reader_settings.dart` (PDF 视觉设置不可变模型，聚合布局/裁切/亮度/对比度/饱和度/去色/去杂色)
+  └─ 被注入 ➔ `pdf_render_service.dart` / `pdf_reader_view.dart` / `book_viewer_page.dart`
+- `lib/features/shell/service/pdf_render_service.dart` (PDF 渲染服务·纯逻辑)
+  └─ 依赖 ➔ `package:pdfx`（PdfDocument/原生裁切）、`dart:ui`（decodeImageFromList 回调式/ImageFilter/ImageByteFormat）、`pdf_reader_settings.dart`
+  └─ 被注入 ➔ `pdf_page_tile.dart`（渲染字节 + ColorFilter 矩阵合成 + 自动裁切内容包围盒检测）
+- `lib/features/shell/ui/pdf_page_tile.dart` (单页渲染瓦片·Dumb UI)
+  └─ 依赖 ➔ `pdf_render_service.dart` / `pdf_reader_settings.dart` / `package:pdfx`（PhotoView 由 pdfx 再导出）
+  └─ 被注入 ➔ `pdf_reader_view.dart`
+- `lib/features/shell/ui/pdf_reader_view.dart` (多布局阅读视图·Dumb UI)
+  └─ 依赖 ➔ `pdf_reader_settings.dart` / `pdf_page_tile.dart` / `package:pdfx`
+  └─ 被注入 ➔ `book_viewer_page.dart`（替换旧 PdfView，提供单页/双页/单页连续/双页连续 4 布局）
+- `lib/features/shell/ui/book_viewer_page.dart` (PDF 阅读器)
+  └─ 变更 ➔ 用 `PdfReaderView` 替换 `PdfView`；新增 PDF 视觉状态自 `SettingsEngine` 初始化、经设置页回调上浮并落库 `SettingsController`；进度同步改由 `PdfReaderView.onCurrentPageChanged` 驱动。
+- `lib/features/shell/ui/reader_settings_sheet.dart` (阅读设置抽屉)
+  └─ 变更 ➔ 「翻页方式」由「更多」移入「外观」置于亮度下方；「外观」新增「布局」模式；设置面板限高屏幕 3/4 且可滚动；「更多」新增「自动裁切」开关与「背景调节」分区（对比度/饱和度/去除颜色/智能去杂色）；新增 `_SwitchRow`/`_SliderRow`/`_sectionTitle` 构件。新增构造参数带默认值兼容 txt 阅读器。
+- `lib/engine/settings_engine.dart` (设置引擎)
+  └─ 新增 ➔ 7 个 Config Key：`readerLayoutMode` / `pdfAutoCrop` / `pdfBgBrightness` / `pdfBgContrast` / `pdfBgSaturation` / `pdfBgRemoveColor` / `pdfBgDenoise` 及 getter/setter。
+- `lib/features/shell/controller/settings_controller.dart` (设置控制器)
+  └─ 新增 ➔ 7 个 `ValueNotifier` 与 `setXxx`（readerLayoutMode / pdfAutoCrop / pdfBg*），UI 仅监听 notifier 不直接写持久化。
+- `lib/engine/localization_engine.dart` (本地化引擎)
+  └─ 新增 ➔ 13 个双语键：`reader_layout`(+4 布局子项) / `pdf_auto_crop`(+desc) / `pdf_bg_adjust` / `pdf_bg_contrast` / `pdf_bg_saturation` / `pdf_bg_remove_color`(+desc) / `pdf_bg_denoise`(+desc)。
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 新增 Config Key：`app.reader.pdf.layoutMode`(int,0) / `app.reader.pdf.autoCrop`(bool,false) / `app.reader.pdf.bg.brightness`(double,1.0) / `app.reader.pdf.bg.contrast`(double,1.0) / `app.reader.pdf.bg.saturation`(double,1.0) / `app.reader.pdf.bg.removeColor`(bool,false) / `app.reader.pdf.bg.denoise`(bool,false)，均经 `Config` 持久化。
+- 无新增 Permission Key。
+- 行为说明：自动裁切经低分辨率缩略图像素扫描求内容包围盒（缓存复用）后由 pdfx 原生精确裁切；背景调节经 `ColorFilter.matrix`（亮度/对比度/饱和度/灰度）与 `ImageFilter.blur`（去杂色）合成，仅 GPU 滤镜、不重解码；多瓦片并发渲染由 pdfx 文档级锁自动串行化，Android/iOS/Win/Mac 均安全。

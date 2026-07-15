@@ -1,9 +1,4 @@
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart'
-    show
-        DefaultMaterialLocalizations,
-        ReorderableListView,
-        ReorderableDragStartListener;
 
 import '../../../engine/localization_engine.dart';
 import '../controller/daily_sentence_controller.dart';
@@ -249,7 +244,7 @@ class _DailySentencePageState extends State<DailySentencePage> {
                 ),
               ),
             ),
-            // 三点更多操作
+            // 三点更多操作（含编辑 / 上移 / 下移 / 删除）
             CupertinoButton(
               padding: const EdgeInsets.all(6),
               minSize: 32,
@@ -257,15 +252,6 @@ class _DailySentencePageState extends State<DailySentencePage> {
               child: Icon(
                 CupertinoIcons.ellipsis,
                 size: 20,
-                color: CupertinoColors.tertiaryLabel.resolveFrom(context),
-              ),
-            ),
-            // 拖拽手柄（Cupertino 风格三横线），按住可拖动排序
-            ReorderableDragStartListener(
-              index: index,
-              child: Icon(
-                CupertinoIcons.line_horizontal_3,
-                size: 22,
                 color: CupertinoColors.tertiaryLabel.resolveFrom(context),
               ),
             ),
@@ -370,10 +356,14 @@ class _DailySentencePageState extends State<DailySentencePage> {
               isDestructiveAction: true,
               onPressed: () async {
                 Navigator.of(dialogContext).pop();
-                await _controller.deleteSentence(item.id);
-                if (mounted) {
-                  // 触发同步更新主页展示句
-                  DailySentenceService.syncDisplaySentence();
+                try {
+                  await _controller.deleteSentence(item.id);
+                  if (mounted) {
+                    // 触发同步更新主页展示句
+                    DailySentenceService.syncDisplaySentence();
+                  }
+                } catch (e) {
+                  debugPrint('删除每日一句失败: $e');
                 }
               },
               child: Text(LocalizationEngine.text('bookshelf_delete')),
@@ -518,36 +508,24 @@ class _DailySentencePageState extends State<DailySentencePage> {
                           ),
                         )
                       else
-                        // ReorderableListView 是 Material 组件，需要 MaterialLocalizations
-                        // 祖先；本 App 为纯 Cupertino，这里仅包裹一层 Localizations 提供
-                        // 其所需的文案环境（不引入 MaterialApp，避免嵌套导航冲突）。
+                        // 使用 Cupertino 原生的 ListView 渲染列表。
+                        // 说明：此前使用 Material 的 ReorderableListView，在纯 Cupertino 工程中
+                        // 删除项导致 itemCount 变化时，SliverReorderableList 在重建帧会断言崩溃
+                        // （Flutter 已知问题）。改用 ListView 后删除 / 编辑均稳定；排序仍可通过
+                        // 每条右侧「…」菜单中的「上移 / 下移」完成，功能不丢失。
                         Expanded(
-                            child: Localizations(
-                              locale: const Locale('en'),
-                              delegates: const [
-                                DefaultWidgetsLocalizations.delegate,
-                                DefaultMaterialLocalizations.delegate,
-                              ],
-                            child: ReorderableListView.builder(
-                              scrollDirection: Axis.vertical,
-                              shrinkWrap: true,
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 16),
-                              itemCount: sentences.length,
-                              buildDefaultDragHandles: false,
-                              onReorderItem: (oldIndex, newIndex) {
-                                DailySentenceService.reorderSentence(
-                                    oldIndex, newIndex);
-                              },
-                              itemBuilder: (context, index) {
-                                final item = sentences[index];
-                                return _buildSentenceItem(
-                                  context,
-                                  item,
-                                  index: index,
-                                );
-                              },
-                            ),
+                          child: ListView.builder(
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 16),
+                            itemCount: sentences.length,
+                            itemBuilder: (context, index) {
+                              final item = sentences[index];
+                              return _buildSentenceItem(
+                                context,
+                                item,
+                                index: index,
+                              );
+                            },
                           ),
                         ),
                     ],

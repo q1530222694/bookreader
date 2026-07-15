@@ -395,9 +395,12 @@ class _MemoryPageState extends State<MemoryPage> {
   }
 
   /// 区间切换器两侧的小圆箭头按钮。
+  /// 使用原生 CupertinoButton（而非 GestureDetector），在 macOS / iOS / Android 上点击命中更稳定；
+  /// 命中区域由 minSize 保证不小于 44，圆形图标仍为 32，触控更友好。
   Widget _navArrow(CupertinoThemeData theme, IconData icon, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
+    return CupertinoButton(
+      padding: EdgeInsets.zero,
+      onPressed: onTap,
       child: Container(
         width: 32,
         height: 32,
@@ -466,6 +469,13 @@ class _MemoryPageState extends State<MemoryPage> {
     final openCount = AppStatsService.getAppLaunchCountInRange(start, end);
     final readingDays = stats.activeDaysInRange(start, end); // 当前区间内阅读天数
 
+    // 日均阅读时间：当前区间内总阅读分钟 / 区间天数（天数至少 1，避免除零）
+    final totalMinutes = stats.minutesBetween(start, end);
+    final days = end.difference(start).inDays.clamp(1, 99999);
+    final avgMin = (totalMinutes / days).round();
+    final avgValue =
+        avgMin >= 60 ? '${(avgMin / 60).toStringAsFixed(1)} 时' : '$avgMin 分';
+
     final items = <_MetricCard>[
       _MetricCard(
         icon: CupertinoIcons.app_badge,
@@ -476,6 +486,11 @@ class _MemoryPageState extends State<MemoryPage> {
         icon: CupertinoIcons.calendar,
         value: '$readingDays',
         label: LocalizationEngine.text('cumulative_reading_days_label'),
+      ),
+      _MetricCard(
+        icon: CupertinoIcons.stopwatch,
+        value: avgValue,
+        label: LocalizationEngine.text('daily_avg_reading_label'),
       ),
     ];
 
@@ -1382,7 +1397,7 @@ class _MemoryPageState extends State<MemoryPage> {
 
     // 区间内的阅读会话（会话级数据：几点开始、读了多久、是否读完）
     final sessions = ReadingSessionService.sessionsInRange(start, end);
-    final sessionRows = sessions.take(5).map((s) {
+    final sessionRows = sessions.take(2).map((s) {
       final book = bookMap[s.bookId];
       return _SessionRow(
         theme: theme,
@@ -1426,7 +1441,7 @@ class _MemoryPageState extends State<MemoryPage> {
       children.add(const SizedBox(height: 14));
       children.add(_recordSectionHeader(
           '${LocalizationEngine.text('records_finished')} (${finished.length})'));
-      children.addAll(finished.take(3).map((book) => _RecordCard(
+      children.addAll(finished.take(2).map((book) => _RecordCard(
             theme: theme,
             book: book,
             onTap: () => _openBook(book),

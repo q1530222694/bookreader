@@ -35,9 +35,30 @@ class _DailySentenceEditPageState extends State<DailySentenceEditPage> {
 
   Future<void> _save() async {
     if (widget.sentence != null) {
-      await _controller.updateSentence(widget.sentence!.id, _textController.text);
+      // 编辑模式：仅更新当前这一条
+      await _controller.updateSentence(
+          widget.sentence!.id, _textController.text.trim());
     } else {
-      await _controller.addSentence(_textController.text);
+      // 新增模式：按回车/换行拆分为多句，逐条批量新增（一行一个每日一句）
+      final count = await _controller.addSentencesBatch(
+          _textController.text.split(RegExp(r'[\r\n]+')));
+      if (count == 0 && _controller.errorText.value != null && mounted) {
+        // 内容为空时给出提示，不关闭页面
+        await showCupertinoDialog<void>(
+          context: context,
+          builder: (dialogContext) => CupertinoAlertDialog(
+            title: Text(LocalizationEngine.text('add_new_sentence')),
+            content: Text(LocalizationEngine.text('enter_content')),
+            actions: [
+              CupertinoDialogAction(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: Text(LocalizationEngine.text('done')),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
     }
 
     if (_controller.errorText.value == null) {
@@ -72,12 +93,24 @@ class _DailySentenceEditPageState extends State<DailySentenceEditPage> {
                 style: TextStyle(color: textColor),
                 placeholderStyle: TextStyle(color: placeholderColor),
                 decoration: BoxDecoration(
-                  color: CupertinoTheme.of(context).barBackgroundColor,
+                  color: theme.barBackgroundColor,
                   border: Border.all(color: CupertinoColors.separator.resolveFrom(context)),
                   borderRadius: BorderRadius.circular(8),
                 ),
               ),
             ),
+            // 新增模式下提示支持批量添加（每行一句，回车分隔）
+            if (widget.sentence == null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8, left: 4),
+                child: Text(
+                  LocalizationEngine.text('batch_add_hint'),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: CupertinoColors.tertiaryLabel.resolveFrom(context),
+                  ),
+                ),
+              ),
             const Spacer(),
             // 底部按钮：取消 与 保存 并列
             Padding(

@@ -263,6 +263,35 @@ class LocalizationEngine {
     'reader_background_green': {'zh': '浅绿', 'en': 'Mint'},
     'reader_background_blue': {'zh': '浅蓝', 'en': 'Blue'},
     'reader_background_dark': {'zh': '深灰', 'en': 'Dark'},
+    'reader_layout': {'zh': '布局', 'en': 'Layout'},
+    'reader_layout_single': {'zh': '单页', 'en': 'Single'},
+    'reader_layout_double': {'zh': '双页', 'en': 'Double'},
+    'reader_layout_single_continuous': {
+      'zh': '单页连续',
+      'en': 'Single Continuous'
+    },
+    'reader_layout_double_continuous': {
+      'zh': '双页连续',
+      'en': 'Double Continuous'
+    },
+    'pdf_auto_crop': {'zh': '自动裁切', 'en': 'Auto Crop'},
+    'pdf_auto_crop_desc': {
+      'zh': '去除页面四周空白边距',
+      'en': 'Remove white margins around pages'
+    },
+    'pdf_bg_adjust': {'zh': '背景调节', 'en': 'Background Adjust'},
+    'pdf_bg_contrast': {'zh': '对比度', 'en': 'Contrast'},
+    'pdf_bg_saturation': {'zh': '色彩饱和度', 'en': 'Saturation'},
+    'pdf_bg_remove_color': {'zh': '去除颜色', 'en': 'Remove Color'},
+    'pdf_bg_remove_color_desc': {
+      'zh': '仅显示黑白灰',
+      'en': 'Show only black, white and gray'
+    },
+    'pdf_bg_denoise': {'zh': '智能去杂色', 'en': 'Smart Denoise'},
+    'pdf_bg_denoise_desc': {
+      'zh': '去除影响阅读的小黑点、杂点',
+      'en': 'Remove small dots and noise that affect reading'
+    },
     'reader_add_tag': {'zh': '添加标签', 'en': 'Add Tag'},
     'reader_add_tag_placeholder': {'zh': '输入标签', 'en': 'Enter tag'},
     'add': {'zh': '添加', 'en': 'Add'},
@@ -452,9 +481,13 @@ class LocalizationEngine {
     'today_preview': {'zh': '今天可能会看到', 'en': "Today's preview"},
     'refresh_one': {'zh': '换一个', 'en': 'Refresh'},
     'add_new_sentence': {'zh': '添加新的语句', 'en': 'Add New Sentence'},
+    'batch_add_hint': {
+      'zh': '支持批量添加：每行一句，按回车换行可一次添加多条',
+      'en': 'Batch supported: one sentence per line, press Enter to add multiple at once',
+    },
     'long_press_reorder': {
-      'zh': '长按可拖动排序',
-      'en': 'Long press to drag and reorder',
+      'zh': '点击「···」可上移 / 下移排序',
+      'en': 'Tap "···" to move up / down to reorder',
     },
     'sentence_delete_confirm': {
       'zh': '确认删除此句？',
@@ -529,6 +562,7 @@ class LocalizationEngine {
     'custom_color_pick': {'zh': '选择颜色', 'en': 'Pick a Color'},
     'custom_color_palette': {'zh': '调色板', 'en': 'Palette'},
     'custom_color_name': {'zh': '名称', 'en': 'Name'},
+    'custom_color_add': {'zh': '添加配色', 'en': 'Add Color'},
     'custom_color_delete': {'zh': '删除配色', 'en': 'Delete Color'},
     'custom_color_delete_confirm': {
       'zh': '确认删除该配色？',
@@ -682,6 +716,7 @@ class LocalizationEngine {
       'zh': '累计阅读天数',
       'en': 'Reading Days'
     },
+    'daily_avg_reading_label': {'zh': '日均阅读', 'en': 'Daily Avg'},
     'today_reading_label': {'zh': '今日阅读', 'en': 'Today'},
     // 遗忘的书籍卡片（MemoryMainPage）
     'forgotten_books_title': {'zh': '遗忘的书籍', 'en': 'Forgotten Books'},

@@ -3,15 +3,17 @@ import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show Colors;
 import 'package:pdfx/pdfx.dart';
-import 'package:photo_view/photo_view.dart';
 
 import '../../../engine/localization_engine.dart';
+import '../../../engine/settings_engine.dart';
 import '../controller/bookshelf_controller.dart';
 import '../controller/settings_controller.dart';
 import '../service/reading_session_service.dart';
+import '../model/pdf_reader_settings.dart';
+import 'pdf_reader_view.dart';
 import 'reader_settings_sheet.dart';
 
-/// BookViewerPage displays the first page of a PDF book.
+/// BookViewerPage 展示 PDF 书籍，支持翻页 / 布局 / 自动裁切 / 背景调节等设置。
 class BookViewerPage extends StatefulWidget {
   final String title;
   final String filePath;
@@ -33,7 +35,6 @@ class BookViewerPage extends StatefulWidget {
 class _BookViewerPageState extends State<BookViewerPage>
     with WidgetsBindingObserver, TickerProviderStateMixin {
   String? _errorText;
-  PdfController? _pdfController;
   PdfDocument? _pdfDocument;
   DateTime? _sessionStart;
   double? _lastSyncedProgress;
@@ -46,9 +47,17 @@ class _BookViewerPageState extends State<BookViewerPage>
   late final Animation<double> _contentScaleAnimation;
   Timer? _tapDetectionTimer;
   int _selectedThemeIndex = 1;
-  double _brightness = 0.8;
+  double _brightness = 1.0;
   int _selectedFontIndex = 0;
   int _selectedPageMode = 0;
+
+  // PDF 专属视觉设置（初始化自全局持久化，回调中上浮并落库）
+  int _layoutMode = SettingsEngine.readerLayoutMode;
+  bool _autoCrop = SettingsEngine.pdfAutoCrop;
+  double _contrast = SettingsEngine.pdfBgContrast;
+  double _saturation = SettingsEngine.pdfBgSaturation;
+  bool _removeColor = SettingsEngine.pdfBgRemoveColor;
+  bool _denoise = SettingsEngine.pdfBgDenoise;
 
   @override
   void initState() {
@@ -84,6 +93,17 @@ class _BookViewerPageState extends State<BookViewerPage>
     });
   }
 
+  /// 由当前状态聚合的 PDF 阅读器视觉设置（供渲染视图消费）。
+  PdfReaderSettings get _readerSettings => PdfReaderSettings(
+        layoutMode: _layoutMode,
+        autoCrop: _autoCrop,
+        brightness: _brightness,
+        contrast: _contrast,
+        saturation: _saturation,
+        removeColor: _removeColor,
+        denoise: _denoise,
+      );
+
   Future<void> _initializePdf() async {
     try {
       final document = await PdfDocument.openFile(widget.filePath);
@@ -93,7 +113,6 @@ class _BookViewerPageState extends State<BookViewerPage>
       }
       _pdfDocument = document;
       setState(() {
-        _pdfController = PdfController(document: Future.value(document));
         _errorText = null;
       });
     } catch (error) {
@@ -110,7 +129,6 @@ class _BookViewerPageState extends State<BookViewerPage>
     _pauseSessionAndPersist();
     WidgetsBinding.instance.removeObserver(this);
     _settingsController.dispose();
-    _pdfController?.dispose();
     _pdfDocument?.close();
     super.dispose();
   }
@@ -123,11 +141,11 @@ class _BookViewerPageState extends State<BookViewerPage>
   }
 
   void _syncProgress(int page) {
-    if (widget.controller == null || _pdfController == null) {
+    if (widget.controller == null || _pdfDocument == null) {
       return;
     }
 
-    final totalPages = _pdfController!.pagesCount;
+    final totalPages = _pdfDocument!.pagesCount;
     if (totalPages == null || totalPages <= 0) {
       return;
     }
@@ -317,34 +335,14 @@ class _BookViewerPageState extends State<BookViewerPage>
                     child: Column(
                       children: [
                         Expanded(
-                          child: _pdfController == null
+                          child: _pdfDocument == null
                               ? const Center(child: CupertinoActivityIndicator())
-                              : PdfView(
-                                  controller: _pdfController!,
-                                  onDocumentError: (error) => _handleError(error),
-                                  onDocumentLoaded: (_) {
-                                    if (!mounted || _pdfController == null) return;
-                                    _syncProgress(_pdfController!.page);
-                                    setState(() {
-                                      _errorText = null;
-                                    });
-                                  },
-                                  onPageChanged: (page) {
-                                    _syncProgress(page);
-                                  },
-                                  builders: PdfViewBuilders<DefaultBuilderOptions>(
-                                    options: const DefaultBuilderOptions(),
-                                    documentLoaderBuilder: (_) => const Center(
-                                      child: CupertinoActivityIndicator(),
-                                    ),
-                                    pageLoaderBuilder: (_) => const Center(
-                                      child: CupertinoActivityIndicator(),
-                                    ),
-                                    pageBuilder: _pageBuilder,
-                                  ),
-                                  scrollDirection: Axis.vertical,
-                                  pageSnapping: true,
-                                  physics: const BouncingScrollPhysics(),
+                              : PdfReaderView(
+                                  document: _pdfDocument!,
+                                  settings: _readerSettings,
+                                  pageMode: _selectedPageMode,
+                                  initialPage: 1,
+                                  onCurrentPageChanged: _syncProgress,
                                 ),
                         ),
                         if (_errorText != null)
@@ -352,9 +350,8 @@ class _BookViewerPageState extends State<BookViewerPage>
                             padding: const EdgeInsets.all(12.0),
                             child: DecoratedBox(
                               decoration: BoxDecoration(
-                                color: CupertinoColors.systemBackground.resolveFrom(
-                                  context,
-                                ),
+                                color: CupertinoColors.systemBackground
+                                    .resolveFrom(context),
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
                                   color: CupertinoColors.systemGrey4,
@@ -398,167 +395,187 @@ class _BookViewerPageState extends State<BookViewerPage>
                 ),
               ),
               Positioned.fill(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final width = constraints.maxWidth;
-                final height = constraints.maxHeight;
-                return Stack(
-                  children: [
-                    Positioned(
-                      left: width * 0.25,
-                      top: height * 0.25,
-                      width: width * 0.5,
-                      height: height * 0.5,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.translucent,
-                        onTapUp: (_) => _handleCenterTap(),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
-          if (_showSettings || _settingsController.isAnimating)
-            Positioned.fill(
-              child: AnimatedBuilder(
-                animation: _settingsAnimation,
-                builder: (context, child) {
-                  return IgnorePointer(
-                    ignoring: !_showSettings && !_settingsController.isAnimating,
-                    child: GestureDetector(
-                      onTap: _toggleSettings,
-                      child: Container(
-                        color: Colors.black.withOpacity(_overlayAnimation.value),
-                      ),
-                    ),
-                  );
-                },
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final width = constraints.maxWidth;
+                    final height = constraints.maxHeight;
+                    return Stack(
+                      children: [
+                        Positioned(
+                          left: width * 0.25,
+                          top: height * 0.25,
+                          width: width * 0.5,
+                          height: height * 0.5,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.translucent,
+                            onTapUp: (_) => _handleCenterTap(),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
               ),
-            ),
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: AnimatedBuilder(
-              animation: _settingsAnimation,
-              builder: (context, child) {
-                if (_settingsController.value <= 0 && !_showSettings) {
-                  return const SizedBox.shrink();
-                }
-                return SlideTransition(
-                  position: _headerOffsetAnimation,
-                  child: SafeArea(
-                    bottom: false,
-                    child: Container(
-                      width: double.infinity,
-                      color: CupertinoColors.white,
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(8, 6, 8, 10),
-                        child: Row(
-                          children: [
-                            CupertinoButton(
-                              padding: EdgeInsets.zero,
-                              minSize: 0,
-                              onPressed: () => Navigator.of(context).maybePop(),
-                              child: Icon(
-                                CupertinoIcons.back,
-                                color: themeColor,
-                              ),
-                            ),
-                            Expanded(
-                              child: Text(
-                                widget.title,
-                                textAlign: TextAlign.center,
-                                overflow: TextOverflow.ellipsis,
-                                style: titleTextStyle,
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: themeColor.withOpacity(0.12),
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                              child: const Text('PDF'),
-                            ),
-                          ],
+              if (_showSettings || _settingsController.isAnimating)
+                Positioned.fill(
+                  child: AnimatedBuilder(
+                    animation: _settingsAnimation,
+                    builder: (context, child) {
+                      return IgnorePointer(
+                        ignoring: !_showSettings && !_settingsController.isAnimating,
+                        child: GestureDetector(
+                          onTap: _toggleSettings,
+                          child: Container(
+                            color: Colors.black.withOpacity(_overlayAnimation.value),
+                          ),
                         ),
-                      ),
-                    ),
+                      );
+                    },
                   ),
-                );
-              },
-            ),
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: AnimatedBuilder(
-              animation: _settingsAnimation,
-              builder: (context, child) {
-                if (_settingsController.value <= 0 && !_showSettings) {
-                  return const SizedBox.shrink();
-                }
-                return SlideTransition(
-                  position: _sheetOffsetAnimation,
-                  child: Container(
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      color: CupertinoColors.systemBackground.resolveFrom(context),
-                      borderRadius: BorderRadius.circular(28),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(28),
-                      child: ReaderSettingsSheet(
-                          selectedThemeIndex: _selectedThemeIndex,
-                          brightness: _brightness,
-                          selectedFontIndex: _selectedFontIndex,
-                          selectedPageMode: _selectedPageMode,
-                          selectedBackgroundColor: readerBackgroundColor,
-                          isPdfReader: true,
-                          onThemeChanged: (index) =>
-                              setState(() => _selectedThemeIndex = index),
-                          onBrightnessChanged: (value) =>
-                              setState(() => _brightness = value),
-                          onFontChanged: (index) =>
-                              setState(() => _selectedFontIndex = index),
-                          onPageModeChanged: (index) =>
-                              setState(() => _selectedPageMode = index),
-                          onBackgroundColorChanged: (color) =>
-                              SettingsController.setReaderBackgroundColor(color),
-                          onAddTag: _showAddTagDialog,
-                          onClose: _toggleSettings,
+                ),
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: AnimatedBuilder(
+                  animation: _settingsAnimation,
+                  builder: (context, child) {
+                    if (_settingsController.value <= 0 && !_showSettings) {
+                      return const SizedBox.shrink();
+                    }
+                    return SlideTransition(
+                      position: _headerOffsetAnimation,
+                      child: SafeArea(
+                        bottom: false,
+                        child: Container(
+                          width: double.infinity,
+                          color: CupertinoColors.white,
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(8, 6, 8, 10),
+                            child: Row(
+                              children: [
+                                CupertinoButton(
+                                  padding: EdgeInsets.zero,
+                                  minSize: 0,
+                                  onPressed: () =>
+                                      Navigator.of(context).maybePop(),
+                                  child: Icon(
+                                    CupertinoIcons.back,
+                                    color: themeColor,
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Text(
+                                    widget.title,
+                                    textAlign: TextAlign.center,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: titleTextStyle,
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: themeColor.withOpacity(0.12),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: const Text('PDF'),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                );
-              },
-            ),
-          ),
+                    );
+                  },
+                ),
+              ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: AnimatedBuilder(
+                  animation: _settingsAnimation,
+                  builder: (context, child) {
+                    if (_settingsController.value <= 0 && !_showSettings) {
+                      return const SizedBox.shrink();
+                    }
+                    return SlideTransition(
+                      position: _sheetOffsetAnimation,
+                      child: Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: CupertinoColors.systemBackground
+                              .resolveFrom(context),
+                          borderRadius: BorderRadius.circular(28),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(28),
+                          child: ReaderSettingsSheet(
+                            selectedThemeIndex: _selectedThemeIndex,
+                            brightness: _brightness,
+                            selectedFontIndex: _selectedFontIndex,
+                            selectedPageMode: _selectedPageMode,
+                            selectedBackgroundColor: readerBackgroundColor,
+                            isPdfReader: true,
+                            onThemeChanged: (index) =>
+                                setState(() => _selectedThemeIndex = index),
+                            onBrightnessChanged: (value) =>
+                                setState(() => _brightness = value),
+                            onFontChanged: (index) =>
+                                setState(() => _selectedFontIndex = index),
+                            onPageModeChanged: (index) =>
+                                setState(() => _selectedPageMode = index),
+                            onBackgroundColorChanged: (color) =>
+                                SettingsController.setReaderBackgroundColor(color),
+                            // PDF 专属：布局模式
+                            selectedLayoutMode: _layoutMode,
+                            onLayoutModeChanged: (index) => setState(() {
+                              _layoutMode = index;
+                              SettingsController.setReaderLayoutMode(index);
+                            }),
+                            // PDF 专属：自动裁切
+                            autoCrop: _autoCrop,
+                            onAutoCropChanged: (value) => setState(() {
+                              _autoCrop = value;
+                              SettingsController.setPdfAutoCrop(value);
+                            }),
+                            // PDF 专属：背景调节
+                            contrast: _contrast,
+                            onContrastChanged: (value) => setState(() {
+                              _contrast = value;
+                              SettingsController.setPdfBgContrast(value);
+                            }),
+                            saturation: _saturation,
+                            onSaturationChanged: (value) => setState(() {
+                              _saturation = value;
+                              SettingsController.setPdfBgSaturation(value);
+                            }),
+                            removeColor: _removeColor,
+                            onRemoveColorChanged: (value) => setState(() {
+                              _removeColor = value;
+                              SettingsController.setPdfBgRemoveColor(value);
+                            }),
+                            denoise: _denoise,
+                            onDenoiseChanged: (value) => setState(() {
+                              _denoise = value;
+                              SettingsController.setPdfBgDenoise(value);
+                            }),
+                            onAddTag: _showAddTagDialog,
+                            onClose: _toggleSettings,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
             ],
           ),
         );
       },
-    );
-  }
-
-  PhotoViewGalleryPageOptions _pageBuilder(
-    BuildContext context,
-    Future<PdfPageImage> pageImage,
-    int index,
-    PdfDocument document,
-  ) {
-    return PhotoViewGalleryPageOptions(
-      imageProvider: PdfPageImageProvider(pageImage, index, document.id),
-      minScale: PhotoViewComputedScale.contained * 1,
-      maxScale: PhotoViewComputedScale.contained * 3.0,
-      initialScale: PhotoViewComputedScale.contained * 1.0,
-      heroAttributes: PhotoViewHeroAttributes(tag: '${document.id}-$index'),
     );
   }
 }

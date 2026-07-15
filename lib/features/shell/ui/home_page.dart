@@ -710,9 +710,14 @@ class _HomePageState extends State<HomePage> {
             CupertinoDialogAction(
               isDefaultAction: true,
               onPressed: () async {
-                final content = textController.text.trim();
-                if (content.isNotEmpty) {
-                  await sentenceController.addSentence(content);
+                // 按回车/换行拆分为多句，逐条批量新增（一行一个每日一句）
+                final lines = textController.text
+                    .split(RegExp(r'[\r\n]+'))
+                    .map((e) => e.trim())
+                    .where((e) => e.isNotEmpty)
+                    .toList();
+                if (lines.isNotEmpty) {
+                  await sentenceController.addSentencesBatch(lines);
                 }
                 if (Navigator.of(dialogContext).canPop()) {
                   Navigator.of(dialogContext).pop();

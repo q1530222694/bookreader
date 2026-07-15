@@ -107,7 +107,7 @@ class AppearancePage extends StatelessWidget {
                               child: Padding(
                                 padding:
                                     const EdgeInsets.symmetric(horizontal: 4),
-                                child: _ThemeColorTile(
+                                child: _ColorTile(
                                   color: color,
                                   label: LocalizationEngine.text(
                                       'theme_color_$colorKey'),
@@ -299,56 +299,73 @@ class _AppearanceModeCard extends StatelessWidget {
   }
 }
 
-class _ThemeColorTile extends StatelessWidget {
-  final Color color;
+/// _ColorTile 统一配色块：主题预设色与自定义配色共用同一组件，保证
+/// 「框 / 圆点 / 命名 / 尺寸」四处完全一致。
+/// [color] 为要展示的配色；[icon] 非空时（如「添加」占位）以图标替代色圈。
+/// [label] 显示在色圈下方的命名；[selected] 选中态以主色描边高亮；
+/// [onTap]/[onLongPress] 交互回调（长按可选，用于自定义色编辑/删除）。
+class _ColorTile extends StatelessWidget {
+  final Color? color;
+  final Widget? icon;
   final String label;
   final bool selected;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
 
-  const _ThemeColorTile({
+  const _ColorTile({
     required this.color,
     required this.label,
     required this.selected,
     required this.onTap,
+    this.icon,
+    this.onLongPress,
   });
 
   @override
   Widget build(BuildContext context) {
+    final primaryColor = CupertinoTheme.of(context).primaryColor;
     final borderColor = selected
-        ? CupertinoTheme.of(context).primaryColor
+        ? primaryColor
         : CupertinoColors.separator.resolveFrom(context);
 
-    return CupertinoButton(
-      padding: EdgeInsets.zero,
-      onPressed: onTap,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-        decoration: BoxDecoration(
-          color: CupertinoColors.secondarySystemBackground.resolveFrom(context),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: borderColor, width: selected ? 2 : 1),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                color: color,
-                shape: BoxShape.circle,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: AppTextStyles.secondary(context).copyWith(fontSize: 12),
-            ),
-          ],
-        ),
+    // 色圈：默认展示真实配色圆点；icon 非空（如「添加」）时以图标替代。
+    final Widget swatch = icon ??
+        Container(
+          width: 28,
+          height: 28,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
+        );
+
+    final Widget tile = Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+      decoration: BoxDecoration(
+        color: CupertinoColors.secondarySystemBackground.resolveFrom(context),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor, width: selected ? 2 : 1),
       ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          swatch,
+          const SizedBox(height: 6),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: AppTextStyles.secondary(context).copyWith(fontSize: 12),
+          ),
+        ],
+      ),
+    );
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      onLongPress: onLongPress,
+      child: tile,
     );
   }
 }
@@ -474,27 +491,36 @@ class _CustomColorSection extends StatelessWidget {
           style: AppTextStyles.secondary(context),
         ),
         const SizedBox(height: 12),
-        // 自定义配色网格：大小一致、每行最多 7 个、放不下换行。
+        // 自定义配色网格：与主题预设色同一 _ColorTile，列数 6 与预设一致，
+        // 保证「框 / 圆点 / 命名 / 尺寸」完全对齐。
         ValueListenableBuilder<List<CustomThemeColor>>(
           valueListenable: SettingsController.customColors,
           builder: (context, colors, _) {
             return ValueListenableBuilder<String?>(
               valueListenable: SettingsController.activeCustomColorId,
               builder: (context, activeId, _) {
+                final primaryColor =
+                    CupertinoTheme.of(context).primaryColor;
+                final secondaryColor =
+                    CupertinoColors.secondaryLabel.resolveFrom(context);
+
                 return LayoutBuilder(
                   builder: (context, constraints) {
-                    const spacing = 12.0;
-                    const countPerRow = 7;
+                    const spacing = 8.0;
+                    const countPerRow = 6;
                     final itemWidth =
                         (constraints.maxWidth - spacing * (countPerRow - 1)) /
                             countPerRow;
 
+                    // 已有自定义色：复用 _ColorTile，色圈展示真实配色、下方显示命名。
                     final children = <Widget>[
                       for (final item in colors)
-                        _CustomColorSwatch(
-                          item: item,
+                        _ColorTile(
+                          color: item.color,
+                          label: item.name?.isNotEmpty == true
+                              ? item.name!
+                              : LocalizationEngine.text('custom_theme_color'),
                           selected: activeId == item.id,
-                          canCustomize: _canCustomize,
                           onTap: () =>
                               SettingsController.applyCustomColorById(item.id),
                           onLongPress: () {
@@ -505,8 +531,20 @@ class _CustomColorSection extends StatelessWidget {
                             }
                           },
                         ),
-                      _CustomColorAddTile(
-                        canCustomize: _canCustomize,
+                      // 末尾「添加」占位：同样 _ColorTile，图标替代色圈、标注命名。
+                      _ColorTile(
+                        color: null,
+                        icon: Icon(
+                          _canCustomize
+                              ? CupertinoIcons.add
+                              : CupertinoIcons.lock_fill,
+                          color: _canCustomize
+                              ? primaryColor
+                              : secondaryColor,
+                          size: 22,
+                        ),
+                        label: LocalizationEngine.text('custom_color_add'),
+                        selected: false,
                         onTap: () {
                           if (_canCustomize) {
                             _openPicker(context);
@@ -524,7 +562,6 @@ class _CustomColorSection extends StatelessWidget {
                           .map(
                             (w) => SizedBox(
                               width: itemWidth,
-                              height: itemWidth,
                               child: w,
                             ),
                           )
@@ -549,97 +586,6 @@ class _CustomColorSection extends StatelessWidget {
   }
 }
 
-/// _CustomColorSwatch 单个自定义色块（正方形，与添加框同尺寸）。
-class _CustomColorSwatch extends StatelessWidget {
-  final CustomThemeColor item;
-  final bool selected;
-  final bool canCustomize;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
+/// _CustomColorSwatch 与 _CustomColorAddTile 已合并为统一的 _ColorTile，
+/// 由主题预设色与自定义配色共用，保证「框 / 圆点 / 命名 / 尺寸」完全一致。
 
-  const _CustomColorSwatch({
-    required this.item,
-    required this.selected,
-    required this.canCustomize,
-    required this.onTap,
-    required this.onLongPress,
-  });
-
-  /// 依据底色亮度选择对比较好的前景色（白色 / 黑色）用于选中勾。
-  Color _contrastColor(Color bg) {
-    final luminance = 0.299 * bg.r + 0.587 * bg.g + 0.114 * bg.b;
-    return luminance > 0.6 ? CupertinoColors.black : CupertinoColors.white;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final borderColor = selected
-        ? CupertinoTheme.of(context).primaryColor
-        : CupertinoColors.separator.resolveFrom(context);
-
-    return GestureDetector(
-      onTap: onTap,
-      onLongPress: onLongPress,
-      child: Stack(
-        children: [
-          Container(
-            decoration: BoxDecoration(
-              color: item.color,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: borderColor,
-                width: selected ? 3 : 1,
-              ),
-            ),
-          ),
-          if (selected)
-            Positioned(
-              top: 4,
-              right: 4,
-              child: Icon(
-                CupertinoIcons.check_mark_circled_solid,
-                color: _contrastColor(item.color),
-                size: 18,
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// _CustomColorAddTile 末尾的「添加」框，与色块同尺寸、同形状。
-class _CustomColorAddTile extends StatelessWidget {
-  final bool canCustomize;
-  final VoidCallback onTap;
-
-  const _CustomColorAddTile({
-    required this.canCustomize,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final borderColor = CupertinoColors.separator.resolveFrom(context);
-    final primaryColor = CupertinoTheme.of(context).primaryColor;
-    final secondaryColor = CupertinoColors.secondaryLabel.resolveFrom(context);
-
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          color: CupertinoColors.tertiarySystemFill.resolveFrom(context),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: borderColor),
-        ),
-        child: Center(
-          child: Icon(
-            canCustomize ? CupertinoIcons.add : CupertinoIcons.lock_fill,
-            color: canCustomize ? primaryColor : secondaryColor,
-            size: 24,
-          ),
-        ),
-      ),
-    );
-  }
-}

@@ -16,6 +16,23 @@ class SettingsController {
       ValueNotifier<String>(SettingsEngine.fontFamily);
   static final ValueNotifier<Color> readerBackgroundColor =
       ValueNotifier<Color>(SettingsEngine.readerBackgroundColor);
+
+  // PDF 阅读器视觉设置（布局 / 自动裁切 / 背景调节）的全局 notifier。
+  // UI 仅监听这些 notifier，不直接写持久化（符合禁区 3）。
+  static final ValueNotifier<int> readerLayoutMode =
+      ValueNotifier<int>(SettingsEngine.readerLayoutMode);
+  static final ValueNotifier<bool> pdfAutoCrop =
+      ValueNotifier<bool>(SettingsEngine.pdfAutoCrop);
+  static final ValueNotifier<double> pdfBgBrightness =
+      ValueNotifier<double>(SettingsEngine.pdfBgBrightness);
+  static final ValueNotifier<double> pdfBgContrast =
+      ValueNotifier<double>(SettingsEngine.pdfBgContrast);
+  static final ValueNotifier<double> pdfBgSaturation =
+      ValueNotifier<double>(SettingsEngine.pdfBgSaturation);
+  static final ValueNotifier<bool> pdfBgRemoveColor =
+      ValueNotifier<bool>(SettingsEngine.pdfBgRemoveColor);
+  static final ValueNotifier<bool> pdfBgDenoise =
+      ValueNotifier<bool>(SettingsEngine.pdfBgDenoise);
   static final ValueNotifier<String> startupPage =
       ValueNotifier<String>(SettingsEngine.startupPage);
     static final ValueNotifier<String> startupSplashType =
@@ -149,6 +166,48 @@ class SettingsController {
   static void setReaderBackgroundColor(Color value) {
     SettingsEngine.setReaderBackgroundColor(value);
     readerBackgroundColor.value = value;
+  }
+
+  /// 设置 PDF 布局模式（0 单页 / 1 双页 / 2 单页连续 / 3 双页连续）。
+  static void setReaderLayoutMode(int value) {
+    SettingsEngine.setReaderLayoutMode(value);
+    readerLayoutMode.value = value;
+  }
+
+  /// 设置 PDF 自动裁切开关。
+  static void setPdfAutoCrop(bool value) {
+    SettingsEngine.setPdfAutoCrop(value);
+    pdfAutoCrop.value = value;
+  }
+
+  /// 设置 PDF 背景亮度（0.3~1.5，1.0 为原始）。
+  static void setPdfBgBrightness(double value) {
+    SettingsEngine.setPdfBgBrightness(value);
+    pdfBgBrightness.value = value;
+  }
+
+  /// 设置 PDF 背景对比度（0.5~2.0，1.0 为原始）。
+  static void setPdfBgContrast(double value) {
+    SettingsEngine.setPdfBgContrast(value);
+    pdfBgContrast.value = value;
+  }
+
+  /// 设置 PDF 背景饱和度（0~2.0，1.0 为原始）。
+  static void setPdfBgSaturation(double value) {
+    SettingsEngine.setPdfBgSaturation(value);
+    pdfBgSaturation.value = value;
+  }
+
+  /// 设置 PDF 去除颜色（黑白灰）开关。
+  static void setPdfBgRemoveColor(bool value) {
+    SettingsEngine.setPdfBgRemoveColor(value);
+    pdfBgRemoveColor.value = value;
+  }
+
+  /// 设置 PDF 智能去杂色开关。
+  static void setPdfBgDenoise(bool value) {
+    SettingsEngine.setPdfBgDenoise(value);
+    pdfBgDenoise.value = value;
   }
 
   static void setStartupPage(String value) {
