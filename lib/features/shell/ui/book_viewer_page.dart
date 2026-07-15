@@ -9,11 +9,13 @@ import '../../../engine/settings_engine.dart';
 import '../controller/bookshelf_controller.dart';
 import '../controller/settings_controller.dart';
 import '../service/reading_session_service.dart';
-import '../model/pdf_reader_settings.dart';
-import 'pdf_reader_view.dart';
 import 'reader_settings_sheet.dart';
 
 /// BookViewerPage 展示 PDF 书籍，支持翻页 / 布局 / 自动裁切 / 背景调节等设置。
+///
+/// 渲染核心使用 pdfx 官方 [PdfView] + [PdfController]（经 Windows 实测稳定），
+/// 避免自定义 getPage/render/close 管线在 Windows PDFium 下导致进程挂起。
+/// 高级功能（自动裁切 / 多布局 / GPU 滤镜）的 UI 已保留，待后续以叠加层方式接入。
 class BookViewerPage extends StatefulWidget {
   final String title;
   final String filePath;
@@ -35,6 +37,7 @@ class BookViewerPage extends StatefulWidget {
 class _BookViewerPageState extends State<BookViewerPage>
     with WidgetsBindingObserver, TickerProviderStateMixin {
   String? _errorText;
+  PdfController? _pdfController;
   PdfDocument? _pdfDocument;
   DateTime? _sessionStart;
   double? _lastSyncedProgress;
@@ -51,7 +54,8 @@ class _BookViewerPageState extends State<BookViewerPage>
   int _selectedFontIndex = 0;
   int _selectedPageMode = 0;
 
-  // PDF 专属视觉设置（初始化自全局持久化，回调中上浮并落库）
+  // PDF 专属视觉设置（初始化自全局持久化，回调中上浮并落库）。
+  // 当前版本：UI 已保留，渲染效果待后续以叠加层方式接入 PdfView。
   int _layoutMode = SettingsEngine.readerLayoutMode;
   bool _autoCrop = SettingsEngine.pdfAutoCrop;
   double _contrast = SettingsEngine.pdfBgContrast;
@@ -93,17 +97,6 @@ class _BookViewerPageState extends State<BookViewerPage>
     });
   }
 
-  /// 由当前状态聚合的 PDF 阅读器视觉设置（供渲染视图消费）。
-  PdfReaderSettings get _readerSettings => PdfReaderSettings(
-        layoutMode: _layoutMode,
-        autoCrop: _autoCrop,
-        brightness: _brightness,
-        contrast: _contrast,
-        saturation: _saturation,
-        removeColor: _removeColor,
-        denoise: _denoise,
-      );
-
   Future<void> _initializePdf() async {
     try {
       final document = await PdfDocument.openFile(widget.filePath);
@@ -113,6 +106,7 @@ class _BookViewerPageState extends State<BookViewerPage>
       }
       _pdfDocument = document;
       setState(() {
+        _pdfController = PdfController(document: Future.value(document));
         _errorText = null;
       });
     } catch (error) {
@@ -129,6 +123,7 @@ class _BookViewerPageState extends State<BookViewerPage>
     _pauseSessionAndPersist();
     WidgetsBinding.instance.removeObserver(this);
     _settingsController.dispose();
+    _pdfController?.dispose();
     _pdfDocument?.close();
     super.dispose();
   }
@@ -141,11 +136,11 @@ class _BookViewerPageState extends State<BookViewerPage>
   }
 
   void _syncProgress(int page) {
-    if (widget.controller == null || _pdfDocument == null) {
+    if (widget.controller == null || _pdfController == null) {
       return;
     }
 
-    final totalPages = _pdfDocument!.pagesCount;
+    final totalPages = _pdfController!.pagesCount;
     if (totalPages == null || totalPages <= 0) {
       return;
     }
@@ -335,14 +330,36 @@ class _BookViewerPageState extends State<BookViewerPage>
                     child: Column(
                       children: [
                         Expanded(
-                          child: _pdfDocument == null
+                          child: _pdfController == null
                               ? const Center(child: CupertinoActivityIndicator())
-                              : PdfReaderView(
-                                  document: _pdfDocument!,
-                                  settings: _readerSettings,
-                                  pageMode: _selectedPageMode,
-                                  initialPage: 1,
-                                  onCurrentPageChanged: _syncProgress,
+                              : PdfView(
+                                  controller: _pdfController!,
+                                  onDocumentError: (error) =>
+                                      _handleError(error),
+                                  onDocumentLoaded: (_) {
+                                    if (!mounted ||
+                                        _pdfController == null) return;
+                                    _syncProgress(_pdfController!.page);
+                                    setState(() {
+                                      _errorText = null;
+                                    });
+                                  },
+                                  onPageChanged: (page) {
+                                    _syncProgress(page);
+                                  },
+                                  builders: PdfViewBuilders<DefaultBuilderOptions>(
+                                    options: const DefaultBuilderOptions(),
+                                    documentLoaderBuilder: (_) => const Center(
+                                      child: CupertinoActivityIndicator(),
+                                    ),
+                                    pageLoaderBuilder: (_) => const Center(
+                                      child: CupertinoActivityIndicator(),
+                                    ),
+                                    pageBuilder: _pageBuilder,
+                                  ),
+                                  scrollDirection: Axis.vertical,
+                                  pageSnapping: true,
+                                  physics: const BouncingScrollPhysics(),
                                 ),
                         ),
                         if (_errorText != null)
@@ -363,7 +380,8 @@ class _BookViewerPageState extends State<BookViewerPage>
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     const Icon(
-                                      CupertinoIcons.exclamationmark_triangle,
+                                      CupertinoIcons
+                                          .exclamationmark_triangle,
                                       size: 48,
                                       color: CupertinoColors.systemRed,
                                     ),
@@ -422,11 +440,14 @@ class _BookViewerPageState extends State<BookViewerPage>
                     animation: _settingsAnimation,
                     builder: (context, child) {
                       return IgnorePointer(
-                        ignoring: !_showSettings && !_settingsController.isAnimating,
+                        ignoring:
+                            !_showSettings && !_settingsController.isAnimating,
                         child: GestureDetector(
                           onTap: _toggleSettings,
                           child: Container(
-                            color: Colors.black.withOpacity(_overlayAnimation.value),
+                            color: Colors.black.withOpacity(
+                              _overlayAnimation.value,
+                            ),
                           ),
                         ),
                       );
@@ -451,7 +472,8 @@ class _BookViewerPageState extends State<BookViewerPage>
                           width: double.infinity,
                           color: CupertinoColors.white,
                           child: Padding(
-                            padding: const EdgeInsets.fromLTRB(8, 6, 8, 10),
+                            padding:
+                                const EdgeInsets.fromLTRB(8, 6, 8, 10),
                             child: Row(
                               children: [
                                 CupertinoButton(
@@ -530,19 +552,19 @@ class _BookViewerPageState extends State<BookViewerPage>
                                 setState(() => _selectedPageMode = index),
                             onBackgroundColorChanged: (color) =>
                                 SettingsController.setReaderBackgroundColor(color),
-                            // PDF 专属：布局模式
+                            // PDF 专属：布局模式（UI 保留，效果待叠加层接入）
                             selectedLayoutMode: _layoutMode,
                             onLayoutModeChanged: (index) => setState(() {
                               _layoutMode = index;
                               SettingsController.setReaderLayoutMode(index);
                             }),
-                            // PDF 专属：自动裁切
+                            // PDF 专属：自动裁切（UI 保留，效果待叠加层接入）
                             autoCrop: _autoCrop,
                             onAutoCropChanged: (value) => setState(() {
                               _autoCrop = value;
                               SettingsController.setPdfAutoCrop(value);
                             }),
-                            // PDF 专属：背景调节
+                            // PDF 专属：背景调节（UI 保留，效果待叠加层接入）
                             contrast: _contrast,
                             onContrastChanged: (value) => setState(() {
                               _contrast = value;
@@ -576,6 +598,26 @@ class _BookViewerPageState extends State<BookViewerPage>
           ),
         );
       },
+    );
+  }
+
+  /// 每页渲染为 PhotoView 可缩放的图片瓦片（pdfx 内置渲染管线）。
+  ///
+  /// 使用 [PdfPageImageProvider] 作为 imageProvider，由 pdfx 内部完成
+  /// getPage→render→close 全生命周期管理，避免自定义原生调用在 Windows 下
+  /// 触发进程挂起。
+  PhotoViewGalleryPageOptions _pageBuilder(
+    BuildContext context,
+    Future<PdfPageImage> pageImage,
+    int index,
+    PdfDocument document,
+  ) {
+    return PhotoViewGalleryPageOptions(
+      imageProvider: PdfPageImageProvider(pageImage, index, document.id),
+      minScale: PhotoViewComputedScale.contained * 1,
+      maxScale: PhotoViewComputedScale.contained * 3.0,
+      initialScale: PhotoViewComputedScale.contained * 1.0,
+      heroAttributes: PhotoViewHeroAttributes(tag: '${document.id}-$index'),
     );
   }
 }

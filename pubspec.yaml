@@ -44,6 +44,7 @@ dependencies:
   archive: ^4.0.9
   open_filex: ^4.3.2
   fast_gbk: ^1.0.0
+  synchronized: ^3.3.0+3
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -50,10 +50,27 @@ class _PdfPageTileState extends State<PdfPageTile> {
   bool _loading = true;
   bool _error = false;
 
+  /// 当前设备像素比（在 [didChangeDependencies] 中安全采集，供 [_load] 使用）。
+  /// 不在 initState 中读取 MediaQuery：initState 阶段禁止依赖 InheritedWidget，
+  /// 且此时正处于 PageView.builder 首帧挂载，任何 setState/依赖查询都会抛异常。
+  double _devicePixelRatio = 1.0;
+
+  /// 是否已触发过首次加载（避免 didChangeDependencies 多次触发重复渲染）。
+  bool _didInitialLoad = false;
+
   @override
-  void initState() {
-    super.initState();
-    _load();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // MediaQuery 依赖查询只能在 didChangeDependencies（及之后）进行。
+    _devicePixelRatio = MediaQuery.of(context).devicePixelRatio;
+    // 首帧挂载完成后仅触发一次首次渲染；延迟到首帧之后执行，避免在本构建阶段
+    // 调用 _load 内的 setState（会触发「setState called during build」）。
+    if (!_didInitialLoad) {
+      _didInitialLoad = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _load();
+      });
+    }
   }
 
   @override
@@ -71,25 +88,15 @@ class _PdfPageTileState extends State<PdfPageTile> {
 
   Future<void> _load() async {
     if (!mounted) return;
-    setState(() {
-      _loading = true;
-      _error = false;
-    });
+    // 注意：首次 _load 由 didChangeDependencies 在挂载期间触发，此处严禁在首个
+    // await 之前调用 setState（会触发「setState called during build」）。改为直接
+    // 置位加载态字段（首帧构建本就展示菊花），拿到字节后再于 await 之后 setState。
+    _loading = true;
+    _error = false;
 
-    final dpr = MediaQuery.of(context).devicePixelRatio;
+    // 使用在 didChangeDependencies 中缓存的 dpr，避免 initState/构建期查询 MediaQuery。
+    final dpr = _devicePixelRatio;
     final renderWidthPx = (widget.renderWidth * dpr).clamp(1.0, 2000.0);
-
-    // 页面尺寸（用于连续模式高度撑开，缓存复用）
-    Size? size;
-    try {
-      size = await PdfRenderService.pageSize(widget.document, widget.pageNumber);
-    } catch (_) {
-      size = null;
-    }
-    if (!mounted) return;
-    if (size != null && size.width > 0) {
-      setState(() => _pageAspect = size!.width / size.height);
-    }
 
     // 自动裁切：先求内容包围盒（归一化）
     Rect? cropFrac;
@@ -105,7 +112,8 @@ class _PdfPageTileState extends State<PdfPageTile> {
     }
 
     if (!mounted) return;
-    final bytes = await PdfRenderService.renderPageBytes(
+    // 单次取页 + 渲染 + 关闭（服务内部文档锁串行化），返回字节与宽高比。
+    final result = await PdfRenderService.renderPageBytes(
       widget.document,
       widget.pageNumber,
       renderWidth: renderWidthPx,
@@ -113,11 +121,19 @@ class _PdfPageTileState extends State<PdfPageTile> {
     );
 
     if (!mounted) return;
-    setState(() {
-      _bytes = bytes;
-      _loading = false;
-      _error = bytes == null;
-    });
+    if (result != null) {
+      setState(() {
+        _bytes = result.bytes;
+        _pageAspect = result.aspectRatio;
+        _loading = false;
+        _error = false;
+      });
+    } else {
+      setState(() {
+        _loading = false;
+        _error = true;
+      });
+    }
   }
 
   /// 应用颜色调整与去杂色滤镜，包裹原始图片。
@@ -169,22 +185,30 @@ class _PdfPageTileState extends State<PdfPageTile> {
     final filtered = _buildFiltered(image);
 
     if (widget.zoomable) {
+      // 必须显式给出 childSize：zoomable 模式下子节点为无限尺寸的 Container，
+      // 若不提供 childSize，PhotoView 在布局阶段会因无法测量子节点尺寸而断言崩溃。
+      // 用「渲染宽度 × 页面宽高比」推导出确定尺寸作为 childSize，避免该崩溃。
+      final aspect = _pageAspect;
+      final childSize = aspect != null
+          ? Size(widget.renderWidth, widget.renderWidth / aspect)
+          : Size(widget.renderWidth, widget.renderWidth * 1.4);
       return Container(
         width: double.infinity,
         height: double.infinity,
         color: CupertinoColors.white,
         child: PhotoView.customChild(
-          child: Container(
-            width: double.infinity,
-            height: double.infinity,
-            child: filtered,
-          ),
+          childSize: childSize,
           minScale: PhotoViewComputedScale.contained * 0.5,
           maxScale: PhotoViewComputedScale.contained * 4.0,
           initialScale: PhotoViewComputedScale.contained,
           backgroundDecoration:
               const BoxDecoration(color: Color(0x00000000)),
           filterQuality: FilterQuality.high,
+          child: SizedBox(
+            width: double.infinity,
+            height: double.infinity,
+            child: filtered,
+          ),
         ),
       );
     }

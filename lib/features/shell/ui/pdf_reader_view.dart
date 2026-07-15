@@ -46,7 +46,7 @@ class _PdfReaderViewState extends State<PdfReaderView> {
   @override
   void initState() {
     super.initState();
-    _pagesCount = widget.document.pagesCount ?? 0;
+    _pagesCount = widget.document.pagesCount;
     final layout = widget.settings.layoutMode;
     _isContinuous = layout == 2 || layout == 3;
     _spreadCount = layout == 0 || layout == 2
