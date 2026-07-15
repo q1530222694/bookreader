@@ -37,7 +37,10 @@ class SettingsEngine {
   static const String readerBackgroundColorKey = 'app.readerBackgroundColor';
   static const Color readerBackgroundColorDefault = Color(0xFFF7F3EC);
 
-  // PDF 阅读器专属视觉设置（布局 / 自动裁切 / 背景调节）
+  // PDF 阅读器专属视觉设置（翻页方式 / 布局 / 自动裁切 / 背景调节）
+  // 翻页方式：0=左右翻页 1=上下滚动 2=仿真 3=无（0/2 横向，1/3 纵向）
+  static const String readerPageModeKey = 'app.reader.pdf.pageMode';
+  static const int readerPageModeDefault = 0;
   // 布局模式：0=单页 1=双页 2=单页连续 3=双页连续
   static const String readerLayoutModeKey = 'app.reader.pdf.layoutMode';
   static const int readerLayoutModeDefault = 0;
@@ -125,6 +128,14 @@ class SettingsEngine {
   }
 
   // PDF 阅读器视觉设置存取
+  static int get readerPageMode {
+    return Config.get(readerPageModeKey) as int? ?? readerPageModeDefault;
+  }
+
+  static void setReaderPageMode(int value) {
+    Config.set(readerPageModeKey, value);
+  }
+
   static int get readerLayoutMode {
     return Config.get(readerLayoutModeKey) as int? ?? readerLayoutModeDefault;
   }

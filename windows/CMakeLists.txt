@@ -49,13 +49,44 @@ endfunction()
 set(FLUTTER_MANAGED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/flutter")
 add_subdirectory(${FLUTTER_MANAGED_DIR})
 
+# === ONNX Runtime (flutter_onnxruntime) local vendoring ===
+# Point the plugin at the locally-vendored onnxruntime BEFORE any subdirectory is
+# processed, so both the app (runner) and the plugin's find_library/find_path see
+# the correct path and no GitHub download occurs.
+set(ONNXRUNTIME_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/onnxruntime"
+    CACHE PATH "ONNX Runtime root directory" FORCE)
+
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
 
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
+
+# === ONNX Runtime (flutter_onnxruntime) local vendoring ===
+# flutter_onnxruntime's Windows CMake defaults to DOWNLOADING ONNX Runtime from
+# GitHub at configure time. ONNXRUNTIME_ROOT_DIR is set earlier (before
+# add_subdirectory("runner")) so the plugin's find_library/find_path hit the
+# local copy and no network download occurs.
 include(flutter/generated_plugins.cmake)
+
+# Defensive: flutter_onnxruntime compiles with /WX (warnings-as-errors) because
+# apply_standard_settings() enables it. On a toolchain newer than the plugin
+# author's, a benign warning can become a hard error and break the ENTIRE Windows
+# build (no exe, no window). Relax it for this plugin only — it does not change
+# runtime behavior, it just stops a warning from failing the build.
+if(TARGET flutter_onnxruntime_plugin)
+  target_compile_options(flutter_onnxruntime_plugin PRIVATE /WX-)
+endif()
+
+# Compute the list of ONNX Runtime runtime DLLs to bundle into the install
+# (packaged) build. The POST_BUILD copy that places them next to the exe is done
+# in runner/CMakeLists.txt, because add_custom_command(TARGET bookreader ...) must
+# live in the same CMakeLists.txt that defines the bookreader target.
+set(ONNXRUNTIME_DLL_DIR "${ONNXRUNTIME_ROOT_DIR}/lib")
+if(EXISTS "${ONNXRUNTIME_DLL_DIR}")
+  file(GLOB ONNXRUNTIME_RUNTIME_DLLS "${ONNXRUNTIME_DLL_DIR}/*.dll")
+endif()
 
 
 # === Installation ===
@@ -106,3 +137,10 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# Also bundle ONNX Runtime DLLs into the packaged/installed build (the plugin's
+# "system" branch does not bundle them). Mirrors the POST_BUILD copy above.
+if(ONNXRUNTIME_RUNTIME_DLLS)
+  install(FILES ${ONNXRUNTIME_RUNTIME_DLLS}
+    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}" COMPONENT Runtime)
+endif()

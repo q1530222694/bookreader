@@ -292,6 +292,11 @@ class LocalizationEngine {
       'zh': '去除影响阅读的小黑点、杂点',
       'en': 'Remove small dots and noise that affect reading'
     },
+    'pdf_reflow': {'zh': '重排', 'en': 'Reflow'},
+    'pdf_reflow_desc': {
+      'zh': '单栏连续、页面撑满，适合手机阅读',
+      'en': 'Single column, fit width, great for phone reading'
+    },
     'reader_add_tag': {'zh': '添加标签', 'en': 'Add Tag'},
     'reader_add_tag_placeholder': {'zh': '输入标签', 'en': 'Enter tag'},
     'add': {'zh': '添加', 'en': 'Add'},

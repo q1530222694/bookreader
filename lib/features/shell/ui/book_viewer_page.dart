@@ -1,21 +1,25 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show Colors;
-import 'package:pdfx/pdfx.dart';
+import 'package:pdfrx/pdfrx.dart';
 
 import '../../../engine/localization_engine.dart';
 import '../../../engine/settings_engine.dart';
 import '../controller/bookshelf_controller.dart';
 import '../controller/settings_controller.dart';
+import '../model/pdf_reader_settings.dart';
+import '../service/pdf_render_service.dart';
 import '../service/reading_session_service.dart';
+import 'pdf_custom_view.dart';
 import 'reader_settings_sheet.dart';
 
 /// BookViewerPage 展示 PDF 书籍，支持翻页 / 布局 / 自动裁切 / 背景调节等设置。
 ///
-/// 渲染核心使用 pdfx 官方 [PdfView] + [PdfController]（经 Windows 实测稳定），
-/// 避免自定义 getPage/render/close 管线在 Windows PDFium 下导致进程挂起。
-/// 高级功能（自动裁切 / 多布局 / GPU 滤镜）的 UI 已保留，待后续以叠加层方式接入。
+/// 渲染核心使用 pdfrx 低层 API 自建的 [PdfCustomView]（双栏 2-up、连续滚动、
+/// 原生精确裁切、GPU 滤镜叠加均由自定义视图掌控），取代了不支持自定义版面与裁切的
+/// pdfx [PdfView]。详见 [lib/features/shell/ui/pdf_custom_view.dart]。
 class BookViewerPage extends StatefulWidget {
   final String title;
   final String filePath;
@@ -37,7 +41,6 @@ class BookViewerPage extends StatefulWidget {
 class _BookViewerPageState extends State<BookViewerPage>
     with WidgetsBindingObserver, TickerProviderStateMixin {
   String? _errorText;
-  PdfController? _pdfController;
   PdfDocument? _pdfDocument;
   DateTime? _sessionStart;
   double? _lastSyncedProgress;
@@ -52,10 +55,11 @@ class _BookViewerPageState extends State<BookViewerPage>
   int _selectedThemeIndex = 1;
   double _brightness = 1.0;
   int _selectedFontIndex = 0;
-  int _selectedPageMode = 0;
+  // 翻页方式：0 左右翻页 / 1 上下滚动 / 2 仿真 / 3 无（初始化自持久化，回调中落库）。
+  int _selectedPageMode = SettingsEngine.readerPageMode;
 
   // PDF 专属视觉设置（初始化自全局持久化，回调中上浮并落库）。
-  // 当前版本：UI 已保留，渲染效果待后续以叠加层方式接入 PdfView。
+  // 渲染效果由 PdfCustomView 真实实现（2-up / 连续 / 原生裁切 / GPU 滤镜）。
   int _layoutMode = SettingsEngine.readerLayoutMode;
   bool _autoCrop = SettingsEngine.pdfAutoCrop;
   double _contrast = SettingsEngine.pdfBgContrast;
@@ -99,16 +103,15 @@ class _BookViewerPageState extends State<BookViewerPage>
 
   Future<void> _initializePdf() async {
     try {
-      final document = await PdfDocument.openFile(widget.filePath);
-      if (!mounted) {
-        await document.close();
-        return;
-      }
-      _pdfDocument = document;
-      setState(() {
-        _pdfController = PdfController(document: Future.value(document));
-        _errorText = null;
-      });
+    final document = await PdfDocument.openFile(widget.filePath);
+    if (!mounted) {
+      await document.dispose();
+      return;
+    }
+    _pdfDocument = document;
+    setState(() {
+      _errorText = null;
+    });
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -123,25 +126,20 @@ class _BookViewerPageState extends State<BookViewerPage>
     _pauseSessionAndPersist();
     WidgetsBinding.instance.removeObserver(this);
     _settingsController.dispose();
-    _pdfController?.dispose();
-    _pdfDocument?.close();
+    if (_pdfDocument != null) {
+      // 关闭文档并释放本服务持有的渲染缓存（含已渲染的 ui.Image），避免 GPU 内存泄漏。
+      PdfRenderService.disposeDocument(_pdfDocument!);
+    }
     super.dispose();
   }
 
-  void _handleError(Object error) {
-    if (!mounted) return;
-    setState(() {
-      _errorText = '打开 PDF 失败：$error';
-    });
-  }
-
   void _syncProgress(int page) {
-    if (widget.controller == null || _pdfController == null) {
+    if (widget.controller == null || _pdfDocument == null) {
       return;
     }
 
-    final totalPages = _pdfController!.pagesCount;
-    if (totalPages == null || totalPages <= 0) {
+    final totalPages = _pdfDocument!.pages.length;
+    if (totalPages <= 0) {
       return;
     }
 
@@ -296,6 +294,49 @@ class _BookViewerPageState extends State<BookViewerPage>
     });
   }
 
+  /// 由当前状态聚合的 PDF 阅读器视觉设置（供 GPU 滤镜合成与布局判断消费）。
+  PdfReaderSettings get _readerSettings => PdfReaderSettings(
+        layoutMode: _layoutMode,
+        autoCrop: _autoCrop,
+        brightness: _brightness,
+        contrast: _contrast,
+        saturation: _saturation,
+        removeColor: _removeColor,
+        denoise: _denoise,
+      );
+
+  /// 重排：一键切换为「上下滚动 + 单栏连续 + 去白边」的紧凑阅读模式，适合手机阅读。
+  ///
+  /// 组合三项已实现的能力：翻页方式=上下滚动(1)、布局=单页连续(2)、自动裁切=开，
+  /// 全部由 pdfrx 低层自建的 [PdfCustomView] 真实实现（连续滚动 + 原生精确裁切去白边）。
+  ///
+  /// 说明：对「图片扫描件」而言这是版式层面的重排（连续滚动 + 去白边 + 撑满宽度），
+  /// 并非文字级重排（后者需 OCR 识别文字后重新排版，属阶段3 PaddleOCR 集成范畴）。
+  void _reflow() {
+    if (!mounted) return;
+    setState(() {
+      _selectedPageMode = 1; // 上下滚动
+      _layoutMode = 2; // 单页连续
+      _autoCrop = true; // 去白边
+      SettingsController.setReaderPageMode(1);
+      SettingsController.setReaderLayoutMode(2);
+      SettingsController.setPdfAutoCrop(true);
+    });
+  }
+
+  /// 构建 PDF 阅读视图。
+  ///
+  /// 直接委托给自建的 [PdfCustomView]：双栏 2-up / 连续滚动 / 翻页吸附、原生精确裁切、
+  /// 颜色调整与智能去杂色等均由该视图内部按 [PdfReaderSettings] 真实实现。
+  Widget _buildPdfView() {
+    return PdfCustomView(
+      document: _pdfDocument!,
+      settings: _readerSettings,
+      pageMode: _selectedPageMode,
+      onPageChanged: _syncProgress,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final backgroundColor = CupertinoColors.systemBackground.resolveFrom(
@@ -330,37 +371,9 @@ class _BookViewerPageState extends State<BookViewerPage>
                     child: Column(
                       children: [
                         Expanded(
-                          child: _pdfController == null
-                              ? const Center(child: CupertinoActivityIndicator())
-                              : PdfView(
-                                  controller: _pdfController!,
-                                  onDocumentError: (error) =>
-                                      _handleError(error),
-                                  onDocumentLoaded: (_) {
-                                    if (!mounted ||
-                                        _pdfController == null) return;
-                                    _syncProgress(_pdfController!.page);
-                                    setState(() {
-                                      _errorText = null;
-                                    });
-                                  },
-                                  onPageChanged: (page) {
-                                    _syncProgress(page);
-                                  },
-                                  builders: PdfViewBuilders<DefaultBuilderOptions>(
-                                    options: const DefaultBuilderOptions(),
-                                    documentLoaderBuilder: (_) => const Center(
-                                      child: CupertinoActivityIndicator(),
-                                    ),
-                                    pageLoaderBuilder: (_) => const Center(
-                                      child: CupertinoActivityIndicator(),
-                                    ),
-                                    pageBuilder: _pageBuilder,
-                                  ),
-                                  scrollDirection: Axis.vertical,
-                                  pageSnapping: true,
-                                  physics: const BouncingScrollPhysics(),
-                                ),
+                              child: _pdfDocument == null
+                                  ? const Center(child: CupertinoActivityIndicator())
+                                  : _buildPdfView(),
                         ),
                         if (_errorText != null)
                           Padding(
@@ -548,8 +561,10 @@ class _BookViewerPageState extends State<BookViewerPage>
                                 setState(() => _brightness = value),
                             onFontChanged: (index) =>
                                 setState(() => _selectedFontIndex = index),
-                            onPageModeChanged: (index) =>
-                                setState(() => _selectedPageMode = index),
+                            onPageModeChanged: (index) => setState(() {
+                              _selectedPageMode = index;
+                              SettingsController.setReaderPageMode(index);
+                            }),
                             onBackgroundColorChanged: (color) =>
                                 SettingsController.setReaderBackgroundColor(color),
                             // PDF 专属：布局模式（UI 保留，效果待叠加层接入）
@@ -586,6 +601,7 @@ class _BookViewerPageState extends State<BookViewerPage>
                               SettingsController.setPdfBgDenoise(value);
                             }),
                             onAddTag: _showAddTagDialog,
+                            onReflow: _reflow,
                             onClose: _toggleSettings,
                           ),
                         ),
@@ -601,23 +617,4 @@ class _BookViewerPageState extends State<BookViewerPage>
     );
   }
 
-  /// 每页渲染为 PhotoView 可缩放的图片瓦片（pdfx 内置渲染管线）。
-  ///
-  /// 使用 [PdfPageImageProvider] 作为 imageProvider，由 pdfx 内部完成
-  /// getPage→render→close 全生命周期管理，避免自定义原生调用在 Windows 下
-  /// 触发进程挂起。
-  PhotoViewGalleryPageOptions _pageBuilder(
-    BuildContext context,
-    Future<PdfPageImage> pageImage,
-    int index,
-    PdfDocument document,
-  ) {
-    return PhotoViewGalleryPageOptions(
-      imageProvider: PdfPageImageProvider(pageImage, index, document.id),
-      minScale: PhotoViewComputedScale.contained * 1,
-      maxScale: PhotoViewComputedScale.contained * 3.0,
-      initialScale: PhotoViewComputedScale.contained * 1.0,
-      heroAttributes: PhotoViewHeroAttributes(tag: '${document.id}-$index'),
-    );
-  }
 }

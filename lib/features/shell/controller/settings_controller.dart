@@ -17,8 +17,10 @@ class SettingsController {
   static final ValueNotifier<Color> readerBackgroundColor =
       ValueNotifier<Color>(SettingsEngine.readerBackgroundColor);
 
-  // PDF 阅读器视觉设置（布局 / 自动裁切 / 背景调节）的全局 notifier。
+  // PDF 阅读器视觉设置（翻页方式 / 布局 / 自动裁切 / 背景调节）的全局 notifier。
   // UI 仅监听这些 notifier，不直接写持久化（符合禁区 3）。
+  static final ValueNotifier<int> readerPageMode =
+      ValueNotifier<int>(SettingsEngine.readerPageMode);
   static final ValueNotifier<int> readerLayoutMode =
       ValueNotifier<int>(SettingsEngine.readerLayoutMode);
   static final ValueNotifier<bool> pdfAutoCrop =
@@ -166,6 +168,12 @@ class SettingsController {
   static void setReaderBackgroundColor(Color value) {
     SettingsEngine.setReaderBackgroundColor(value);
     readerBackgroundColor.value = value;
+  }
+
+  /// 设置 PDF 翻页方式（0 左右翻页 / 1 上下滚动 / 2 仿真 / 3 无）。
+  static void setReaderPageMode(int value) {
+    SettingsEngine.setReaderPageMode(value);
+    readerPageMode.value = value;
   }
 
   /// 设置 PDF 布局模式（0 单页 / 1 双页 / 2 单页连续 / 3 双页连续）。

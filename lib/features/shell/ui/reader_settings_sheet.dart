@@ -9,6 +9,7 @@ void _noopBackgroundColorChanged(Color _) {}
 void _noopInt(int _) {}
 void _noopBool(bool _) {}
 void _noopDouble(double _) {}
+void _noop() {}
 
 class ReaderSettingsSheet extends StatefulWidget {
   final int selectedThemeIndex;
@@ -41,6 +42,8 @@ class ReaderSettingsSheet extends StatefulWidget {
   final bool isPdfReader;
   final VoidCallback onClose;
   final VoidCallback? onAddTag;
+  // PDF 专属：重排（切换为单栏连续、页面撑满的阅读模式）
+  final VoidCallback onReflow;
 
   const ReaderSettingsSheet({
     super.key,
@@ -69,6 +72,7 @@ class ReaderSettingsSheet extends StatefulWidget {
     this.onBackgroundColorChanged = _noopBackgroundColorChanged,
     required this.onClose,
     this.onAddTag,
+    this.onReflow = _noop,
   });
 
   @override
@@ -117,13 +121,17 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
         top: false,
         child: ConstrainedBox(
           constraints: BoxConstraints(maxHeight: maxSheetHeight),
-          child: SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                   Row(
                     children: [
                       CupertinoButton(
@@ -340,6 +348,13 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                   ],
                   if (_showMoreSettings) ...[
                     const SizedBox(height: 12),
+                    // 重排：单栏连续、页面撑满，适合手机阅读
+                    _ActionRow(
+                      label: LocalizationEngine.text('pdf_reflow'),
+                      description: LocalizationEngine.text('pdf_reflow_desc'),
+                      onPressed: widget.onReflow,
+                    ),
+                    const SizedBox(height: 12),
                     // 自动裁切
                     _SwitchRow(
                       label: LocalizationEngine.text('pdf_auto_crop'),
@@ -385,52 +400,60 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                     ),
                     const SizedBox(height: 12),
                   ],
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _BottomNavItem(
-                        icon: CupertinoIcons.book,
-                        label: LocalizationEngine.text('reader_nav_catalog'),
-                      ),
-                      _BottomNavItem(
-                        icon: CupertinoIcons.chart_bar_circle,
-                        label: LocalizationEngine.text('reader_nav_progress'),
-                      ),
-                      _BottomNavItem(
-                        icon: CupertinoIcons.square_list,
-                        label: LocalizationEngine.text('reader_nav_notes'),
-                      ),
-                      GestureDetector(
-                        onTap: () => setState(() {
-                          _showAppearanceSettings = !_showAppearanceSettings;
-                          if (_showAppearanceSettings) {
-                            _showMoreSettings = false;
-                          }
-                        }),
-                        child: _BottomNavItem(
-                          icon: CupertinoIcons.paintbrush,
-                          label: LocalizationEngine.text('appearance'),
-                          active: _showAppearanceSettings,
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: () => setState(() {
-                          _showMoreSettings = !_showMoreSettings;
-                          if (_showMoreSettings) {
-                            _showAppearanceSettings = false;
-                          }
-                        }),
-                        child: _BottomNavItem(
-                          icon: CupertinoIcons.ellipsis,
-                          label: LocalizationEngine.text('reader_nav_more'),
-                          active: _showMoreSettings,
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ],
+                ),
               ),
-            ),
+              // 固定底部导航：移出滚动区，切换「外观 / 更多」展开设置内容时始终可见，
+              // 不再被设置内容顶出视口（此前作为滚动 Column 末子会被内容遮挡）。
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _BottomNavItem(
+                      icon: CupertinoIcons.book,
+                      label: LocalizationEngine.text('reader_nav_catalog'),
+                    ),
+                    _BottomNavItem(
+                      icon: CupertinoIcons.chart_bar_circle,
+                      label: LocalizationEngine.text('reader_nav_progress'),
+                    ),
+                    _BottomNavItem(
+                      icon: CupertinoIcons.square_list,
+                      label: LocalizationEngine.text('reader_nav_notes'),
+                    ),
+                    GestureDetector(
+                      onTap: () => setState(() {
+                        _showAppearanceSettings = !_showAppearanceSettings;
+                        if (_showAppearanceSettings) {
+                          _showMoreSettings = false;
+                        }
+                      }),
+                      child: _BottomNavItem(
+                        icon: CupertinoIcons.paintbrush,
+                        label: LocalizationEngine.text('appearance'),
+                        active: _showAppearanceSettings,
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: () => setState(() {
+                        _showMoreSettings = !_showMoreSettings;
+                        if (_showMoreSettings) {
+                          _showAppearanceSettings = false;
+                        }
+                      }),
+                      child: _BottomNavItem(
+                        icon: CupertinoIcons.ellipsis,
+                        label: LocalizationEngine.text('reader_nav_more'),
+                        active: _showMoreSettings,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -490,8 +513,10 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
       final index = entry.key;
       final option = entry.value;
       final isSelected = effectiveBackgroundColor == option.color;
+      // 圆圈尺寸与「主题配色」保持一致：直径 40 / 标签宽 54 / 字号 11 / 间距 8，
+      // 使两行首列左对齐、圆圈同径，视觉统一。
       return Padding(
-        padding: const EdgeInsets.only(right: 6),
+        padding: const EdgeInsets.only(right: 8),
         child: GestureDetector(
           key: ValueKey('reader_background_color_$index'),
           onTap: () {
@@ -499,12 +524,12 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
             SettingsController.setReaderBackgroundColor(option.color);
           },
           child: SizedBox(
-            width: 46,
+            width: 54,
             child: Column(
               children: [
                 Container(
-                  width: 28,
-                  height: 28,
+                  width: 40,
+                  height: 40,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: option.color,
@@ -514,13 +539,13 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 Text(
                   option.label,
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: secondaryColor,
-                    fontSize: 9,
+                    fontSize: 11,
                   ),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
@@ -766,7 +791,7 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                             final option = entry.value;
                             final isSelected = effectiveBackgroundColor == option.color;
                             return Padding(
-                              padding: const EdgeInsets.only(right: 6),
+                              padding: const EdgeInsets.only(right: 8),
                               child: GestureDetector(
                                 key: ValueKey('reader_background_color_$index'),
                                 onTap: () {
@@ -774,12 +799,12 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                                   SettingsController.setReaderBackgroundColor(option.color);
                                 },
                                 child: SizedBox(
-                                  width: 46,
+                                  width: 54,
                                   child: Column(
                                     children: [
                                       Container(
-                                        width: 28,
-                                        height: 28,
+                                        width: 40,
+                                        height: 40,
                                         decoration: BoxDecoration(
                                           shape: BoxShape.circle,
                                           color: option.color,
@@ -789,13 +814,13 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                                           ),
                                         ),
                                       ),
-                                      const SizedBox(height: 4),
+                                      const SizedBox(height: 2),
                                       Text(
                                         option.label,
                                         textAlign: TextAlign.center,
                                         style: TextStyle(
                                           color: secondaryColor,
-                                          fontSize: 9,
+                                          fontSize: 11,
                                         ),
                                         maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
@@ -1094,6 +1119,56 @@ class _BottomNavItem extends StatelessWidget {
         const SizedBox(height: 3),
         Text(label, style: TextStyle(fontSize: 9, color: color)),
       ],
+    );
+  }
+}
+
+/// 带标题与描述的动作行（用于重排等一键操作）。
+class _ActionRow extends StatelessWidget {
+  final String label;
+  final String? description;
+  final VoidCallback onPressed;
+
+  const _ActionRow({
+    required this.label,
+    this.description,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final primaryColor = CupertinoTheme.of(context).primaryColor;
+    final labelColor = CupertinoColors.label.resolveFrom(context);
+    final secondaryColor = CupertinoColors.secondaryLabel.resolveFrom(context);
+    return GestureDetector(
+      onTap: onPressed,
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: labelColor,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (description != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    description!,
+                    style: TextStyle(color: secondaryColor, fontSize: 11),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          Icon(CupertinoIcons.chevron_right, size: 16, color: primaryColor),
+        ],
+      ),
     );
   }
 }

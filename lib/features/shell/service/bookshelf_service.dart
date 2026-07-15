@@ -1,9 +1,11 @@
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
+import 'package:flutter/material.dart' show Colors;
 import 'package:flutter/widgets.dart';
-import 'package:pdfx/pdfx.dart';
+import 'package:pdfrx/pdfrx.dart';
 
 import '../model/book_model.dart';
 import '../model/scan_candidate_model.dart';
@@ -310,19 +312,28 @@ class BookshelfService {
     PdfDocument? document;
     try {
       document = await PdfDocument.openFile(filePath);
-      final page = await document.getPage(1);
+      // pdfrx：通过 document.pages 取页（0-based），无需 getPage/close。
+      final page = document.pages[0];
       final pageImage = await page.render(
-        width: page.width.toInt() * 2,
-        height: page.height.toInt() * 2,
-        format: PdfPageImageFormat.png,
+        width: (page.width * 2).round(),
+        height: (page.height * 2).round(),
+        backgroundColor: Colors.white,
       );
-      await page.close();
-      await document.close();
-      return pageImage?.bytes;
+      Uint8List? bytes;
+      if (pageImage != null) {
+        // pdfrx 的 PdfImage 不含原始字节字段，需经 createImage → ui.Image → PNG 字节。
+        final uiImage = await pageImage.createImage();
+        final data = await uiImage.toByteData(format: ui.ImageByteFormat.png);
+        bytes = data?.buffer.asUint8List();
+        uiImage.dispose();
+        pageImage.dispose();
+      }
+      await document.dispose();
+      return bytes;
     } catch (e) {
       if (document != null) {
         try {
-          await document.close();
+          await document.dispose();
         } catch (_) {}
       }
       return null;

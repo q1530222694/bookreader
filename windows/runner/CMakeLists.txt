@@ -38,3 +38,18 @@ target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
+
+# === ONNX Runtime (flutter_onnxruntime) runtime DLL copy ===
+# The plugin's "system" branch links onnxruntime.lib but does NOT copy the runtime
+# DLLs next to the executable. This add_custom_command MUST stay in this file
+# because bookreader is defined here (CMake requires it in the same directory).
+set(ONNXRUNTIME_DLL_DIR "${ONNXRUNTIME_ROOT_DIR}/lib")
+if(EXISTS "${ONNXRUNTIME_DLL_DIR}")
+  file(GLOB ONNXRUNTIME_RUNTIME_DLLS "${ONNXRUNTIME_DLL_DIR}/*.dll")
+  foreach(_ort_dll ${ONNXRUNTIME_RUNTIME_DLLS})
+    add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_ort_dll}"
+              "$<TARGET_FILE_DIR:${BINARY_NAME}>"
+      COMMENT "Copying ONNX Runtime DLL: ${_ort_dll}")
+  endforeach()
+endif()

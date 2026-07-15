@@ -1084,3 +1084,95 @@
 - 新增 Config Key：`app.reader.pdf.layoutMode`(int,0) / `app.reader.pdf.autoCrop`(bool,false) / `app.reader.pdf.bg.brightness`(double,1.0) / `app.reader.pdf.bg.contrast`(double,1.0) / `app.reader.pdf.bg.saturation`(double,1.0) / `app.reader.pdf.bg.removeColor`(bool,false) / `app.reader.pdf.bg.denoise`(bool,false)，均经 `Config` 持久化。
 - 无新增 Permission Key。
 - 行为说明：自动裁切经低分辨率缩略图像素扫描求内容包围盒（缓存复用）后由 pdfx 原生精确裁切；背景调节经 `ColorFilter.matrix`（亮度/对比度/饱和度/灰度）与 `ImageFilter.blur`（去杂色）合成，仅 GPU 滤镜、不重解码；多瓦片并发渲染由 pdfx 文档级锁自动串行化，Android/iOS/Win/Mac 均安全。
+
+### [2026-07-15] 修改：PDF 设置功能生效 + 新增「重排」按钮（回退 PdfView 路径上的 GPU 滤镜叠加层）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/pdf_render_service.dart` (`buildColorMatrix` 纯逻辑，无原生调用)
+  └─ 被注入 ➔ `lib/features/shell/ui/book_viewer_page.dart`（`_buildPdfView` 用 `ColorFiltered`/`ImageFiltered` 包裹 `PdfView`）
+- `lib/features/shell/ui/reader_settings_sheet.dart`（`_ActionRow` + `onReflow` 回调）
+  └─ 被注入 ➔ `lib/features/shell/ui/book_viewer_page.dart`（`_reflow` 置 `layoutMode=2`）
+- `lib/engine/localization_engine.dart`（`pdf_reflow` / `pdf_reflow_desc` 键）
+  └─ 被全局 UI 调用
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增 Config Key / Permission Key（沿用既有 `pdf.*` 设置 Key）。
+- 行为说明：PDF 颜色调整（亮度/对比度/饱和度/去色）经 `PdfRenderService.buildColorMatrix` 合成 `ColorFilter.matrix`，由 `ColorFiltered` 包裹 `PdfView` 施加；智能去杂色经 `ImageFilter.blur` 由 `ImageFiltered` 包裹施加；均为纯 Flutter GPU 合成、无原生调用，Windows 下安全。布局模式单页(0)/单页连续(2) 经 `PdfView.pageSnapping` 实现；双页(1)/双页连续(3) 因 pdfx 官方 `PdfView` 不支持 2-up，降级为单页/单页连续（UI 保留，待自定义渲染管线在 Windows 修复后接入）。自动裁切需自定义渲染管线（Windows 挂死），暂保留开关不生效。重排按钮切换为单栏连续阅读模式（`layoutMode=2`）。
+
+### [2026-07-15] 新增：PDF 重排 / OCR 阶段0 基础（onnxruntime 全平台绑定 + 原生库运行时验证）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/pdf_ocr_service.dart`（新增·OCR 纯逻辑服务）
+  └─ 依赖 ➔ `package:flutter_onnxruntime`（dart:ffi 通用 ONNX 推理，全平台 Win/iOS/Android/macOS/web）
+  └─ 被注入（阶段1/3） ➔ `lib/features/shell/ui/book_viewer_page.dart`（扫描件无文本层时调用 `recognizePage` 取文本，复用同一 `PdfReflowView`）
+- `integration_test/pdf_ocr_test.dart`（新增·原生库运行时验证）
+  └─ 依赖 ➔ `integration_test` / `pdf_ocr_service.dart`
+- `assets/models/`（新增资源目录，当前含 `addition_model.onnx` 冒烟测试模型；阶段3 放 det/rec/dict）
+- `pubspec.yaml`：新增 `flutter_onnxruntime: ^1.7.0`；`image` 由 dev 提升为主依赖；`flutter.assets` 加 `assets/models/`；dev 加 `integration_test`
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增 Config Key / Permission Key。
+- 阶段0 结论：选定 `flutter_onnxruntime`（通用 ONNX 绑定，全平台）以实现 PaddleOCR 流水线（用户要求全平台，故未用仅单平台的 `pp_ocr`/`paddle_ocr_flutter`/`flutter_paddle_ocr`）。已通过 `integration_test` 在真实 Windows 应用嵌入中加载并跑通 onnxruntime 原生推理（断言加法模型输出 [11,22,33]），确认不会像 PDFium 那样挂死。注意：本环境 `flutter test` 不注册原生插件，故验证改用 integration_test。完整 PaddleOCR 检测/识别/字典解码流水线留待阶段3。
+
+### [2026-07-15] 修复：Windows 构建离线化（本地 vendor onnxruntime，解决「加 OCR 后 Windows 起不来」）
+**【问题】**
+- 加入 `flutter_onnxruntime` 后，Windows 选设备调试无窗口、无 Dart 报错（Chrome/web 正常）。根因：插件 `windows/CMakeLists.txt` 默认 `USE_SYSTEM_ONNXRUNTIME=ON`，无系统 onnxruntime 时回退到 **CMake 配置期从 GitHub 下载 `onnxruntime-win-x64-1.22.0.zip`**；构建机拉不到 GitHub 即构建失败、无 exe。
+**【修复】**
+- `windows/third_party/onnxruntime/`：vendor `onnxruntime-win-x64-1.22.0` 的 `include/`+`lib/`（剔除 .pdb，约 13MB），已 gitignore（大二进制不入库，需时按同法重新下载 vendor）。
+- `windows/CMakeLists.txt`：
+  1. `include(flutter/generated_plugins.cmake)` 之前 `set(ONNXRUNTIME_ROOT_DIR ".../third_party/onnxruntime" CACHE PATH FORCE)` → 命中本地副本，不再联网下载；
+  2. 插件 system 分支只链 `.lib` 不拷 `.dll`，新增 `add_custom_command(TARGET bookreader POST_BUILD ...)` 把 `onnxruntime.dll`/`onnxruntime_providers_shared.dll` 拷到 exe 旁（运行时加载所需）。
+**【影响】**
+- 仅 Windows 构建链；web/Android/iOS/macOS/Linux 不受影响。阶段3 接入真实 PaddleOCR 模型沿用同一 vendor 目录。
+- 无新增 Config Key / Permission Key。
+
+### [2026-07-15] 修复：Windows 构建真因 = `add_custom_command(TARGET bookreader)` 写错目录
+**【问题】**
+- 上一轮离线化后 `flutter run -d windows` 报 `CMake Error at CMakeLists.txt:86 (add_custom_command): TARGET 'bookreader' was not created in this directory.` + `Unable to generate build files`。根因：本人在顶层 `windows/CMakeLists.txt` 写了 `add_custom_command(TARGET bookreader POST_BUILD ...)` 拷 onnxruntime DLL，但 `bookreader` target 定义在 `runner/CMakeLists.txt`（经 `add_subdirectory("runner")`）；CMake 要求该命令与 target 同目录 → 配置阶段直接失败，构建文件都生成不了（故 `flutter_onnxruntime_plugin.dll` 一直没编出、`bookreader.exe` 停在 Jul 3 只是陈旧产物，并非插件编译错）。
+**【修复】**
+- `windows/CMakeLists.txt`：把 `set(ONNXRUNTIME_ROOT_DIR ... CACHE PATH FORCE)` **移到 `add_subdirectory("runner")` 之前**（runner 与插件均可见本地路径）；删除顶层非法的 `add_custom_command(TARGET bookreader ...)`，仅保留 `file(GLOB ONNXRUNTIME_RUNTIME_DLLS ...)` 供 install() 用。
+- `windows/runner/CMakeLists.txt`：把 `add_custom_command(TARGET bookreader POST_BUILD copy_if_different *.dll)` 挪到此处（bookreader 定义处），把 `onnxruntime.dll`/`onnxruntime_providers_shared.dll` 拷到 exe 旁。
+- 保留 `/WX-` 防御（无害）。
+- 用户需 `flutter clean` 后 `flutter run -d windows`（清掉上次失败的陈旧缓存）。
+**【经验】**
+- `add_custom_command(TARGET <t> ...)` 必须写在定义 `<t>` 的那个 CMakeLists.txt（同目录）。给 exe 拷 DLL 应放在 `runner/CMakeLists.txt`。
+- 无新增 Config Key / Permission Key。
+
+## [2026-07-15 下午] PDF 设置 4 项缺陷修复（翻页/圆圈对齐/底部按钮/裁切去杂色重排）
+**背景**：用户反馈 PDF 设置里 4 个问题：① 翻页方式/布局无真实效果；② 主题配色圈与阅读背景圈大小不一、未对齐；③ 点「外观」时底部 5 导航按钮被设置内容遮挡；④ 自动裁切/去杂色/重排未生效、图片扫描件未真正重排。
+**修改文件**：
+- `lib/engine/settings_engine.dart`：新增 Config Key `readerPageMode`（int，默认0）+ getter/setter，补齐「翻页方式」持久化。
+- `lib/features/shell/controller/settings_controller.dart`：新增 `readerPageMode` notifier + `setReaderPageMode`。
+- `lib/features/shell/ui/book_viewer_page.dart`：
+  - 问题①：`_buildPdfView()` 由写死 `Axis.vertical` 改为按 `_selectedPageMode` 推导 `scrollDirection`（0/2 横向、1/3 纵向），按「连续布局 或 上下滚动」推导 `pageSnapping`；`PdfView` 加 `ValueKey` 保证切轴向时干净重建。`_selectedPageMode` 初始化自持久化、回调经控制器落库。
+  - 问题④：`_pageBuilder` 在自动裁切开启时把 PhotoView `initialScale/minScale` 提为 `contained*1.12`（去白边，纯缩放无原生调用）；去杂色 `blur` sigma 0.7→1.4；`_reflow()` 组合「上下滚动+单页连续+自动裁切」。
+- `lib/features/shell/ui/reader_settings_sheet.dart`：
+  - 问题②：阅读背景色圈由 直径28/宽46/字号9/间距6 统一为 直径40/宽54/字号11/间距8（与主题配色一致，PDF 与非 PDF 两处）。
+  - 问题③：PDF 设置面板改为 `Column[Flexible(SingleChildScrollView(内容)), 固定底部导航]`，底部 5 按钮移出滚动区、始终可见。
+**能力边界（如实告知用户）**：
+- pdfx `PdfView` 不支持双栏 2-up，布局「双页/双页连续」仍降级为单页/单页连续；「仿真」翻页无卷曲动画（降级横向翻页）。
+- 自动裁切为「缩放去白边」近似，非逐页内容包围盒精确裁切。
+- 图片扫描件「文字级重排」需 OCR（`recognizePage` 当前空壳，属阶段3 PaddleOCR），当前重排为版式层面（连续滚动+去白边+撑满宽度）。
+**验证**：`flutter analyze` 0 error / 0 warning（仅既有 info 级弃用提示）。沙箱 MSBuild 损坏无法自测运行，需用户 `flutter run -d windows` 实测。
+**Key 变动**：新增 Config Key `app.reader.pdf.pageMode`（无 Permission Key 变动）。
+
+### [2026-07-15] 新增/修改：PDF 阅读器引擎迁移 pdfx → pdfrx（全平台 · 主线 C）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/pdf_render_service.dart`（纯逻辑层：pdfrx 渲染为 ui.Image / 原生子区域精确裁切 / 颜色矩阵合成）
+  └─ 被注入 ➔ `lib/features/shell/ui/pdf_custom_view.dart`（_PdfPageWidget._load 调 renderPageImage；滤镜叠加调 buildColorMatrix）
+- `lib/features/shell/ui/pdf_custom_view.dart`（自建双栏 2-up / 连续滚动 / 横向吸附翻页 / 原生平铺精确裁切 + GPU 滤镜）
+  └─ 被注入 ➔ `lib/features/shell/ui/book_viewer_page.dart`（_buildPdfView 返回 PdfCustomView(document, settings, pageMode, onPageChanged)）
+- `lib/features/shell/service/bookshelf_service.dart`（PDF 封面缩略图改 pdfrx）
+  └─ 依赖 ➔ `package:pdfrx`（openFile → pages[0] → render → createImage → toByteData(png)）
+- `pubspec.yaml`
+  └─ 删除 `pdfx: ^2.9.2`、新增 `pdfrx: ^1.3.5`（与 image / pdf / flutter_onnxruntime 并存）
+- 删除（pdfx 死代码，避免双 PDFium）：`lib/features/shell/ui/pdf_reader_view.dart` / `lib/features/shell/ui/pdf_page_tile.dart` / `test/pdf_fmt_probe_test.dart`
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 新增/修改 Config Key：无（沿用主线 B 既有 7 个 PDF 设置 Key：readerLayoutMode / pdfAutoCrop / pdfBgBrightness / pdfBgContrast / pdfBgSaturation / pdfBgRemoveColor / pdfBgDenoise，及 readerPageMode；引擎替换不改变任何设置项语义）
+- 新增/修改 Permission Key：无
+
+**【迁移要点】**
+- 为什么换：pdfx 官方 `PdfView` 控件不支持自定义版面（双栏 2-up）且未暴露逐页 `cropRect`，导致布局双页降级、自动裁切只能近似缩放去白边。pdfrx 同 PDFium 内核、全平台，提供低层 `PdfDocument/PdfPage/PdfImage` API，可自建版面与原生子区域裁切。
+- 已实现能力：双栏 2-up（封面单页 + 其后对开页）、单页连续滚动、横向吸附翻页（PageView）、原生平铺精确裁切（探针图像素扫描求包围盒 → 高分 render 仅裁内容区）、GPU 滤镜叠加（ColorFiltered/ImageFiltered）、缩放（InteractiveViewer 1.0~4.0）。
+- 仍受限（如实告知）：①「仿真」翻页无书页卷曲动画（pdfrx 不提供，自建 PageView 为横向整页翻页）；② 扫描件文字级重排仍需 OCR（pdf_ocr_service.recognizePage 当前空壳，属阶段3 PaddleOCR 集成），本轮仅版式重排。
+- Windows 构建注意：pdfrx 使用符号链接，需开启「开发者模式」。
+- 验证：`flutter analyze` 全工程 0 error（仅遗留既有 info/warning，非本次引入）。
