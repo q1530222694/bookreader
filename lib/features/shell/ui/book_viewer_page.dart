@@ -482,6 +482,35 @@ class _BookViewerPageState extends State<BookViewerPage>
     });
   }
 
+  /// 一键还原全部裁切设置：裁切模式=0、关闭自动裁边、四边手动边距清零、奇偶页=统一。
+  ///
+  /// 同时落库并广播，使 [PdfCustomView] 收到新的 [PdfReaderSettings] 后自动重渲染。
+  void _resetCrop() {
+    if (!mounted) return;
+    setState(() {
+      _cropMode = 0;
+      _autoCrop = false;
+      _manualCropLeft = 0.0;
+      _manualCropRight = 0.0;
+      _manualCropTop = 0.0;
+      _manualCropBottom = 0.0;
+      _cropOddEvenMode = 0;
+    });
+    SettingsController.setPdfCropMode(0);
+    SettingsController.setPdfAutoCrop(false);
+    SettingsController.setPdfManualCropLeft(0.0);
+    SettingsController.setPdfManualCropRight(0.0);
+    SettingsController.setPdfManualCropTop(0.0);
+    SettingsController.setPdfManualCropBottom(0.0);
+    SettingsController.setPdfCropOddEvenMode(0);
+    // 清除所有页的裁切渲染缓存，确保立即以无裁切状态重绘。
+    if (_pdfDocument != null) {
+      for (var i = 1; i <= _pdfDocument!.pages.length; i++) {
+        PdfRenderService.invalidatePageCache(_pdfDocument!, i);
+      }
+    }
+  }
+
   /// 构建 PDF 阅读视图。
   ///
   /// 重排模式下委托给 [PdfReflowView]（真实文本重排 + 可调排版）；否则委托给自建的
@@ -1038,6 +1067,7 @@ class _BookViewerPageState extends State<BookViewerPage>
                                   .setPdfManualCropBottom(value);
                             }),
                             onSelectCrop: _startCropSelection,
+                            onResetCrop: _resetCrop,
                             dualScreen: _dualScreen,
                             onDualScreenChanged: (value) => setState(() {
                               _dualScreen = value;

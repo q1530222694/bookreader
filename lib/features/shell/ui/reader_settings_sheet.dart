@@ -62,6 +62,8 @@ class ReaderSettingsSheet extends StatefulWidget {
   final ValueChanged<double> onManualCropBottomChanged;
   // PDF 专属：框选裁边回调
   final VoidCallback? onSelectCrop;
+  // PDF 专属：一键还原全部裁切设置（自动裁边/手动四边/奇偶页/裁切模式）
+  final VoidCallback? onResetCrop;
   // PDF 专属：双屏模式
   final bool dualScreen;
   final ValueChanged<bool> onDualScreenChanged;
@@ -123,6 +125,7 @@ class ReaderSettingsSheet extends StatefulWidget {
     this.manualCropBottom = 0.0,
     this.onManualCropBottomChanged = _noopDouble,
     this.onSelectCrop,
+    this.onResetCrop,
     this.dualScreen = false,
     this.onDualScreenChanged = _noopBool,
     this.cropOddEvenMode = 0,
@@ -1374,6 +1377,32 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
   ) {
     return _StyledCard(
       title: LocalizationEngine.text('pdf_crop'),
+      trailing: GestureDetector(
+        onTap: widget.onResetCrop ?? _noop,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+          decoration: BoxDecoration(
+            color: CupertinoColors.systemGrey5.resolveFrom(context),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(CupertinoIcons.refresh,
+                  size: 13, color: primaryColor),
+              const SizedBox(width: 4),
+              Text(
+                LocalizationEngine.text('pdf_crop_reset'),
+                style: TextStyle(
+                  color: primaryColor,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
       children: [
         // 智能自动裁边开关
         _SwitchRow(
@@ -2273,8 +2302,14 @@ class _SliderRow extends StatelessWidget {
 class _StyledCard extends StatelessWidget {
   final String title;
   final List<Widget> children;
+  /// 标题行右侧的可选操作控件（如「一键还原」按钮）。
+  final Widget? trailing;
 
-  const _StyledCard({required this.title, required this.children});
+  const _StyledCard({
+    required this.title,
+    required this.children,
+    this.trailing,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -2293,14 +2328,21 @@ class _StyledCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 卡片标题
-          Text(
-            title,
-            style: TextStyle(
-              color: labelColor,
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-            ),
+          // 卡片标题 + 右侧可选操作
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    color: labelColor,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              if (trailing != null) trailing!,
+            ],
           ),
           const SizedBox(height: 10),
           ...children,

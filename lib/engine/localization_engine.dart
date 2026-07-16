@@ -352,6 +352,7 @@ class LocalizationEngine {
     'pdf_crop_right': {'zh': '右', 'en': 'R'},
     'pdf_crop_top': {'zh': '上', 'en': 'T'},
     'pdf_crop_bottom': {'zh': '下', 'en': 'B'},
+    'pdf_crop_reset': {'zh': '一键还原', 'en': 'Reset All'},
     // 双屏模式
     'pdf_dual_screen': {'zh': '双屏模式', 'en': 'Dual Screen'},
     'pdf_dual_screen_desc': {
