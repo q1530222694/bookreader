@@ -40,16 +40,19 @@ class PdfCustomView extends StatefulWidget {
   });
 
   @override
-  State<PdfCustomView> createState() => _PdfCustomViewState();
+  State<PdfCustomView> createState() => PdfCustomViewState();
 }
 
-class _PdfCustomViewState extends State<PdfCustomView> {
+class PdfCustomViewState extends State<PdfCustomView> {
   /// 每个元素是一“对开页”的 0-based 页码列表（单页为长度1，双页为长度2）。
   late List<List<int>> _spreads;
   PageController? _pageController;
   ScrollController? _scrollController;
   final List<GlobalKey> _spreadKeys = [];
   final GlobalKey _listKey = GlobalKey();
+  // 双屏两栏各自的 State 句柄，用于把进度跳转同时作用到左右两栏。
+  final GlobalKey<DualScreenPaneState> _leftPaneKey = GlobalKey();
+  final GlobalKey<DualScreenPaneState> _rightPaneKey = GlobalKey();
 
   /// 横向翻页方式：左右滑动(0) 与 左右单击(2) 使用横向轴。
   bool get _isHorizontal => widget.pageMode == 0 || widget.pageMode == 2;
@@ -190,6 +193,29 @@ class _PdfCustomViewState extends State<PdfCustomView> {
     }
   }
 
+  /// 由 1-based 页码推导对开页索引（双页模式每两页一对开，单页模式一一对应）。
+  int _pageToSpread(int pageNumber) {
+    final oneBased = pageNumber.clamp(1, widget.document.pages.length);
+    final isTwoPage =
+        widget.settings.layoutMode == 1 || widget.settings.layoutMode == 3;
+    return isTwoPage ? (oneBased - 1) ~/ 2 : (oneBased - 1);
+  }
+
+  /// 对外暴露：跳转到指定页码（1-based）。双屏模式同时滚动左右两栏。
+  void jumpToPage(int pageNumber) {
+    if (widget.settings.dualScreen) {
+      _leftPaneKey.currentState?.jumpToPage(pageNumber);
+      _rightPaneKey.currentState?.jumpToPage(pageNumber);
+      _reportPage(_pageToSpread(pageNumber));
+      return;
+    }
+    _animateToSpread(_pageToSpread(pageNumber));
+  }
+
+  /// 对外暴露：上一页 / 下一页（与点击翻页同行为）。
+  void goPrevPage() => _goPrev();
+  void goNextPage() => _goNext();
+
   /// 点击翻页：根据翻页方式判定前进 / 后退方向。
   void _onTapFlip(TapUpDetails details) {
     final size = MediaQuery.of(context).size;
@@ -212,6 +238,55 @@ class _PdfCustomViewState extends State<PdfCustomView> {
     }
   }
 
+  /// 构建双屏对比视图：左右分屏，各含独立的滚动控制器与页面列表，
+  /// 用于同一文档不同位置的对比阅读（如对照译文与原文、或前后章节对比）。
+  ///
+  /// 布局：水平分割线分隔左/右两栏，每栏为完整的单页连续阅读视图，
+  /// 各自独立滚动（ScrollController 互不干扰），页码独立上报（以左侧为准）。
+  Widget _buildDualScreenView(BuildContext context) {
+    // 双屏模式下强制使用垂直连续滚动（最自然的对比阅读体验）
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final halfW = constraints.maxWidth / 2;
+        final fullH = constraints.maxHeight;
+
+        return Row(
+          children: [
+            // 左半屏
+            Expanded(
+              child: _DualScreenPane(
+                key: _leftPaneKey,
+                document: widget.document,
+                settings: widget.settings,
+                paneWidth: halfW,
+                paneHeight: fullH,
+                spreads: _spreads,
+                onPageChanged: (page) => _reportPage(page),
+              ),
+            ),
+            // 分隔线
+            Container(
+              width: 1,
+              color: CupertinoColors.systemGrey4.resolveFrom(context),
+            ),
+            // 右半屏
+            Expanded(
+              child: _DualScreenPane(
+                key: _rightPaneKey,
+                document: widget.document,
+                settings: widget.settings,
+                paneWidth: halfW,
+                paneHeight: fullH,
+                spreads: _spreads,
+                onPageChanged: (_) {}, // 右侧不主导进度上报
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   void dispose() {
     _disposeControllers();
@@ -221,8 +296,14 @@ class _PdfCustomViewState extends State<PdfCustomView> {
   @override
   Widget build(BuildContext context) {
     final scrollDir = _isHorizontal ? Axis.horizontal : Axis.vertical;
+
+    // ── 双屏模式：左右分屏独立滑动，用于对比阅读 ──
+    if (widget.settings.dualScreen) {
+      return _buildDualScreenView(context);
+    }
+
     // 外层 LayoutBuilder 拿到的是屏幕确定尺寸；而 PageView/ListView 在滚动轴上会给出
-    // 无限约束，单页尺寸必须从外层获取，否则在「上下滚动」模式会出现“无限高度”断言，
+    // 无限约束，单页尺寸必须从外层获取，否则在「上下滚动」模式会出现"无限高度"断言，
     // 或在单页分支误用 Expanded（Center 非 Flex）导致崩溃。
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -281,46 +362,77 @@ class _PdfCustomViewState extends State<PdfCustomView> {
   /// 双页用 [Row] 承载两个 [Expanded]（Row 是 Flex，Expanded 合法），单页直接铺满，
   /// 不再把 [Expanded] 误放进 [Center]（Center 非 Flex，会触发断言/崩溃）。
   /// 连续模式下的页间间隙统一收窄为 [_pageGap]，仅留极细分隔区分页面。
+  /// 连续模式下使用实际页面宽高比推导容器高度，确保页面紧密相连无多余间隙。
   Widget _buildSpread(int index, Axis scrollDir, double pageW, double pageH) {
     final pages = _spreads[index];
     final isTwo = pages.length == 2;
+
+    // 连续模式：按页面实际宽高比计算容器高度，避免强制撑满视口导致的大片空白间隙
+    final bool useNaturalHeight = _isContinuous;
+    double? naturalSpreadH;
+    if (useNaturalHeight && widget.document.pages.isNotEmpty) {
+      // 以首页的宽高比为基准计算显示高度
+      try {
+        final firstPage = widget.document.pages[pages[0]];
+        final pw = firstPage.width.toDouble();
+        final ph = firstPage.height.toDouble();
+        if (pw > 0 && ph > 0) {
+          if (isTwo) {
+            // 双页：每页半宽，高度由宽度与宽高比推导
+            final perW = (pageW - _pageGap) / 2;
+            naturalSpreadH = perW * (ph / pw);
+          } else {
+            // 单页：全宽
+            naturalSpreadH = pageW * (ph / pw);
+          }
+        }
+      } catch (_) {
+        // 页面尺寸获取失败时回退到视口高度
+      }
+    }
+    final effectiveH = naturalSpreadH ?? pageH;
+
     if (isTwo) {
       final perPageWidth = (pageW - _pageGap) / 2;
       return SizedBox(
         width: pageW,
-        height: pageH,
+        height: effectiveH,
         // clipBehavior: none 防止 Row 的溢出被硬裁剪（FittedBox/BoxFit.contain 保证内容不越界，
         // 但 PDF 原始页面可能含极微超出 CropBox/MediaBox 的像素，不应被静默切掉）。
         child: ClipRect(
           clipBehavior: Clip.none,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: _PdfPageWidget(
-                  document: widget.document,
-                  pageIndex: pages[0],
-                  settings: widget.settings,
-                  targetWidth: perPageWidth,
+          // IntrinsicHeight 强制左右两页等高：以较高的一侧为准，较矮的一页垂直居中填充，
+          // 解决「双页时两边页面高度不一致」的问题。
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: _PdfPageWidget(
+                    document: widget.document,
+                    pageIndex: pages[0],
+                    settings: widget.settings,
+                    targetWidth: perPageWidth,
+                  ),
                 ),
-              ),
-              SizedBox(width: _pageGap),
-              Expanded(
-                child: _PdfPageWidget(
-                  document: widget.document,
-                  pageIndex: pages[1],
-                  settings: widget.settings,
-                  targetWidth: perPageWidth,
+                SizedBox(width: _pageGap),
+                Expanded(
+                  child: _PdfPageWidget(
+                    document: widget.document,
+                    pageIndex: pages[1],
+                    settings: widget.settings,
+                    targetWidth: perPageWidth,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       );
     }
     return SizedBox(
       width: pageW,
-      height: pageH,
+      height: effectiveH,
       child: _PdfPageWidget(
         document: widget.document,
         pageIndex: pages[0],
@@ -330,8 +442,8 @@ class _PdfCustomViewState extends State<PdfCustomView> {
     );
   }
 
-  /// 双页 / 连续模式下的页间间隙（逻辑像素）：仅留极细分隔，页面彼此紧邻。
-  static const double _pageGap = 6.0;
+  /// 双页 / 连续模式下的页间间隙（逻辑像素）：极细分隔，页面几乎紧贴。
+  static const double _pageGap = 2.0;
 }
 
 /// 单页渲染瓦片：按需调用 [PdfRenderService] 渲染，并叠加颜色滤镜与缩放。
@@ -365,10 +477,17 @@ class _PdfPageWidgetState extends State<_PdfPageWidget> {
   @override
   void didUpdateWidget(covariant _PdfPageWidget old) {
     super.didUpdateWidget(old);
-    // 仅当自动裁切或目标宽度变化时需要重新渲染；亮度/去色/去杂色等仅由 build 重包滤镜。
+    // 仅当自动裁切、去杂色、手动裁切、目标宽度或奇偶页模式变化时需要重新渲染；
+    // 亮度/去色等仅由 build 重包滤镜。
     if (old.settings.autoCrop != widget.settings.autoCrop ||
         old.settings.denoise != widget.settings.denoise ||
-        old.targetWidth.round() != widget.targetWidth.round()) {
+        old.settings.cropMode != widget.settings.cropMode ||
+        old.settings.manualCropLeft != widget.settings.manualCropLeft ||
+        old.settings.manualCropRight != widget.settings.manualCropRight ||
+        old.settings.manualCropTop != widget.settings.manualCropTop ||
+        old.settings.manualCropBottom != widget.settings.manualCropBottom ||
+        old.targetWidth.round() != widget.targetWidth.round() ||
+        old.settings.cropOddEvenMode != widget.settings.cropOddEvenMode) {
       _load();
     }
   }
@@ -377,16 +496,38 @@ class _PdfPageWidgetState extends State<_PdfPageWidget> {
     if (!mounted) return;
     setState(() => _loading = true);
 
+    final settings = widget.settings;
+    // 根据奇偶页分开裁边模式决定是否对本页应用自动裁切：
+    // cropOddEvenMode: 0=统一(所有页) / 1=仅奇数页 / 2=仅偶数页
+    final int pageNum = widget.pageIndex + 1; // 1-based
+    final bool isOddPage = pageNum % 2 != 0;
+    final effectiveAutoCrop = switch (settings.cropOddEvenMode) {
+      0 => settings.autoCrop,
+      1 => settings.autoCrop && isOddPage,
+      2 => settings.autoCrop && !isOddPage,
+      _ => settings.autoCrop,
+    };
+    // 手动裁边（框选）优先：cropMode==2 且四边任一边有值即启用手动裁切，覆盖自动裁切。
+    final bool useManual = settings.cropMode == 2 &&
+        (settings.manualCropLeft > 0 ||
+            settings.manualCropRight > 0 ||
+            settings.manualCropTop > 0 ||
+            settings.manualCropBottom > 0);
+
     final dpr = ui.PlatformDispatcher.instance.views.first.devicePixelRatio;
     final double renderWidth = (widget.targetWidth * dpr)
         .clamp(200, PdfRenderService.maxRenderWidth.toDouble())
         .toDouble();
     final img = await PdfRenderService.renderPageImage(
       widget.document,
-      widget.pageIndex + 1,
+      pageNum,
       renderWidth: renderWidth,
-      autoCrop: widget.settings.autoCrop,
-      denoise: widget.settings.denoise,
+      autoCrop: useManual ? false : effectiveAutoCrop,
+      denoise: settings.denoise,
+      manualCropLeft: settings.manualCropLeft,
+      manualCropRight: settings.manualCropRight,
+      manualCropTop: settings.manualCropTop,
+      manualCropBottom: settings.manualCropBottom,
     );
     if (!mounted) return;
     setState(() {
@@ -410,7 +551,10 @@ class _PdfPageWidgetState extends State<_PdfPageWidget> {
           )
         : FittedBox(
             fit: BoxFit.contain,
-            alignment: Alignment.topLeft,
+            // 单页模式居中显示；连续/双页模式顶部对齐（由外层 SizedBox 统一高度保证对齐）
+            alignment: widget.settings.layoutMode == 0
+                ? Alignment.center
+                : Alignment.topCenter,
             child: RawImage(image: _image),
           );
 
@@ -424,8 +568,149 @@ class _PdfPageWidgetState extends State<_PdfPageWidget> {
     }
     // 注：原先在此包裹的 InteractiveViewer（pinch 缩放）其手势识别器会拦截单指滑动，
     // 导致 PageView/ListView 无法接收翻页/滚动手势。为保证翻页与滚动正常，已移除该层；
-    // 缩放能力后续将以“不抢占翻页手势”的方式（如仅在已放大态启用）重新接入。
+    // 缩放能力后续将以"不抢占翻页手势"的方式（如仅在已放大态启用）重新接入。
     // 智能去杂色已在 PdfRenderService 渲染期完成（真正的去噪点处理，不靠模糊），此处无需再叠加。
     return child;
+  }
+}
+
+/// 双屏模式下的单栏面板：独立的滚动控制器 + 页面列表，供左/右半屏各持有一个实例。
+///
+/// 每个面板维护自己的 [ScrollController]，实现左右独立滑动对比阅读。
+/// 页面渲染复用 [_PdfPageWidget] 与 [PdfRenderService]，无重复渲染逻辑。
+class _DualScreenPane extends StatefulWidget {
+  final PdfDocument document;
+  final PdfReaderSettings settings;
+  final double paneWidth;
+  final double paneHeight;
+  final List<List<int>> spreads;
+  final ValueChanged<int>? onPageChanged;
+
+  const _DualScreenPane({
+    super.key,
+    required this.document,
+    required this.settings,
+    required this.paneWidth,
+    required this.paneHeight,
+    required this.spreads,
+    this.onPageChanged,
+  });
+
+  @override
+  State<_DualScreenPane> createState() => DualScreenPaneState();
+}
+
+class DualScreenPaneState extends State<_DualScreenPane> {
+  late ScrollController _scrollController;
+  final GlobalKey _listKey = GlobalKey();
+  // 每个面板独立的 GlobalKey 列表（切勿复用外层 _spreadKeys，否则双屏两栏重复 key 崩溃）。
+  late final List<GlobalKey> _paneKeys;
+  // 展平后的页码列表：双页布局下 [_spreads] 为成对页码，对比阅读需逐页展示，故展平。
+  late final List<int> _flatPages;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = ScrollController();
+    _flatPages = [for (final s in widget.spreads) ...s];
+    _paneKeys = List.generate(_flatPages.length, (_) => GlobalKey());
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  /// 跳转到指定页码（1-based）：用 Scrollable.ensureVisible 把对应页滚入视口顶部。
+  void jumpToPage(int pageNumber) {
+    final idx = pageNumber - 1; // _flatPages 为 0-based 逐页
+    if (idx < 0 || idx >= _flatPages.length) return;
+    final ctx = _paneKeys[idx].currentContext;
+    if (ctx != null) {
+      Scrollable.ensureVisible(
+        ctx,
+        alignment: 0.0,
+        duration: const Duration(milliseconds: 300),
+      );
+    }
+  }
+
+  void _reportVisiblePage() {
+    final viewportBox =
+        _listKey.currentContext?.findRenderObject() as RenderBox?;
+    if (viewportBox == null) return;
+    final top = viewportBox.localToGlobal(Offset.zero).dy;
+    int best = 0;
+    double bestDist = double.infinity;
+    for (int i = 0; i < _paneKeys.length; i++) {
+      final box =
+          _paneKeys[i].currentContext?.findRenderObject() as RenderBox?;
+      if (box == null) continue;
+      final dy = box.localToGlobal(Offset.zero).dy - top;
+      final dist = dy >= 0 ? dy : -dy * 2;
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = i;
+      }
+    }
+    if (best < _flatPages.length) {
+      widget.onPageChanged?.call(_flatPages[best] + 1);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 关键：外层 _buildDualScreenView 用 Row+Expanded 包裹本面板，会把「垂直方向」
+    // 约束放成无界（infinite）。ListView 在垂直轴上收到无界高度会直接抛
+    // "Vertical viewport was given unbounded height" 崩溃。用 SizedBox 给一个
+    // 有界高度（paneHeight = 半屏外的整屏高）即可消除。
+    return SizedBox(
+      height: widget.paneHeight,
+      child: NotificationListener<ScrollNotification>(
+        onNotification: (n) {
+          if (n is ScrollEndNotification) _reportVisiblePage();
+          return false;
+        },
+        child: ListView.builder(
+          key: _listKey,
+          controller: _scrollController,
+          scrollDirection: Axis.vertical,
+          itemCount: _flatPages.length,
+          itemBuilder: (context, i) => KeyedSubtree(
+            key: _paneKeys[i],
+            child: _buildSpreadItem(_flatPages[i]),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSpreadItem(int pageIndex) {
+    final pageW = widget.paneWidth;
+    final pageH = widget.paneHeight;
+
+    // 计算自然高度（基于页面宽高比）
+    double? naturalH;
+    try {
+      final page = widget.document.pages[pageIndex];
+      final pw = page.width.toDouble();
+      final ph = page.height.toDouble();
+      if (pw > 0 && ph > 0) {
+        naturalH = pageW * (ph / pw);
+      }
+    } catch (_) {}
+    final effectiveH = naturalH ?? pageH;
+
+    return SizedBox(
+      width: pageW,
+      height: effectiveH,
+      child: _PdfPageWidget(
+        document: widget.document,
+        pageIndex: pageIndex,
+        settings: widget.settings,
+        targetWidth: pageW,
+      ),
+    );
   }
 }

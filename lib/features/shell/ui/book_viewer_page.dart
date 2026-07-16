@@ -1,8 +1,10 @@
 import 'dart:async';
-import 'dart:ui';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show Colors;
+import 'package:flutter/services.dart' show DeviceOrientation, SystemChrome;
 import 'package:pdfrx/pdfrx.dart';
 
 import '../../../engine/localization_engine.dart';
@@ -47,6 +49,11 @@ class _BookViewerPageState extends State<BookViewerPage>
   DateTime? _sessionStart;
   double? _lastSyncedProgress;
   bool _showSettings = false;
+  // 框选裁边状态
+  bool _showCropSelector = false;
+  Offset? _cropStartPos;
+  Offset? _cropEndPos;
+  int _cropTargetPage = 1; // 框选目标页码（1-based）
   late final AnimationController _settingsController;
   late final Animation<double> _settingsAnimation;
   late final Animation<Offset> _headerOffsetAnimation;
@@ -83,6 +90,12 @@ class _BookViewerPageState extends State<BookViewerPage>
   double _manualCropTop = SettingsEngine.pdfManualCropTop;
   double _manualCropBottom = SettingsEngine.pdfManualCropBottom;
   bool _dualScreen = SettingsEngine.pdfDualScreen;
+  int _cropOddEvenMode = SettingsEngine.pdfCropOddEvenMode;
+
+  // 当前阅读页码（1-based），由翻页回调同步；用于设置面板初始化进度/笔记/书签。
+  int _currentPage = 1;
+  // 阅读视图句柄：设置面板（进度/目录/笔记/搜索）通过它驱动翻页跳转。
+  final GlobalKey<PdfCustomViewState> _pdfViewKey = GlobalKey<PdfCustomViewState>();
 
   @override
   void initState() {
@@ -161,6 +174,7 @@ class _BookViewerPageState extends State<BookViewerPage>
     }
 
     final progress = (page / totalPages).clamp(0.0, 1.0);
+    _currentPage = page;
     if (_lastSyncedProgress != null &&
         (progress - _lastSyncedProgress!).abs() < 0.0001) {
       return;
@@ -297,6 +311,23 @@ class _BookViewerPageState extends State<BookViewerPage>
     }
   }
 
+  /// 横屏模式开关：开启时锁定为横屏，关闭时恢复跟随系统（竖屏优先）。
+  void _toggleLandscape(bool enabled) {
+    if (enabled) {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+    } else {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+    }
+  }
+
   void _handleCenterTap() {
     if (_tapDetectionTimer != null) {
       _tapDetectionTimer!.cancel();
@@ -327,14 +358,22 @@ class _BookViewerPageState extends State<BookViewerPage>
         removeColor: _removeColor,
         denoise: _denoise,
         dualScreen: _dualScreen,
+        cropOddEvenMode: _cropOddEvenMode,
       );
 
   /// 重排：基于 PDF 文本层做「真实重排」（本地、无损、跨平台、流畅）。
   ///
-  /// 经 [PdfTextReflowService.extract] 从 [PdfDocument] 取出按阅读顺序排列的真实文本段落，
-  /// 再交由 [PdfReflowView] 以可调字号 / 行距 / 字距 / 段距重新流式排版。提取过程异步进行，
+  /// 切换行为：已在重排中则退出，否则进入重排。经 [PdfTextReflowService.extract] 从
+  /// [PdfDocument] 取出按阅读顺序排列的真实文本段落，再交由 [PdfReflowView] 以可调
+  /// 字号 / 行距 / 字距 / 段距重新流式排版。提取过程异步进行，
   /// 期间显示加载提示；纯图片扫描件（无文本层）会提示改用 OCR。
   Future<void> _reflow() async {
+    // 已在重排中 → 退出重排
+    if (_isReflowing) {
+      _exitReflow();
+      return;
+    }
+    // 未在重排中 → 进入重排
     if (!mounted || _pdfDocument == null) return;
     setState(() {
       _reflowLoading = true;
@@ -375,6 +414,74 @@ class _BookViewerPageState extends State<BookViewerPage>
     });
   }
 
+  /// 开始框选裁边：进入裁边选择模式，在当前页面上手绘画框。
+  void _startCropSelection() {
+    if (!mounted) return;
+    // 取消设置面板
+    if (_showSettings) {
+      _toggleSettings();
+    }
+    setState(() {
+      _showCropSelector = true;
+      _cropStartPos = null;
+      _cropEndPos = null;
+      // 默认对当前阅读进度页进行框选（至少为第1页）
+      _cropTargetPage = (_lastSyncedProgress != null
+              ? (_lastSyncedProgress! * (_pdfDocument?.pages.length ?? 1)).round()
+              : 0)
+          .clamp(1, _pdfDocument?.pages.length ?? 1);
+    });
+  }
+
+  /// 确认框选区域：将屏幕坐标的选区归一化为 0~1 的裁切边距。
+  void _confirmCropSelection() {
+    if (_cropStartPos == null || _cropEndPos == null || !mounted) return;
+
+    final start = _cropStartPos!;
+    final end = _cropEndPos!;
+    // 选区坐标已由 _CropSelectorPage 归一化为页面图像内的 0~1（已考虑 BoxFit.contain
+    // 的偏移与缩放），直接换算为四边边距（%）：left/right 为左右留白，top/bottom 为上下留白。
+    final left = math.min(start.dx, end.dx).clamp(0.0, 1.0);
+    final right = (1.0 - math.max(start.dx, end.dx)).clamp(0.0, 1.0);
+    final top = math.min(start.dy, end.dy).clamp(0.0, 1.0);
+    final bottom = (1.0 - math.max(start.dy, end.dy)).clamp(0.0, 1.0);
+
+    setState(() {
+      _manualCropLeft = left;
+      _manualCropRight = right;
+      _manualCropTop = top;
+      _manualCropBottom = bottom;
+      _cropMode = 2; // 切换到手动裁切模式
+      _autoCrop = false;
+      _showCropSelector = false;
+      _cropStartPos = null;
+      _cropEndPos = null;
+      // 持久化裁切参数
+      SettingsController.setPdfManualCropLeft(left);
+      SettingsController.setPdfManualCropRight(right);
+      SettingsController.setPdfManualCropTop(top);
+      SettingsController.setPdfManualCropBottom(bottom);
+      SettingsController.setPdfCropMode(2);
+      SettingsController.setPdfAutoCrop(false);
+    });
+
+    // 清除该页的缓存以触发重新渲染
+    if (_pdfDocument != null) {
+      PdfRenderService.invalidatePageCache(
+        _pdfDocument!, _cropTargetPage);
+    }
+  }
+
+  /// 取消框选裁边。
+  void _cancelCropSelection() {
+    if (!mounted) return;
+    setState(() {
+      _showCropSelector = false;
+      _cropStartPos = null;
+      _cropEndPos = null;
+    });
+  }
+
   /// 构建 PDF 阅读视图。
   ///
   /// 重排模式下委托给 [PdfReflowView]（真实文本重排 + 可调排版）；否则委托给自建的
@@ -388,11 +495,168 @@ class _BookViewerPageState extends State<BookViewerPage>
       );
     }
     return PdfCustomView(
+      key: _pdfViewKey,
       document: _pdfDocument!,
       settings: _readerSettings,
       pageMode: _selectedPageMode,
       pageAnimation: SettingsEngine.readerPageAnimation,
       onPageChanged: _syncProgress,
+    );
+  }
+
+  /// 框选裁边覆盖层：显示当前页面 + 半透明遮罩 + 手绘画框区域。
+  ///
+  /// 用户在页面上拖拽绘制矩形选区，确认后将选区归一化为裁切边距（左/右/上/下）。
+  /// 顶部显示操作提示栏（取消 / 页码选择 / 确认），底部显示操作说明。
+  Widget _buildCropSelectorOverlay() {
+    final themeColor = CupertinoTheme.of(context).primaryColor;
+    return Stack(
+      children: [
+        // 背景半透明遮罩
+        Container(color: Colors.black.withValues(alpha: 0.6)),
+        // PDF 页面预览（居中显示目标页面）
+        Center(
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 600, maxHeight: 800),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: _pdfDocument != null
+                  ? _CropSelectorPage(
+                      document: _pdfDocument!,
+                      pageNumber: _cropTargetPage,
+                      cropStart: _cropStartPos,
+                      cropEnd: _cropEndPos,
+                      onStart: (pos) => setState(() => _cropStartPos = pos),
+                      onUpdate: (pos) => setState(() => _cropEndPos = pos),
+                    )
+                  : const Center(
+                      child: CupertinoActivityIndicator(),
+                    ),
+            ),
+          ),
+        ),
+        // 顶部操作栏
+        Positioned(
+          top: MediaQuery.of(context).padding.top + 8,
+          left: 16,
+          right: 16,
+          child: SafeArea(
+            top: false,
+            child: Row(
+              children: [
+                // 取消按钮
+                GestureDetector(
+                  onTap: _cancelCropSelection,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: CupertinoColors.systemGrey5.resolveFrom(context),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(CupertinoIcons.xmark, size: 14, color: CupertinoColors.label.resolveFrom(context)),
+                        const SizedBox(width: 4),
+                        Text(LocalizationEngine.text('cancel'), style: const TextStyle(fontSize: 14)),
+                      ],
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                // 目标页码
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: CupertinoColors.systemGrey5.resolveFrom(context),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text(
+                    '${LocalizationEngine.text('pdf_crop_select_page')} $_cropTargetPage',
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // 切换上一页/下一页
+                GestureDetector(
+                  onTap: () {
+                    if (_cropTargetPage > 1) {
+                      setState(() => _cropTargetPage--);
+                    }
+                  },
+                  child: Container(
+                    width: 32,
+                    height: 32,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: CupertinoColors.systemGrey5.resolveFrom(context),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(CupertinoIcons.chevron_left, size: 16),
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () {
+                    if (_pdfDocument != null && _cropTargetPage < _pdfDocument!.pages.length) {
+                      setState(() => _cropTargetPage++);
+                    }
+                  },
+                  child: Container(
+                    width: 32,
+                    height: 32,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: CupertinoColors.systemGrey5.resolveFrom(context),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(CupertinoIcons.chevron_right, size: 16),
+                  ),
+                ),
+                const Spacer(),
+                // 确认按钮
+                GestureDetector(
+                  onTap: _confirmCropSelection,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: themeColor,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(CupertinoIcons.checkmark, size: 14, color: Colors.white),
+                        const SizedBox(width: 4),
+                        Text(LocalizationEngine.text('confirm'),
+                            style: const TextStyle(fontSize: 14, color: Colors.white)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        // 底部提示
+        Positioned(
+          bottom: MediaQuery.of(context).padding.bottom + 20,
+          left: 0,
+          right: 0,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.7),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                LocalizationEngine.text('pdf_crop_select_hint'),
+                style: const TextStyle(fontSize: 13, color: Colors.white),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -546,6 +810,11 @@ class _BookViewerPageState extends State<BookViewerPage>
                   },
                 ),
               ),
+              // ── 框选裁边覆盖层 ──
+              if (_showCropSelector)
+                Positioned.fill(
+                  child: _buildCropSelectorOverlay(),
+                ),
               if (_showSettings || _settingsController.isAnimating)
                 Positioned.fill(
                   child: AnimatedBuilder(
@@ -557,8 +826,8 @@ class _BookViewerPageState extends State<BookViewerPage>
                         child: GestureDetector(
                           onTap: _toggleSettings,
                           child: Container(
-                            color: Colors.black.withOpacity(
-                              _overlayAnimation.value,
+                            color: Colors.black.withValues(
+                              alpha: _overlayAnimation.value,
                             ),
                           ),
                         ),
@@ -590,7 +859,7 @@ class _BookViewerPageState extends State<BookViewerPage>
                               children: [
                                 CupertinoButton(
                                   padding: EdgeInsets.zero,
-                                  minSize: 0,
+                                  minimumSize: Size.zero,
                                   onPressed: () =>
                                       Navigator.of(context).maybePop(),
                                   child: Icon(
@@ -612,7 +881,7 @@ class _BookViewerPageState extends State<BookViewerPage>
                                     vertical: 4,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: themeColor.withOpacity(0.12),
+                                    color: themeColor.withValues(alpha: 0.12),
                                     borderRadius: BorderRadius.circular(999),
                                   ),
                                   child: const Text('PDF'),
@@ -721,35 +990,72 @@ class _BookViewerPageState extends State<BookViewerPage>
                             manualCropLeft: _manualCropLeft,
                             onManualCropLeftChanged: (value) => setState(() {
                               _manualCropLeft = value;
+                              // 调整手动裁切任一边即切换到手动裁切模式（cropMode=2），
+                              // 否则 _PdfPageWidget 的 useManual 判定（cropMode==2）不会生效。
+                              if (_cropMode != 2) {
+                                _cropMode = 2;
+                                _autoCrop = false;
+                                SettingsController.setPdfCropMode(2);
+                                SettingsController.setPdfAutoCrop(false);
+                              }
                               SettingsController.setPdfManualCropLeft(value);
                             }),
                             manualCropRight: _manualCropRight,
                             onManualCropRightChanged: (value) =>
                                 setState(() {
                               _manualCropRight = value;
+                              if (_cropMode != 2) {
+                                _cropMode = 2;
+                                _autoCrop = false;
+                                SettingsController.setPdfCropMode(2);
+                                SettingsController.setPdfAutoCrop(false);
+                              }
                               SettingsController
                                   .setPdfManualCropRight(value);
                             }),
                             manualCropTop: _manualCropTop,
                             onManualCropTopChanged: (value) => setState(() {
                               _manualCropTop = value;
+                              if (_cropMode != 2) {
+                                _cropMode = 2;
+                                _autoCrop = false;
+                                SettingsController.setPdfCropMode(2);
+                                SettingsController.setPdfAutoCrop(false);
+                              }
                               SettingsController.setPdfManualCropTop(value);
                             }),
                             manualCropBottom: _manualCropBottom,
                             onManualCropBottomChanged: (value) =>
                                 setState(() {
                               _manualCropBottom = value;
+                              if (_cropMode != 2) {
+                                _cropMode = 2;
+                                _autoCrop = false;
+                                SettingsController.setPdfCropMode(2);
+                                SettingsController.setPdfAutoCrop(false);
+                              }
                               SettingsController
                                   .setPdfManualCropBottom(value);
                             }),
-                            onSelectCrop: () {
-                              // TODO: 框选裁边 — 显示书籍画面供手动画框（后续实现）
-                            },
+                            onSelectCrop: _startCropSelection,
                             dualScreen: _dualScreen,
                             onDualScreenChanged: (value) => setState(() {
                               _dualScreen = value;
                               SettingsController.setPdfDualScreen(value);
                             }),
+                            cropOddEvenMode: _cropOddEvenMode,
+                            onCropOddEvenModeChanged: (value) => setState(() {
+                              _cropOddEvenMode = value;
+                              SettingsController.setPdfCropOddEvenMode(value);
+                            }),
+                            // 新增：进度/目录/笔记/搜索所需上下文
+                            bookId: widget.bookId,
+                            document: _pdfDocument,
+                            totalPages: _pdfDocument?.pages.length ?? 0,
+                            currentPage: _currentPage,
+                            onJumpToPage: (page) =>
+                                _pdfViewKey.currentState?.jumpToPage(page),
+                            onToggleLandscape: _toggleLandscape,
                             onAddTag: _showAddTagDialog,
                             onReflow: _reflow,
                             onClose: _toggleSettings,
@@ -766,5 +1072,157 @@ class _BookViewerPageState extends State<BookViewerPage>
       },
     );
   }
+}
 
+/// 框选裁边的页面预览与手势交互组件。
+///
+/// 在指定 PDF 页面上叠加透明手势层，用户拖拽绘制矩形选区。
+/// 选区以半透明色块实时反馈，支持重新绘制（再次拖拽即覆盖上一次结果）。
+class _CropSelectorPage extends StatefulWidget {
+  final PdfDocument document;
+  final int pageNumber; // 1-based
+  final Offset? cropStart;
+  final Offset? cropEnd;
+  final ValueChanged<Offset> onStart;
+  final ValueChanged<Offset> onUpdate;
+
+  const _CropSelectorPage({
+    required this.document,
+    required this.pageNumber,
+    this.cropStart,
+    this.cropEnd,
+    required this.onStart,
+    required this.onUpdate,
+  });
+
+  @override
+  State<_CropSelectorPage> createState() => _CropSelectorPageState();
+}
+
+class _CropSelectorPageState extends State<_CropSelectorPage> {
+  ui.Image? _pageImage;
+  bool _loading = true;
+  // 页面图像在控件内的实际显示区域（BoxFit.contain 后的居中矩形），
+  // 用于把手势坐标换算成图像归一化坐标（0~1），避免按屏幕尺寸归一化导致裁切错位。
+  Rect? _imageRect;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPage();
+  }
+
+  @override
+  void didUpdateWidget(_CropSelectorPage old) {
+    super.didUpdateWidget(old);
+    if (old.pageNumber != widget.pageNumber) {
+      _loadPage();
+    }
+  }
+
+  Future<void> _loadPage() async {
+    setState(() => _loading = true);
+    final dpr = ui.PlatformDispatcher.instance.views.first.devicePixelRatio;
+    // 渲染目标页（不裁切，完整页面用于框选参考）
+    final img = await PdfRenderService.renderPageImage(
+      widget.document,
+      widget.pageNumber,
+      renderWidth: (600 * dpr).clamp(200, PdfRenderService.maxRenderWidth.toDouble()),
+      autoCrop: false,
+      denoise: false,
+    );
+    if (!mounted) return;
+    setState(() {
+      _pageImage = img;
+      _loading = false;
+    });
+  }
+
+  void _handlePanStart(DragStartDetails details) {
+    if (_imageRect == null || _imageRect!.width <= 0 || _imageRect!.height <= 0) {
+      return;
+    }
+    widget.onStart(_localToNorm(details.localPosition, _imageRect!));
+  }
+
+  void _handlePanUpdate(DragUpdateDetails details) {
+    if (_imageRect == null || _imageRect!.width <= 0 || _imageRect!.height <= 0) {
+      return;
+    }
+    widget.onUpdate(_localToNorm(details.localPosition, _imageRect!));
+  }
+
+  /// 计算图像在 box 内以 [BoxFit.contain] 显示时的居中矩形。
+  static Rect _containRect(Size box, Size image) {
+    if (box.width <= 0 || box.height <= 0) return Rect.zero;
+    if (image.width <= 0 || image.height <= 0) return Rect.zero;
+    final scale = math.min(box.width / image.width, box.height / image.height);
+    final w = image.width * scale;
+    final h = image.height * scale;
+    return Rect.fromLTWH((box.width - w) / 2, (box.height - h) / 2, w, h);
+  }
+
+  /// 局部像素坐标 → 图像归一化坐标（0~1）。
+  static Offset _localToNorm(Offset p, Rect r) => Offset(
+        ((p.dx - r.left) / r.width).clamp(0.0, 1.0),
+        ((p.dy - r.top) / r.height).clamp(0.0, 1.0),
+      );
+
+  /// 图像归一化坐标（0~1）→ 局部像素坐标。
+  static Offset _normToLocal(Offset p, Rect r) =>
+      Offset(r.left + p.dx * r.width, r.top + p.dy * r.height);
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading || _pageImage == null) {
+      return const SizedBox(
+        width: 400,
+        height: 560,
+        child: Center(child: CupertinoActivityIndicator()),
+      );
+    }
+    // 用 LayoutBuilder 拿到真实的布局约束（而非 context.size，后者在未首次布局时可能为零/过期），
+    // 避免因 imageRect 尺寸为零导致手势坐标换算出现 Infinity/NaN 进而触发布局断言崩溃。
+    return LayoutBuilder(
+      builder: (ctx, constraints) {
+        _imageRect = _containRect(
+          constraints.biggest,
+          Size(_pageImage!.width.toDouble(), _pageImage!.height.toDouble()),
+        );
+        return GestureDetector(
+          onPanStart: _handlePanStart,
+          onPanUpdate: _handlePanUpdate,
+          behavior: HitTestBehavior.opaque,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // 页面图像
+              RawImage(image: _pageImage, fit: BoxFit.contain),
+              // 选区高亮（半透明蓝色覆盖）：将归一化选区坐标还原为局部像素坐标绘制
+              if (widget.cropStart != null &&
+                  widget.cropEnd != null &&
+                  _imageRect != null &&
+                  _imageRect!.width > 0 &&
+                  _imageRect!.height > 0)
+                Positioned.fromRect(
+                  rect: Rect.fromPoints(
+                    _normToLocal(widget.cropStart!, _imageRect!),
+                    _normToLocal(widget.cropEnd!, _imageRect!),
+                  ),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: CupertinoColors.activeBlue.withValues(alpha: 0.25),
+                      border: Border.all(
+                        color: CupertinoColors.activeBlue,
+                        width: 2,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }

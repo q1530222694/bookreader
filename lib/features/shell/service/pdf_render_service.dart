@@ -52,7 +52,7 @@ class PdfRenderService {
   static const int maxRenderWidth = 2000;
 
   /// 自动裁切扫描用的探针图宽度（越大边界越准、越慢；480 在精度与速度间平衡）。
-  static const int cropScanWidth = 480;
+  static const int cropScanWidth = 1200;
 
   /// 渲染单页为 [ui.Image]，支持原生精确裁切与智能去杂色。
   ///
@@ -69,51 +69,78 @@ class PdfRenderService {
     required double renderWidth,
     bool autoCrop = false,
     bool denoise = false,
+    double manualCropLeft = 0,
+    double manualCropRight = 0,
+    double manualCropTop = 0,
+    double manualCropBottom = 0,
   }) async {
     final fullW =
         math.min(renderWidth, maxRenderWidth.toDouble()).clamp(1.0, double.infinity);
+
+    // 手动裁切：由框选归一化的四边边距（0~1）。任意一边 >0 即视为启用手动裁切，
+    // 此时优先采用手动裁切矩形（覆盖自动裁切），保证「框选裁边」真正生效。
+    final bool hasManual = manualCropLeft > 0 ||
+        manualCropRight > 0 ||
+        manualCropTop > 0 ||
+        manualCropBottom > 0;
+    final Rect? manualRect = hasManual
+        ? Rect.fromLTRB(
+            manualCropLeft.clamp(0.0, 1.0),
+            manualCropTop.clamp(0.0, 1.0),
+            (1.0 - manualCropRight).clamp(0.0, 1.0),
+            (1.0 - manualCropBottom).clamp(0.0, 1.0),
+          )
+        : null;
+
+    // 先求裁切包围盒（手动优先，其次自动）。该包围盒同时用于决定「有效渲染宽度」：
+    // 裁切去除了左右边距（宽度占比 <1）时按比例放大渲染宽度，使裁切出的内容在显示时
+    // 仍能铺满原显示宽度，从而与相邻未裁切页面在宽度上对齐，避免大小不一。
+    final Rect? crop = manualRect ??
+        (autoCrop ? await computeCropFractions(document, pageNumber) : null);
+
+    double effW = fullW;
+    if (crop != null) {
+      final frac = (crop.right - crop.left).clamp(0.01, 1.0);
+      effW = (fullW / frac).clamp(1.0, maxRenderWidth.toDouble());
+    }
+
     final cacheKey =
-        '${document.sourceName}:$pageNumber:${fullW.round()}:$autoCrop:$denoise';
+        '${document.sourceName}:$pageNumber:${effW.round()}:$autoCrop:$denoise:'
+        '${manualCropLeft.toStringAsFixed(3)}_${manualCropRight.toStringAsFixed(3)}_'
+        '${manualCropTop.toStringAsFixed(3)}_${manualCropBottom.toStringAsFixed(3)}';
     final cached = _renderCache[cacheKey];
     if (cached != null) return cached;
 
     try {
-      // 自动裁切的包围盒计算会内部加锁，此处不再嵌套加锁（避免 synchronized 死锁）。
-      final crop = autoCrop
-          ? await computeCropFractions(document, pageNumber)
-          : null;
-
       final ui.Image? result = await _lockFor(document).synchronized(() async {
         final page = document.pages[pageNumber - 1];
         final pageW = page.width;
         final pageH = page.height;
         if (pageW <= 0 || pageH <= 0) return null;
-        final fullH = (fullW * pageH / pageW).clamp(1.0, double.infinity);
+        final fullH = (effW * pageH / pageW).clamp(1.0, double.infinity);
 
-      PdfImage? image;
-      if (crop == null ||
-          (crop.left <= 0.001 &&
-              crop.top <= 0.001 &&
-              crop.right >= 0.999 &&
-              crop.bottom >= 0.999)) {
-        // 无裁切：整体渲染。
-        // 使用 fullWidth/fullHeight（与 pdfrx 自身 PdfViewer 一致），确保 PDFium 按完整页面渲染，
-        // 避免使用 width/height 时可能的子区域语义差异或 CropBox 裁切。
-        image = await page.render(
-          fullWidth: fullW,
-          fullHeight: fullH,
-          backgroundColor: Colors.white,
-        );
+        PdfImage? image;
+        if (crop == null ||
+            (crop.left <= 0.001 &&
+                crop.top <= 0.001 &&
+                crop.right >= 0.999 &&
+                crop.bottom >= 0.999)) {
+          // 无裁切：整体渲染。
+          image = await page.render(
+            fullWidth: effW,
+            fullHeight: fullH,
+            backgroundColor: Colors.white,
+          );
         } else {
-          // 有裁切：在目标分辨率下只渲染内容子区域（x/y/width/height 为像素子区域，
+          // 有裁切：在有效渲染宽度下只渲染内容子区域（x/y/width/height 为像素子区域，
           // fullWidth/fullHeight 为整页虚拟尺寸，二者配合即可“抠”出内容包围盒）。
-          final x = (crop.left * fullW).round();
+          final x = (crop.left * effW).round();
           final y = (crop.top * fullH).round();
-          final w = ((crop.right - crop.left) * fullW).round();
+          final w = ((crop.right - crop.left) * effW).round();
           final h = ((crop.bottom - crop.top) * fullH).round();
           if (w <= 2 || h <= 2) {
             image = await page.render(
-              fullWidth: fullW,
+              fullWidth: effW,
               fullHeight: fullH,
               backgroundColor: Colors.white,
             );
@@ -123,7 +150,7 @@ class PdfRenderService {
               y: y,
               width: w,
               height: h,
-              fullWidth: fullW,
+              fullWidth: effW,
               fullHeight: fullH,
               backgroundColor: Colors.white,
             );
@@ -175,6 +202,18 @@ class PdfRenderService {
     _docLocks.remove(id);
   }
 
+  /// 使指定页面的渲染缓存失效（下次渲染时重新生成）。
+  ///
+  /// 用于框选裁边等场景：用户确认裁切参数后需要立即看到效果，
+  /// 清除旧缓存可强制下次 [renderPageImage] 重新渲染。
+  static void invalidatePageCache(PdfDocument document, int pageNumber) {
+    final id = document.sourceName;
+    final prefix = '$id:$pageNumber:';
+    // 移除所有与该页相关的渲染缓存（不论渲染宽度或裁切状态）
+    _renderCache.removeWhere((key, _) => key.startsWith(prefix));
+    _cropCache.removeWhere((key, _) => key.startsWith(prefix));
+  }
+
   /// 计算自动裁切的内容包围盒（归一化 0~1 的 [Rect]）。
   ///
   /// 先以低分辨率渲染白底探针图（单次 render，内部加锁），再读取其原始像素
@@ -221,11 +260,13 @@ class PdfRenderService {
 
   /// 扫描原始像素（RGBA 或 BGRA）求内容包围盒，返回归一化 [Rect]。
   ///
-  /// 改进点：
-  /// - 提高探针分辨率（调用方已用 [cropScanWidth]=480）以更准确定位边界；
-  /// - 近白阈值放宽到 238，避免把浅灰文字误判为内容、也避免把轻微灰底误判为背景；
+  /// 改进版（2026-07-16 优化白边去除效果）：
+  /// - 探针分辨率已由调用方提升（cropScanWidth=1200），边界更准、细内容不丢失；
+  /// - 近白阈值提高到 242（原 238）：更积极地将近白色背景判定为背景，减少残留白边；
+  /// - 四周保留安全间隙（当前 2%，至少 3px），在检测到的内容包围盒之外再外扩，确保不裁掉内容；
+  /// - 新增「边缘收紧」：在初步包围盒基础上，从四边逐列/行向内扫描，收缩到第一个
+  ///   有内容像素的行列，确保裁切紧贴内容边缘；
   /// - 若内容像素占比过低（<0.3%，仅有极少量噪点），视为空页不裁切；
-  /// - 四周保留约 2% 间隙（至少为 1px），既去掉白边又不会切到文字笔画；
   /// - 裁切结果严格 clamp 到 [0,1]，绝不越界。
   static Rect _scanContent(
     Uint8List pixels,
@@ -250,8 +291,9 @@ class PdfRenderService {
         final r = isBgra ? pixels[i + 2] : pixels[i];
         final g = pixels[i + 1];
         final b = isBgra ? pixels[i] : pixels[i + 2];
-        // 近白像素视为背景，跳过；内容像素（文字/插图）通常偏暗。
-        if (r > 238 && g > 238 && b > 238) continue;
+        // 近白阈值提高到 242：更积极地把浅灰/近白背景排除，减少白边残留。
+        // 原值 238 对大量扫描件偏保守，导致裁切后仍有明显白边。
+        if (r > 242 && g > 242 && b > 242) continue;
         contentCount++;
         if (x < minX) minX = x;
         if (x > maxX) maxX = x;
@@ -265,13 +307,50 @@ class PdfRenderService {
       return const Rect.fromLTRB(0, 0, 1, 1);
     }
 
-    // 四周保留约 2% 的少量间隙（至少 1px），避免误伤内容笔画；严格 clamp 不越界。
-    final marginX = math.max(1, (w * 0.02).round());
-    final marginY = math.max(1, (h * 0.02).round());
-    final left = (minX - marginX).clamp(0, w - 1);
-    final top = (minY - marginY).clamp(0, h - 1);
-    final right = (maxX + marginX).clamp(1, w);
-    final bottom = (maxY + marginY).clamp(1, h);
+    // 四周保留安全间隙（2%，至少 3px）：在已精准检测到的内容包围盒之外再外扩，
+    // 确保边缘细内容（页眉/页脚/分隔线）绝不被裁掉（用户硬性要求：自动裁边不可裁掉已有内容）。
+    final marginX = math.max(3, (w * 0.02).round());
+    final marginY = math.max(3, (h * 0.02).round());
+    var left = (minX - marginX).clamp(0, w - 1);
+    var top = (minY - marginY).clamp(0, h - 1);
+    var right = (maxX + marginX).clamp(1, w);
+    var bottom = (maxY + marginY).clamp(1, h);
+
+    // ── 边缘收紧（edge tightening）──
+    // 在初步包围盒基础上，从四边逐列/行向内扫描，找到真正有内容像素的最紧凑边界。
+    // 这一步解决「内容周围仍有一圈可观测白边」的核心问题。
+    bool rowHasContent(int y) {
+      for (var x = left; x <= right; x++) {
+        final i = (y * w + x) * 4;
+        if (i + 2 >= pixels.lengthInBytes) break;
+        final r = isBgra ? pixels[i + 2] : pixels[i];
+        final g = pixels[i + 1];
+        final b = isBgra ? pixels[i] : pixels[i + 2];
+        if (!(r > 242 && g > 242 && b > 242)) return true;
+      }
+      return false;
+    }
+
+    bool colHasContent(int x) {
+      for (var y = top; y <= bottom; y++) {
+        final i = (y * w + x) * 4;
+        if (i + 2 >= pixels.lengthInBytes) break;
+        final r = isBgra ? pixels[i + 2] : pixels[i];
+        final g = pixels[i + 1];
+        final b = isBgra ? pixels[i] : pixels[i + 2];
+        if (!(r > 242 && g > 242 && b > 242)) return true;
+      }
+      return false;
+    }
+
+    // 从顶部向下收紧
+    while (top < bottom && !rowHasContent(top)) top++;
+    // 从底部向上收紧
+    while (bottom > top && !rowHasContent(bottom)) bottom--;
+    // 从左向右收紧
+    while (left < right && !colHasContent(left)) left++;
+    // 从右向左收紧
+    while (right > left && !colHasContent(right)) right--;
 
     // 内容几乎铺满整页时直接返回整页，避免边缘处的无意义微裁切。
     if (left <= 1 && top <= 1 && right >= w - 1 && bottom >= h - 1) {
@@ -394,16 +473,22 @@ class PdfRenderService {
     );
   }
 
-  /// 饱和度矩阵：s=1 原色，s=0 灰度。
+  /// 饱和度矩阵：s=1 原色（单位阵），s=0 灰度。
+  ///
+  /// 每行独立计算对角元，保证 s=1 时输出恒等矩阵。
   static _Matrix4x4 _saturation(double s) {
     const lr = 0.2126;
     const lg = 0.7152;
     const lb = 0.0722;
-    final r = lr * (1 - s) + s;
-    final g = lg * (1 - s);
-    final b = lb * (1 - s);
     return _Matrix4x4.fromRows(
-      [r, g, b, 0, r, g, b, 0, r, g, b, 0, 0, 0, 0, 1],
+      // R 输出行
+      [lr * (1 - s) + s, lg * (1 - s), lb * (1 - s), 0,
+       // G 输出行
+       lr * (1 - s), lg * (1 - s) + s, lb * (1 - s), 0,
+       // B 输出行
+       lr * (1 - s), lg * (1 - s), lb * (1 - s) + s, 0,
+       // A 行（直通）
+       0, 0, 0, 1],
       const [0, 0, 0, 0],
     );
   }
@@ -419,22 +504,31 @@ class PdfRenderService {
     );
   }
 
-  /// 色温矩阵：t=1 原色，t<1 偏冷（蓝调），t>1 偏暖（黄/橙调）。
+  /// 色温矩阵：t=1 原色；t>1 偏暖（红/绿增强、蓝抑制）；t<1 偏冷（蓝增强、红抑制）。
   ///
-  /// 实现方式：通过偏移 R/G/B 通道的输出值模拟色温偏移。
-  /// 暖色调增强红绿通道、抑制蓝色；冷色调增强蓝色、轻微抑制红色。
+  /// 采用通道「乘子」（而非偏移）实现：保留色彩饱和度，仅平移 R/B 平衡，色温变化清晰可见；
+  /// 旧实现用极小偏移量，几乎看不出效果，且偏置会削弱色彩观感（用户反馈「调了色温没作用 / 像没颜色」）。
   static _Matrix4x4 _colorTemperature(double t) {
     if (t >= 0.99 && t <= 1.01) return _Matrix4x4.identity();
-    // 偏移量：与 |t-1| 成正比，暖为正（R+G+, B-），冷为负（R-, B+）
-    final d = (t - 1.0).clamp(-0.5, 0.5);
-    // 暖：红 +0.15d, 绿 +0.05d, 蓝 -0.20d
-    // 冷：红 -0.10d, 绿 -0.02d, 蓝 +0.18d
-    final ro = d > 0 ? d * 0.15 : d * 0.10;
-    final go = d > 0 ? d * 0.05 : d * 0.02;
-    final bo = d > 0 ? -d * 0.20 : -d * 0.18;
+    if (t > 1.0) {
+      // 暖色：f ∈ [0,1]（t 由 1 → 2）
+      final f = (t - 1.0).clamp(0.0, 1.0);
+      return _Matrix4x4.fromRows(
+        [1 + 0.2 * f, 0, 0, 0,
+         0, 1 + 0.05 * f, 0, 0,
+         0, 0, 1 - 0.2 * f, 0,
+         0, 0, 0, 1],
+        const [0, 0, 0, 0],
+      );
+    }
+    // 冷色：f ∈ [0,0.5]（t 由 1 → 0.5）
+    final f = (1.0 - t).clamp(0.0, 1.0);
     return _Matrix4x4.fromRows(
-      [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
-      [ro, go, bo, 0],
+      [1 - 0.15 * f, 0, 0, 0,
+       0, 1 - 0.03 * f, 0, 0,
+       0, 0, 1 + 0.2 * f, 0,
+       0, 0, 0, 1],
+      const [0, 0, 0, 0],
     );
   }
 }

@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 void _noopInt(int _) {}
 void _noopDouble(double _) {}
 void _noopColor(Color _) {}
+void _noopBool(bool _) {}
 void _noop() {}
 
 void main() {
@@ -102,6 +103,11 @@ void main() {
             onPageModeChanged: _noopInt,
             onBackgroundColorChanged: _noopColor,
             onClose: _noop,
+            bookId: 'test',
+            totalPages: 100,
+            currentPage: 1,
+            onJumpToPage: _noopInt,
+            onToggleLandscape: _noopBool,
           ),
         ),
       ),
@@ -140,6 +146,11 @@ void main() {
             onPageModeChanged: _noopInt,
             onBackgroundColorChanged: _noopColor,
             onClose: _noop,
+            bookId: 'test',
+            totalPages: 100,
+            currentPage: 1,
+            onJumpToPage: _noopInt,
+            onToggleLandscape: _noopBool,
           ),
         ),
       ),
@@ -169,6 +180,11 @@ void main() {
             onPageModeChanged: _noopInt,
             onBackgroundColorChanged: (color) => selectedColor = color,
             onClose: _noop,
+            bookId: 'test',
+            totalPages: 100,
+            currentPage: 1,
+            onJumpToPage: _noopInt,
+            onToggleLandscape: _noopBool,
           ),
         ),
       ),

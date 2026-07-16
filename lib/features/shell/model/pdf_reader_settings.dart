@@ -43,6 +43,10 @@ class PdfReaderSettings {
   /// 双屏模式：左右分屏独立滑动对比阅读
   final bool dualScreen;
 
+  /// 奇偶页分开裁边模式：0=统一裁切（所有页用相同边距）/ 1=仅奇数页生效 /
+  /// 2=仅偶数页生效。当不为0时，不匹配的页面不应用手动/框选裁切。
+  final int cropOddEvenMode;
+
   const PdfReaderSettings({
     this.layoutMode = 0,
     this.cropMode = 0,
@@ -58,6 +62,7 @@ class PdfReaderSettings {
     this.removeColor = false,
     this.denoise = false,
     this.dualScreen = false,
+    this.cropOddEvenMode = 0,
   });
 
   /// 派生新实例（不可变更新）。
@@ -76,6 +81,7 @@ class PdfReaderSettings {
     bool? removeColor,
     bool? denoise,
     bool? dualScreen,
+    int? cropOddEvenMode,
   }) {
     return PdfReaderSettings(
       layoutMode: layoutMode ?? this.layoutMode,
@@ -92,6 +98,7 @@ class PdfReaderSettings {
       removeColor: removeColor ?? this.removeColor,
       denoise: denoise ?? this.denoise,
       dualScreen: dualScreen ?? this.dualScreen,
+      cropOddEvenMode: cropOddEvenMode ?? this.cropOddEvenMode,
     );
   }
 
@@ -124,6 +131,7 @@ class PdfReaderSettings {
         'autoCrop:$autoCrop, manualCropLTRB:($manualCropLeft,$manualCropRight,$manualCropTop,$manualCropBottom), '
         'brightness:$brightness, contrast:$contrast, saturation:$saturation, '
         'colorTemp:$colorTemperature, removeColor:$removeColor, denoise:$denoise, '
-        'dualScreen:$dualScreen)';
+        'dualScreen:$dualScreen, '
+        'cropOddEvenMode:$cropOddEvenMode)';
   }
 }

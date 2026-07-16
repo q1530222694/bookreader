@@ -1,9 +1,13 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show Icons;
 
+import 'dart:async';
+
 import '../../../engine/localization_engine.dart';
 import '../../../engine/settings_engine.dart';
 import '../controller/settings_controller.dart';
+import '../service/reader_data_service.dart';
+import 'package:pdfrx/pdfrx.dart';
 
 void _noopBackgroundColorChanged(Color _) {}
 void _noopInt(int _) {}
@@ -61,6 +65,17 @@ class ReaderSettingsSheet extends StatefulWidget {
   // PDF 专属：双屏模式
   final bool dualScreen;
   final ValueChanged<bool> onDualScreenChanged;
+  // PDF 专属：奇偶页分开裁边（0=统一 / 1=仅奇数页 / 2=仅偶数页）
+  final int cropOddEvenMode;
+  final ValueChanged<int> onCropOddEvenModeChanged;
+
+  // 进度 / 目录 / 笔记 / 搜索 所需上下文
+  final String bookId;
+  final PdfDocument? document;
+  final int totalPages;
+  final int currentPage;
+  final ValueChanged<int> onJumpToPage;
+  final ValueChanged<bool> onToggleLandscape;
 
   final bool isPdfReader;
   final VoidCallback onClose;
@@ -110,6 +125,14 @@ class ReaderSettingsSheet extends StatefulWidget {
     this.onSelectCrop,
     this.dualScreen = false,
     this.onDualScreenChanged = _noopBool,
+    this.cropOddEvenMode = 0,
+    this.onCropOddEvenModeChanged = _noopInt,
+    required this.bookId,
+    this.document,
+    required this.totalPages,
+    required this.currentPage,
+    required this.onJumpToPage,
+    required this.onToggleLandscape,
     this.isPdfReader = false,
     this.onBackgroundColorChanged = _noopBackgroundColorChanged,
     required this.onClose,
@@ -123,8 +146,593 @@ class ReaderSettingsSheet extends StatefulWidget {
 }
 
 class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
+  // 底部导航选中项：0=目录 1=进度 2=笔记 3=外观 4=更多（默认外观，保持打开即见）。
+  int _selectedNav = 3;
+  // 电子书（非 PDF）分支沿用旧的两段式开关（更多面板），避免改动其外观常驻布局。
   bool _showMoreSettings = false;
-  bool _showAppearanceSettings = false;
+
+  // ───── 目录（PDF 内置 outline）─────
+  List<PdfOutlineNode>? _outline;
+  bool _outlineLoading = false;
+
+  // ───── 笔记 / 书签（按 bookId 持久化）─────
+  List<NoteItem>? _notes;
+  List<BookmarkItem>? _bookmarks;
+
+  // ───── 搜索（PDF 全文）─────
+  final TextEditingController _searchController = TextEditingController();
+  List<int> _searchResults = const [];
+  bool _searching = false;
+  // 横屏模式开关的本地镜像（父级为 true 时由 onToggleLandscape 同步）。
+  bool _landscapeOn = false;
+  // 进度：滑块当前值（1-based 页码），用于进度条与微调按钮。
+  double _progressValue = 1.0;
+  // 进度：页码输入框控制器。
+  final TextEditingController _pageInputController = TextEditingController();
+  // 搜索防抖计时器。
+  Timer? _searchDebounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _progressValue = widget.currentPage
+        .toDouble()
+        .clamp(1, widget.totalPages <= 0 ? 1 : widget.totalPages)
+        .toDouble();
+    _loadOutline();
+    _loadNotes();
+    _loadBookmarks();
+  }
+
+  Future<void> _loadOutline() async {
+    if (widget.document == null) return;
+    if (mounted) setState(() => _outlineLoading = true);
+    try {
+      final list = await widget.document!.loadOutline();
+      if (mounted) setState(() => _outline = list);
+    } catch (e) {
+      if (mounted) setState(() => _outline = const []);
+    } finally {
+      if (mounted) setState(() => _outlineLoading = false);
+    }
+  }
+
+  Future<void> _loadNotes() async {
+    final list = await ReaderDataStore.loadNotes(widget.bookId);
+    if (mounted) setState(() => _notes = list);
+  }
+
+  Future<void> _loadBookmarks() async {
+    final list = await ReaderDataStore.loadBookmarks(widget.bookId);
+    if (mounted) setState(() => _bookmarks = list);
+  }
+
+  /// 全文搜索：逐页 loadText 匹配关键字，收集命中的 1-based 页码。
+  Future<void> _runSearch(String q) async {
+    q = q.trim();
+    if (q.isEmpty || widget.document == null) {
+      if (mounted) setState(() => _searchResults = const []);
+      return;
+    }
+    if (mounted) setState(() {
+      _searching = true;
+      _searchResults = const [];
+    });
+    final results = <int>[];
+    final pages = widget.document!.pages;
+    final needle = q.toLowerCase();
+    for (int i = 0; i < pages.length; i++) {
+      if (!mounted) return;
+      try {
+        final text = await pages[i].loadText();
+        if (text.fullText.toLowerCase().contains(needle)) results.add(i + 1);
+      } catch (_) {
+        // 个别页无文本层，跳过
+      }
+    }
+    if (mounted) setState(() {
+      _searchResults = results;
+      _searching = false;
+    });
+  }
+
+  /// 递归展平 outline 树为带缩进层级的列表，便于在目录面板渲染。
+  List<_OutlineEntry> _flattenOutline(List<PdfOutlineNode> nodes, int depth) {
+    final out = <_OutlineEntry>[];
+    for (final n in nodes) {
+      out.add(_OutlineEntry(node: n, depth: depth));
+      if (n.children.isNotEmpty) {
+        out.addAll(_flattenOutline(n.children, depth + 1));
+      }
+    }
+    return out;
+  }
+
+  // ────────────────────────────────────────────────────────────────
+  // 新增面板：目录 / 进度 / 笔记
+  // ────────────────────────────────────────────────────────────────
+
+  Widget _buildNotSupportedPanel() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 40),
+      child: Center(
+        child: Text(
+          LocalizationEngine.text('reader_catalog_empty'),
+          style: TextStyle(
+            color: CupertinoColors.secondaryLabel.resolveFrom(context),
+            fontSize: 13,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyPanel(String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 40),
+      child: Center(
+        child: Text(
+          text,
+          style: TextStyle(
+            color: CupertinoColors.secondaryLabel.resolveFrom(context),
+            fontSize: 13,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 目录面板：展示 PDF 内置 outline（书签）树，点击跳页。
+  Widget _buildCatalogPanel(
+    BuildContext context,
+    Color primaryColor,
+    Color labelColor,
+    Color secondaryColor,
+    Color borderColor,
+  ) {
+    if (!widget.isPdfReader || widget.document == null) {
+      return _buildNotSupportedPanel();
+    }
+    if (_outlineLoading) {
+      return const Center(child: CupertinoActivityIndicator());
+    }
+    final entries =
+        _outline == null ? const <_OutlineEntry>[] : _flattenOutline(_outline!, 0);
+    if (entries.isEmpty) {
+      return _buildEmptyPanel(LocalizationEngine.text('reader_catalog_empty'));
+    }
+    return ListView.separated(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: entries.length,
+      separatorBuilder: (_, __) =>
+          Container(height: 1, color: borderColor),
+      itemBuilder: (context, i) {
+        final e = entries[i];
+        final page = e.node.dest?.pageNumber ?? 0;
+        return GestureDetector(
+          onTap: page > 0 ? () => widget.onJumpToPage(page) : null,
+          child: Container(
+            padding: EdgeInsets.only(
+              left: 12.0 * e.depth,
+              top: 11,
+              bottom: 11,
+              right: 12,
+            ),
+            color: page > 0
+                ? null
+                : CupertinoColors.systemGrey6.resolveFrom(context),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    e.node.title.isEmpty ? '(无标题)' : e.node.title,
+                    style: TextStyle(color: labelColor, fontSize: 14),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (page > 0) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: primaryColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      '$page',
+                      style: TextStyle(color: primaryColor, fontSize: 12),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _jumpToInputPage() {
+    final raw = int.tryParse(_pageInputController.text.trim());
+    if (raw == null) return;
+    final max = widget.totalPages <= 0 ? 1 : widget.totalPages;
+    final target = raw.clamp(1, max);
+    _pageInputController.text = '$target';
+    setState(() => _progressValue = target.toDouble());
+    widget.onJumpToPage(target);
+  }
+
+  void _onSearchChanged(String q) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 400), () {
+      _runSearch(q);
+    });
+  }
+
+  Future<void> _addBookmarkCurrent() async {
+    final page = _progressValue.round();
+    final list = await ReaderDataStore.addBookmark(
+      widget.bookId,
+      pageNumber: page,
+    );
+    if (mounted) setState(() => _bookmarks = list);
+  }
+
+  Future<void> _removeBookmark(int pageNumber) async {
+    final list =
+        await ReaderDataStore.deleteBookmark(widget.bookId, pageNumber);
+    if (mounted) setState(() => _bookmarks = list);
+  }
+
+  /// 进度面板：页码输入 + 拖动条(微调按钮) + 搜索 + 书签。
+  Widget _buildProgressPanel(
+    BuildContext context,
+    Color primaryColor,
+    Color labelColor,
+    Color secondaryColor,
+    Color borderColor,
+  ) {
+    if (!widget.isPdfReader) return _buildNotSupportedPanel();
+    final total = widget.totalPages <= 0 ? 1 : widget.totalPages;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 页码输入 + 跳转
+        Row(
+          children: [
+            Expanded(
+              child: CupertinoTextField(
+                controller: _pageInputController,
+                keyboardType: TextInputType.number,
+                placeholder:
+                    '${LocalizationEngine.text('reader_nav_progress')} (1-$total)',
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: CupertinoColors.systemGrey6.resolveFrom(context),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                onSubmitted: (_) => _jumpToInputPage(),
+              ),
+            ),
+            const SizedBox(width: 8),
+            CupertinoButton(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              onPressed: _jumpToInputPage,
+              child: Text(LocalizationEngine.text('reader_go_to_page')),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        // 进度条 + 微调（仿画面增强圆角卡片）
+        _StyledCard(
+          title: LocalizationEngine.text('reader_nav_progress'),
+          children: [
+            _FineTuneSliderRow(
+              label: '',
+              value: _progressValue,
+              min: 1,
+              max: total.toDouble(),
+              step: 1,
+              primaryColor: primaryColor,
+              displayValue: '${_progressValue.round()} / $total',
+              onChanged: (v) {
+                setState(() => _progressValue = v);
+                widget.onJumpToPage(v.round());
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        // 搜索
+        _sectionTitle(context, 'reader_search_tab'),
+        const SizedBox(height: 6),
+        CupertinoTextField(
+          controller: _searchController,
+          placeholder: LocalizationEngine.text('reader_search_placeholder'),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: CupertinoColors.systemGrey6.resolveFrom(context),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          onChanged: _onSearchChanged,
+        ),
+        const SizedBox(height: 8),
+        if (_searching)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Center(child: CupertinoActivityIndicator()),
+          )
+        else if (_searchResults.isNotEmpty)
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _searchResults.length,
+            separatorBuilder: (_, __) =>
+                Container(height: 1, color: borderColor),
+            itemBuilder: (context, i) {
+              final pg = _searchResults[i];
+              return GestureDetector(
+                onTap: () => widget.onJumpToPage(pg),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+                  child: Row(
+                    children: [
+                      Icon(CupertinoIcons.search, size: 16, color: secondaryColor),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${LocalizationEngine.text('reader_nav_progress')} $pg',
+                        style: TextStyle(color: labelColor, fontSize: 14),
+                      ),
+                      const Spacer(),
+                      Icon(CupertinoIcons.chevron_right,
+                          size: 16, color: secondaryColor),
+                    ],
+                  ),
+                ),
+              );
+            },
+          )
+        else if (_searchController.text.trim().isNotEmpty)
+          _buildEmptyPanel(LocalizationEngine.text('reader_search_empty')),
+        const SizedBox(height: 16),
+        // 书签
+        Row(
+          children: [
+            Expanded(child: _sectionTitle(context, 'reader_bookmarks')),
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              onPressed: _addBookmarkCurrent,
+              child: Text(LocalizationEngine.text('reader_add_bookmark')),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        if (_bookmarks == null)
+          const Center(child: CupertinoActivityIndicator())
+        else if (_bookmarks!.isEmpty)
+          _buildEmptyPanel(LocalizationEngine.text('reader_bookmarks_empty'))
+        else
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _bookmarks!.length,
+            separatorBuilder: (_, __) =>
+                Container(height: 1, color: borderColor),
+            itemBuilder: (context, i) {
+              final b = _bookmarks![i];
+              return GestureDetector(
+                onTap: () => widget.onJumpToPage(b.pageNumber),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+                  child: Row(
+                    children: [
+                      Icon(CupertinoIcons.bookmark, size: 16, color: primaryColor),
+                      const SizedBox(width: 8),
+                      Text(
+                          '${LocalizationEngine.text('reader_nav_progress')} ${b.pageNumber}',
+                          style: TextStyle(color: labelColor, fontSize: 14)),
+                      const Spacer(),
+                      GestureDetector(
+                        onTap: () => _removeBookmark(b.pageNumber),
+                        child: Icon(CupertinoIcons.delete,
+                            size: 18,
+                            color: CupertinoColors.systemRed.resolveFrom(context)),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  Future<void> _showAddNoteDialog() async {
+    final controller = TextEditingController();
+    final page = _progressValue.round();
+    if (!mounted) return;
+    // 让对话框「返回文本」而非在 onPressed 内异步写盘：避免 Navigator.pop 与
+    // controller.dispose() 竞态（pop 动画期间 TextField 仍持有 controller 会被 dispose
+    // 触发崩溃），也避免未捕获的写盘异常冒泡到事件句柄导致整个 app 崩溃。
+    final String? result = await showCupertinoDialog<String?>(
+      context: context,
+      builder: (ctx) => CupertinoAlertDialog(
+        title: Text(
+          '${LocalizationEngine.text('reader_add_note')} · ${LocalizationEngine.text('reader_nav_progress')} $page',
+          style: TextStyle(
+            color: CupertinoColors.label.resolveFrom(context),
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        content: Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: CupertinoTextField(
+            controller: controller,
+            placeholder: LocalizationEngine.text('reader_note_hint'),
+            placeholderStyle: TextStyle(
+              color: CupertinoColors.systemGrey.resolveFrom(context),
+            ),
+            style: TextStyle(
+              color: CupertinoColors.label.resolveFrom(context),
+              fontSize: 15,
+            ),
+            cursorColor: CupertinoColors.activeBlue.resolveFrom(context),
+            maxLines: null,
+            minLines: 3,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: CupertinoColors.systemGrey6.resolveFrom(context),
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            child: Text(LocalizationEngine.text('cancel')),
+            onPressed: () => Navigator.of(ctx).pop(null),
+          ),
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            child: Text(LocalizationEngine.text('confirm')),
+            onPressed: () {
+              final text = controller.text.trim();
+              Navigator.of(ctx).pop(text.isEmpty ? null : text);
+            },
+          ),
+        ],
+      ),
+    );
+    // 对话框已完全出栈后再 dispose，杜绝竞态。
+    controller.dispose();
+    if (result == null || !mounted) return;
+    try {
+      final list = await ReaderDataStore.addNote(
+        widget.bookId,
+        pageNumber: page,
+        content: result,
+      );
+      if (mounted) setState(() => _notes = list);
+    } catch (e) {
+      debugPrint('添加笔记失败: $e');
+      if (mounted) {
+        await showCupertinoDialog<void>(
+          context: context,
+          builder: (ctx) => CupertinoAlertDialog(
+            title: Text(LocalizationEngine.text('reader_add_note')),
+            content: Text('保存失败：$e'),
+            actions: [
+              CupertinoDialogAction(
+                child: Text(LocalizationEngine.text('confirm')),
+                onPressed: () => Navigator.of(ctx).pop(),
+              ),
+            ],
+          ),
+        );
+      }
+    }
+  }
+
+  /// 笔记面板：列出本书全部笔记（按页码），点击跳页；底部添加按钮。
+  Widget _buildNotesPanel(
+    BuildContext context,
+    Color primaryColor,
+    Color labelColor,
+    Color secondaryColor,
+    Color borderColor,
+  ) {
+    if (!widget.isPdfReader) return _buildNotSupportedPanel();
+    if (_notes == null) {
+      return const Center(child: CupertinoActivityIndicator());
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (_notes!.isEmpty)
+          _buildEmptyPanel(LocalizationEngine.text('reader_notes_empty'))
+        else
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _notes!.length,
+            separatorBuilder: (_, __) =>
+                Container(height: 1, color: borderColor),
+            itemBuilder: (context, i) {
+              final n = _notes![i];
+              final time = DateTime.fromMillisecondsSinceEpoch(n.updatedAt);
+              final timeStr =
+                  '${time.year}-${time.month.toString().padLeft(2, '0')}-${time.day.toString().padLeft(2, '0')}';
+              return GestureDetector(
+                onTap: () => widget.onJumpToPage(n.pageNumber),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: primaryColor.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text('${n.pageNumber}',
+                            style: TextStyle(
+                                color: primaryColor,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700)),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(n.summary,
+                                style: TextStyle(color: labelColor, fontSize: 14),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis),
+                            const SizedBox(height: 4),
+                            Text(timeStr,
+                                style: TextStyle(
+                                    color: secondaryColor, fontSize: 11)),
+                          ],
+                        ),
+                      ),
+                      CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        minSize: 0,
+                        onPressed: () async {
+                          final list = await ReaderDataStore.deleteNote(
+                              widget.bookId, n.id);
+                          if (mounted) setState(() => _notes = list);
+                        },
+                        child: Icon(CupertinoIcons.delete,
+                            size: 18,
+                            color: CupertinoColors.systemRed.resolveFrom(context)),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: CupertinoButton.filled(
+            onPressed: _showAddNoteDialog,
+            child: Text(LocalizationEngine.text('reader_add_note')),
+          ),
+        ),
+      ],
+    );
+  }
 
   Color _resolveThemeColor(String themeColor) {
     switch (themeColor) {
@@ -180,7 +788,7 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                       CupertinoButton(
                         padding: const EdgeInsets.all(4),
                         minSize: 0,
-                        onPressed: () {},
+                        onPressed: () => setState(() => _selectedNav = 1),
                         child: Icon(
                           CupertinoIcons.search,
                           size: 20,
@@ -211,16 +819,26 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  if (_showAppearanceSettings) ...[
+                  // ── 目录 / 进度 / 笔记（新增功能）──
+                  if (_selectedNav == 0)
+                    _buildCatalogPanel(
+                        context, primaryColor, labelColor, secondaryColor, borderColor),
+                  if (_selectedNav == 1)
+                    _buildProgressPanel(
+                        context, primaryColor, labelColor, secondaryColor, borderColor),
+                  if (_selectedNav == 2)
+                    _buildNotesPanel(
+                        context, primaryColor, labelColor, secondaryColor, borderColor),
+                  if (_selectedNav == 3) ...[
                     const SizedBox(height: 12),
                     _sectionTitle(context, 'theme_color'),
                     const SizedBox(height: 4),
                     SizedBox(
-                      height: 70,
+                      height: 56,
                       child: ListView.separated(
                         scrollDirection: Axis.horizontal,
                         itemCount: themeOptions.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 8),
+                        separatorBuilder: (_, __) => const SizedBox(width: 3),
                         itemBuilder: (context, index) {
                           final isSelected = index == selectedIndex;
                           return GestureDetector(
@@ -234,8 +852,8 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Container(
-                                  width: 40,
-                                  height: 40,
+                                  width: 22,
+                                  height: 22,
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
                                     color: themeOptions[index].color,
@@ -249,7 +867,7 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                                   child: isSelected
                                       ? Icon(
                                           Icons.check,
-                                          size: 16,
+                                          size: 14,
                                           color: primaryColor,
                                         )
                                       : null,
@@ -355,13 +973,16 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                     ),
                     const SizedBox(height: 12),
                   ],
-                  if (_showMoreSettings) ...[
+                  if (_selectedNav == 4) ...[
                     const SizedBox(height: 12),
-                    // 重排：单栏连续、页面撑满，适合手机阅读
-                    _ActionRow(
+                    // 重排：开关式切换（能开能关），单栏连续、页面撑满，适合手机阅读
+                    _SwitchRow(
                       label: LocalizationEngine.text('pdf_reflow'),
-                      description: LocalizationEngine.text('pdf_reflow_desc'),
-                      onPressed: widget.onReflow,
+                      description: widget.showReflow
+                          ? LocalizationEngine.text('pdf_reflow_on_desc')
+                          : LocalizationEngine.text('pdf_reflow_desc'),
+                      value: widget.showReflow,
+                      onChanged: (_) => widget.onReflow(),
                     ),
                     const SizedBox(height: 12),
                     // ── 画面增强（圆角卡片：清晰度/对比度/亮度/饱和度/色温/去色）──
@@ -369,9 +990,11 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                         secondaryColor, borderColor),
                     const SizedBox(height: 12),
                     // ── 页面裁切（圆角卡片：自动裁边/手动裁切/框选裁边）──
-                    _buildCropCard(context, primaryColor, labelColor,
-                        secondaryColor, borderColor),
-                    const SizedBox(height: 12),
+                    // 仅 PDF 读者显示：框选裁边依赖 widget.document（_pdfDocument!）。
+                    if (widget.isPdfReader)
+                      _buildCropCard(context, primaryColor, labelColor,
+                          secondaryColor, borderColor),
+                    if (widget.isPdfReader) const SizedBox(height: 12),
                     // ── 双屏模式 ──
                     _SwitchRow(
                       label: LocalizationEngine.text('pdf_dual_screen'),
@@ -379,6 +1002,19 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                           LocalizationEngine.text('pdf_dual_screen_desc'),
                       value: widget.dualScreen,
                       onChanged: widget.onDualScreenChanged,
+                    ),
+                    const SizedBox(height: 12),
+                    // ── 横屏模式 ──
+                    _SwitchRow(
+                      icon: CupertinoIcons.rotate_right,
+                      label: LocalizationEngine.text('reader_landscape'),
+                      description:
+                          LocalizationEngine.text('reader_landscape_desc'),
+                      value: _landscapeOn,
+                      onChanged: (v) {
+                        setState(() => _landscapeOn = v);
+                        widget.onToggleLandscape(v);
+                      },
                     ),
                     const SizedBox(height: 4),
                   ],
@@ -397,40 +1033,32 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                     _BottomNavItem(
                       icon: CupertinoIcons.book,
                       label: LocalizationEngine.text('reader_nav_catalog'),
+                      active: _selectedNav == 0,
+                      onTap: () => setState(() => _selectedNav = 0),
                     ),
                     _BottomNavItem(
                       icon: CupertinoIcons.chart_bar_circle,
                       label: LocalizationEngine.text('reader_nav_progress'),
+                      active: _selectedNav == 1,
+                      onTap: () => setState(() => _selectedNav = 1),
                     ),
                     _BottomNavItem(
                       icon: CupertinoIcons.square_list,
                       label: LocalizationEngine.text('reader_nav_notes'),
+                      active: _selectedNav == 2,
+                      onTap: () => setState(() => _selectedNav = 2),
                     ),
-                    GestureDetector(
-                      onTap: () => setState(() {
-                        _showAppearanceSettings = !_showAppearanceSettings;
-                        if (_showAppearanceSettings) {
-                          _showMoreSettings = false;
-                        }
-                      }),
-                      child: _BottomNavItem(
-                        icon: CupertinoIcons.paintbrush,
-                        label: LocalizationEngine.text('appearance'),
-                        active: _showAppearanceSettings,
-                      ),
+                    _BottomNavItem(
+                      icon: CupertinoIcons.paintbrush,
+                      label: LocalizationEngine.text('appearance'),
+                      active: _selectedNav == 3,
+                      onTap: () => setState(() => _selectedNav = 3),
                     ),
-                    GestureDetector(
-                      onTap: () => setState(() {
-                        _showMoreSettings = !_showMoreSettings;
-                        if (_showMoreSettings) {
-                          _showAppearanceSettings = false;
-                        }
-                      }),
-                      child: _BottomNavItem(
-                        icon: CupertinoIcons.ellipsis,
-                        label: LocalizationEngine.text('reader_nav_more'),
-                        active: _showMoreSettings,
-                      ),
+                    _BottomNavItem(
+                      icon: CupertinoIcons.ellipsis,
+                      label: LocalizationEngine.text('reader_nav_more'),
+                      active: _selectedNav == 4,
+                      onTap: () => setState(() => _selectedNav = 4),
                     ),
                   ],
                 ),
@@ -761,71 +1389,57 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
             }
           },
         ),
+        const SizedBox(height: 10),
+        // 奇偶页分开裁边
+        _CropOddEvenToggle(
+          value: widget.cropOddEvenMode,
+          onChanged: widget.onCropOddEvenModeChanged,
+          primaryColor: CupertinoTheme.of(context).primaryColor,
+        ),
         const SizedBox(height: 12),
-        // 左右裁切
+        // 手动四边裁切（真实生效）：每条边独立滑块，滑动即时更新并落库
         _FineTuneSliderRow(
-          label: LocalizationEngine.text('pdf_crop_left_right'),
-          value: widget.manualCropLeft + widget.manualCropRight,
+          label: LocalizationEngine.text('pdf_crop_left'),
+          value: widget.manualCropLeft,
           min: 0.0,
           max: 0.4,
           step: 0.01,
-          displayValue:
-              '${(widget.manualCropLeft * 100).toStringAsFixed(0)} / ${(widget.manualCropRight * 100).toStringAsFixed(0)}',
-          onChanged: (_) {}, // 由下方独立 L/R 控制
+          displayValue: '${(widget.manualCropLeft * 100).toStringAsFixed(0)}%',
+          onChanged: widget.onManualCropLeftChanged,
           primaryColor: primaryColor,
         ),
-        const SizedBox(height: 8),
-        Padding(
-          padding: const EdgeInsets.only(left: 72),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  LocalizationEngine.text('pdf_crop_left_right'),
-                  style: TextStyle(
-                      color: secondaryColor, fontSize: 11),
-                ),
-              ),
-              Text(
-                'L:${(widget.manualCropLeft * 100).toStringAsFixed(0)}%  R:${(widget.manualCropRight * 100).toStringAsFixed(0)}%',
-                style: TextStyle(
-                    color: secondaryColor, fontSize: 11),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        // 上下裁切
+        const SizedBox(height: 6),
         _FineTuneSliderRow(
-          label: LocalizationEngine.text('pdf_crop_top_bottom'),
-          value: widget.manualCropTop + widget.manualCropBottom,
+          label: LocalizationEngine.text('pdf_crop_right'),
+          value: widget.manualCropRight,
           min: 0.0,
           max: 0.4,
           step: 0.01,
-          displayValue:
-              '${(widget.manualCropTop * 100).toStringAsFixed(0)} / ${(widget.manualCropBottom * 100).toStringAsFixed(0)}',
-          onChanged: (_) {}, // 由下方独立 T/B 控制
+          displayValue: '${(widget.manualCropRight * 100).toStringAsFixed(0)}%',
+          onChanged: widget.onManualCropRightChanged,
           primaryColor: primaryColor,
         ),
-        const SizedBox(height: 8),
-        Padding(
-          padding: const EdgeInsets.only(left: 72),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  LocalizationEngine.text('pdf_crop_top_bottom'),
-                  style: TextStyle(
-                      color: secondaryColor, fontSize: 11),
-                ),
-              ),
-              Text(
-                'T:${(widget.manualCropTop * 100).toStringAsFixed(0)}%  B:${(widget.manualCropBottom * 100).toStringAsFixed(0)}%',
-                style: TextStyle(
-                    color: secondaryColor, fontSize: 11),
-              ),
-            ],
-          ),
+        const SizedBox(height: 6),
+        _FineTuneSliderRow(
+          label: LocalizationEngine.text('pdf_crop_top'),
+          value: widget.manualCropTop,
+          min: 0.0,
+          max: 0.4,
+          step: 0.01,
+          displayValue: '${(widget.manualCropTop * 100).toStringAsFixed(0)}%',
+          onChanged: widget.onManualCropTopChanged,
+          primaryColor: primaryColor,
+        ),
+        const SizedBox(height: 6),
+        _FineTuneSliderRow(
+          label: LocalizationEngine.text('pdf_crop_bottom'),
+          value: widget.manualCropBottom,
+          min: 0.0,
+          max: 0.4,
+          step: 0.01,
+          displayValue: '${(widget.manualCropBottom * 100).toStringAsFixed(0)}%',
+          onChanged: widget.onManualCropBottomChanged,
+          primaryColor: primaryColor,
         ),
         const SizedBox(height: 12),
         // 框选裁边按钮
@@ -902,10 +1516,10 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
       final index = entry.key;
       final option = entry.value;
       final isSelected = effectiveBackgroundColor == option.color;
-      // 圆圈尺寸与「主题配色」保持一致：直径 40 / 标签宽 54 / 字号 11 / 间距 8，
-      // 使两行首列左对齐、圆圈同径，视觉统一。
+      // 圆圈尺寸缩小（原 40→22），间距缩小（原 8→3），与「主题配色」保持一致：
+      // 直径 22 / 标签宽 54 / 字号 11 / 间距 3，使两行紧凑对齐。
       return Padding(
-        padding: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.only(right: 3),
         child: GestureDetector(
           key: ValueKey('reader_background_color_$index'),
           onTap: () {
@@ -917,8 +1531,8 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
             child: Column(
               children: [
                 Container(
-                  width: 40,
-                  height: 40,
+                  width: 22,
+                  height: 22,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: option.color,
@@ -1106,11 +1720,11 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                       ),
                       const SizedBox(height: 4),
                       SizedBox(
-                        height: 70,
+                        height: 56,
                         child: ListView.separated(
                           scrollDirection: Axis.horizontal,
                           itemCount: themeOptions.length,
-                          separatorBuilder: (_, __) => const SizedBox(width: 8),
+                          separatorBuilder: (_, __) => const SizedBox(width: 3),
                           itemBuilder: (context, index) {
                             final isSelected = index == selectedIndex;
                             return GestureDetector(
@@ -1124,8 +1738,8 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Container(
-                                    width: 40,
-                                    height: 40,
+                                    width: 22,
+                                    height: 22,
                                     decoration: BoxDecoration(
                                       shape: BoxShape.circle,
                                       color: themeOptions[index].color,
@@ -1137,7 +1751,7 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                                     child: isSelected
                                         ? Icon(
                                             Icons.check,
-                                            size: 16,
+                                            size: 14,
                                             color: primaryColor,
                                           )
                                         : null,
@@ -1180,7 +1794,7 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                             final option = entry.value;
                             final isSelected = effectiveBackgroundColor == option.color;
                             return Padding(
-                              padding: const EdgeInsets.only(right: 8),
+                              padding: const EdgeInsets.only(right: 3),
                               child: GestureDetector(
                                 key: ValueKey('reader_background_color_$index'),
                                 onTap: () {
@@ -1192,8 +1806,8 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                                   child: Column(
                                     children: [
                                       Container(
-                                        width: 40,
-                                        height: 40,
+                                        width: 22,
+                                        height: 22,
                                         decoration: BoxDecoration(
                                           shape: BoxShape.circle,
                                           color: option.color,
@@ -1327,6 +1941,13 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
   }
 }
 
+class _OutlineEntry {
+  final PdfOutlineNode node;
+  final int depth;
+
+  const _OutlineEntry({required this.node, required this.depth});
+}
+
 class _ThemeOption {
   final String label;
   final Color color;
@@ -1451,14 +2072,21 @@ class _BottomNavItem extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool active;
+  final VoidCallback? onTap;
 
-  const _BottomNavItem({required this.icon, required this.label, this.active = false});
+  const _BottomNavItem({
+    required this.icon,
+    required this.label,
+    this.active = false,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     final primaryColor = CupertinoTheme.of(context).primaryColor;
-    final color = active ? primaryColor : CupertinoColors.secondaryLabel.resolveFrom(context);
-    return Column(
+    final color =
+        active ? primaryColor : CupertinoColors.secondaryLabel.resolveFrom(context);
+    final child = Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Icon(icon, size: 20, color: color),
@@ -1466,6 +2094,8 @@ class _BottomNavItem extends StatelessWidget {
         Text(label, style: TextStyle(fontSize: 9, color: color)),
       ],
     );
+    if (onTap == null) return child;
+    return GestureDetector(onTap: onTap, child: child);
   }
 }
 
@@ -1525,12 +2155,14 @@ class _SwitchRow extends StatelessWidget {
   final String? description;
   final bool value;
   final ValueChanged<bool> onChanged;
+  final IconData? icon;
 
   const _SwitchRow({
     required this.label,
     this.description,
     required this.value,
     required this.onChanged,
+    this.icon,
   });
 
   @override
@@ -1540,6 +2172,10 @@ class _SwitchRow extends StatelessWidget {
     final secondaryColor = CupertinoColors.secondaryLabel.resolveFrom(context);
     return Row(
       children: [
+        if (icon != null) ...[
+          Icon(icon, size: 22, color: primaryColor),
+          const SizedBox(width: 10),
+        ],
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1824,5 +2460,82 @@ class _FineTuneSliderRowState extends State<_FineTuneSliderRow> {
           .clamp(widget.min, widget.max);
     });
     widget.onChanged(_value);
+  }
+}
+
+/// 奇偶页分开裁边切换器：三段选项（统一 / 仅奇数页 / 仅偶数页）。
+///
+/// 布局：三个等宽按钮水平排列，选中态高亮。用户可快速切换当前裁边的生效范围。
+class _CropOddEvenToggle extends StatelessWidget {
+  final int value; // 0=统一 / 1=仅奇数页 / 2=仅偶数页
+  final ValueChanged<int> onChanged;
+  final Color primaryColor;
+
+  const _CropOddEvenToggle({
+    required this.value,
+    required this.onChanged,
+    required this.primaryColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final labelColor = CupertinoColors.label.resolveFrom(context);
+    final secondaryColor = CupertinoColors.secondaryLabel.resolveFrom(context);
+    final borderColor = CupertinoColors.systemGrey4.resolveFrom(context);
+
+    final options = <int, String>{
+      0: LocalizationEngine.text('pdf_crop_odd_even_all'),
+      1: LocalizationEngine.text('pdf_crop_odd_even_odd'),
+      2: LocalizationEngine.text('pdf_crop_odd_even_even'),
+    };
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          LocalizationEngine.text('pdf_crop_odd_even_title'),
+          style: TextStyle(
+            color: labelColor,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Row(
+          children: options.entries.map((e) {
+            final isSelected = e.key == value;
+            return Expanded(
+              child: GestureDetector(
+                onTap: () => onChanged(e.key),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  margin: const EdgeInsets.symmetric(horizontal: 2),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? primaryColor.withValues(alpha: 0.12)
+                        : CupertinoColors.systemGrey6.resolveFrom(context),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: isSelected ? primaryColor : borderColor,
+                      width: isSelected ? 1.5 : 1,
+                    ),
+                  ),
+                  child: Text(
+                    e.value,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight:
+                          isSelected ? FontWeight.w600 : FontWeight.w500,
+                      color: isSelected ? primaryColor : secondaryColor,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ],
+    );
   }
 }

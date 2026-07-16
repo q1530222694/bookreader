@@ -51,6 +51,8 @@ class SettingsController {
       ValueNotifier<double>(SettingsEngine.pdfManualCropBottom);
   static final ValueNotifier<bool> pdfDualScreen =
       ValueNotifier<bool>(SettingsEngine.pdfDualScreen);
+  static final ValueNotifier<int> pdfCropOddEvenMode =
+      ValueNotifier<int>(SettingsEngine.pdfCropOddEvenMode);
   // 重排排版参数 notifier（重排后字体大小 / 行距 / 字距 / 段距，本地方案全平台通用）。
   static final ValueNotifier<double> pdfReflowFontSize =
       ValueNotifier<double>(SettingsEngine.pdfReflowFontSize);
@@ -283,6 +285,12 @@ class SettingsController {
   static void setPdfDualScreen(bool value) {
     SettingsEngine.setPdfDualScreen(value);
     pdfDualScreen.value = value;
+  }
+
+  /// 设置 PDF 奇偶页分开裁边模式（0=统一 / 1=仅奇数页 / 2=仅偶数页）。
+  static void setPdfCropOddEvenMode(int value) {
+    SettingsEngine.setPdfCropOddEvenMode(value);
+    pdfCropOddEvenMode.value = value;
   }
 
   /// 设置 PDF 翻页动画（0 无 / 1 仿真）。

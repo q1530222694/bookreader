@@ -79,6 +79,9 @@ class SettingsEngine {
   // 双屏模式：左右分屏独立滑动，用于对比阅读
   static const String pdfDualScreenKey = 'app.reader.pdf.dualScreen';
   static const bool pdfDualScreenDefault = false;
+  // 奇偶页分开裁边：0=统一 / 1=仅奇数页 / 2=仅偶数页
+  static const String pdfCropOddEvenModeKey = 'app.reader.pdf.crop.oddEvenMode';
+  static const int pdfCropOddEvenModeDefault = 0;
   // 重排排版（重排后可读写的字体排版参数，本地方案、全平台通用）
   static const String pdfReflowFontSizeKey = 'app.reader.pdf.reflow.fontSize';
   static const double pdfReflowFontSizeDefault = 18.0;
@@ -288,6 +291,14 @@ class SettingsEngine {
 
   static void setPdfDualScreen(bool value) {
     Config.set(pdfDualScreenKey, value);
+  }
+
+  static int get pdfCropOddEvenMode {
+    return Config.get(pdfCropOddEvenModeKey) as int? ?? pdfCropOddEvenModeDefault;
+  }
+
+  static void setPdfCropOddEvenMode(int value) {
+    Config.set(pdfCropOddEvenModeKey, value);
   }
 
   // 重排排版参数存取
