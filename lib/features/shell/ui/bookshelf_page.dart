@@ -693,7 +693,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Widget _buildDownloadListView(List<BookModel> books) {
     final displayItems = books.isEmpty
         ? _mockDownloadItems
-        : books.take(4).map((book) {
+        : books.map((book) {
             final title = _bookTitle(book);
             return _BookDownloadItemData(
               title: title,

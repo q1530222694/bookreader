@@ -189,10 +189,24 @@ class LocalizationEngine {
     'reader_font_default': {'zh': 'A-', 'en': 'A-'},
     'reader_font_large': {'zh': 'A+', 'en': 'A+'},
     'reader_page_turn': {'zh': '翻页方式', 'en': 'Page Turn'},
-    'reader_page_turn_horizontal': {'zh': '左右翻页', 'en': 'Horizontal'},
-    'reader_page_turn_vertical': {'zh': '上下滚动', 'en': 'Vertical'},
-    'reader_page_turn_simulation': {'zh': '仿真翻页', 'en': 'Simulation'},
-    'reader_page_turn_none': {'zh': '无动画', 'en': 'No Animation'},
+    'reader_page_turn_swipe_h': {'zh': '左右滑动', 'en': 'Swipe L/R'},
+    'reader_page_turn_swipe_v': {'zh': '上下滑动', 'en': 'Swipe U/D'},
+    'reader_page_turn_tap_h': {'zh': '左右单击', 'en': 'Tap L/R'},
+    'reader_page_turn_tap_v': {'zh': '上下单击', 'en': 'Tap U/D'},
+    'reader_page_turn_tap_scroll': {'zh': '单击滚动', 'en': 'Tap & Scroll'},
+    'reader_page_animation': {'zh': '翻页动画', 'en': 'Page Animation'},
+    'reader_page_animation_none': {'zh': '无动画', 'en': 'None'},
+    'reader_page_animation_simulation': {'zh': '仿真动画', 'en': 'Simulation'},
+    'pdf_reflow_exit': {'zh': '退出重排', 'en': 'Exit Reflow'},
+    'pdf_reflow_font_size': {'zh': '字体大小', 'en': 'Font Size'},
+    'pdf_reflow_line_spacing': {'zh': '行距', 'en': 'Line Spacing'},
+    'pdf_reflow_letter_spacing': {'zh': '字距', 'en': 'Letter Spacing'},
+    'pdf_reflow_para_spacing': {'zh': '段距', 'en': 'Paragraph Spacing'},
+    'pdf_reflow_loading': {'zh': '正在重排…', 'en': 'Reflowing…'},
+    'pdf_reflow_empty': {
+      'zh': '该文档无可重排文本（扫描件需 OCR 模型）',
+      'en': 'No reflowable text (scanned pages need OCR models)'
+    },
     'reader_nav_catalog': {'zh': '目录', 'en': 'Catalog'},
     'reader_nav_progress': {'zh': '进度', 'en': 'Progress'},
     'reader_nav_notes': {'zh': '笔记', 'en': 'Notes'},
@@ -292,10 +306,31 @@ class LocalizationEngine {
       'zh': '去除影响阅读的小黑点、杂点',
       'en': 'Remove small dots and noise that affect reading'
     },
+    // 画面增强（对比度 / 饱和度 / 色温 / 去除颜色 / 去杂色，统一分区）
+    'pdf_enhance': {'zh': '画面增强', 'en': 'Image Enhancement'},
+    'pdf_enhance_sharpness': {'zh': '清晰度', 'en': 'Sharpness'},
+    'pdf_enhance_contrast': {'zh': '对比度', 'en': 'Contrast'},
+    'pdf_enhance_brightness': {'zh': '亮度', 'en': 'Brightness'},
+    'pdf_enhance_saturation': {'zh': '饱和度', 'en': 'Saturation'},
+    'pdf_enhance_color_temp': {'zh': '色温', 'en': 'Color Temp'},
+    'pdf_enhance_remove_color': {'zh': '去除颜色', 'en': 'Remove Color'},
+    // 页面裁切（自动 / 手动 / 框选）
+    'pdf_crop': {'zh': '页面裁切', 'en': 'Page Crop'},
+    'pdf_crop_auto': {'zh': '智能自动裁边（去除白边）', 'en': 'Smart Auto Crop (Remove White Edges)'},
+    'pdf_crop_manual': {'zh': '手动裁边', 'en': 'Manual Crop'},
+    'pdf_crop_select': {'zh': '框选裁边', 'en': 'Select Crop'},
+    'pdf_crop_left_right': {'zh': '左右裁切', 'en': 'Left/Right Crop'},
+    'pdf_crop_top_bottom': {'zh': '上下裁切', 'en': 'Top/Bottom Crop'},
+    // 双屏模式
+    'pdf_dual_screen': {'zh': '双屏模式', 'en': 'Dual Screen'},
+    'pdf_dual_screen_desc': {
+      'zh': '左右分屏，独立滑动对比阅读',
+      'en': 'Split screen for side-by-side comparison'
+    },
     'pdf_reflow': {'zh': '重排', 'en': 'Reflow'},
     'pdf_reflow_desc': {
-      'zh': '单栏连续、页面撑满，适合手机阅读',
-      'en': 'Single column, fit width, great for phone reading'
+      'zh': '提取正文重新排版，可调字体大小/行距/字距',
+      'en': 'Extract text and re-typeset; adjustable font size/spacing'
     },
     'reader_add_tag': {'zh': '添加标签', 'en': 'Add Tag'},
     'reader_add_tag_placeholder': {'zh': '输入标签', 'en': 'Enter tag'},

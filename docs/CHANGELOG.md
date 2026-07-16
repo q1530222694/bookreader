@@ -1176,3 +1176,134 @@
 - 仍受限（如实告知）：①「仿真」翻页无书页卷曲动画（pdfrx 不提供，自建 PageView 为横向整页翻页）；② 扫描件文字级重排仍需 OCR（pdf_ocr_service.recognizePage 当前空壳，属阶段3 PaddleOCR 集成），本轮仅版式重排。
 - Windows 构建注意：pdfrx 使用符号链接，需开启「开发者模式」。
 - 验证：`flutter analyze` 全工程 0 error（仅遗留既有 info/warning，非本次引入）。
+
+### [2026-07-15 夜] 修复：pdfrx 阅读器三个交互缺陷（无法翻页 / 切滚动崩溃 / 饱和度不生效）
+**背景**：引擎迁移到 pdfrx 后用户实测反馈 3 个问题：① PDF 完全无法翻页；② 设置里切「上下滚动」模式应用直接崩溃；③ 背景调节的「色彩饱和度」滑块看不出效果。
+**根因与修复（仅改动 `lib/features/shell/ui/pdf_custom_view.dart`，未触碰架构/包隔离）**：
+- 缺陷①「无法翻页」＝ 双因叠加：
+  - (a) 单页分支 `_buildSpread` 把 `Expanded(_PdfPageWidget)` 误放进 `Center`（Center 非 Flex），布局异常；
+  - (b) 每页包裹的 `InteractiveViewer`（scaleEnabled 默认开）其手势识别器会拦截单指滑动，导致 `PageView`/`ListView` 收不到翻页/滚动手势。修复：移除 `InteractiveViewer` 缩放手势层（翻页/滚动交回原生控件）；缩放能力后续以「仅在已放大态启用」等不冲突方式重新接入。
+- 缺陷②「切滚动崩溃」＝ 单页分支 `Expanded` 位于 `ListView` 的**无限主轴**上，触发 `Expanded widgets must be placed inside a Flex widget` 断言崩溃。修复：
+  - 单页尺寸（`pageW`/`pageH`）改由**外层 `LayoutBuilder`** 提供（屏幕确定尺寸），单页用 `SizedBox` 直接铺满，彻底避免「无限高度」与 `Expanded` 误用；双页仍用 `Row`+`Expanded`（合法）。
+- 缺陷③「饱和度不生效」＝ 矩阵合成逻辑（`pdf_render_service.buildColorMatrix` 的亮度/对比度/饱和度/去色）本身正确，但：① 此前视图崩溃/冻结导致无法实测；② 饱和度仅在**有彩色内容**的页上可见——黑白文字 PDF 本身无饱和度可改（符合色彩学，非 bug）。修复崩溃+布局后，对彩色/扫描页饱和度滑块即可见。（亮度/对比度/去色同理，均经同一 `ColorFiltered` 链路。）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/pdf_custom_view.dart`（修复：`build()` 外层 `LayoutBuilder` 取确定视口尺寸；`_buildSpread` 单页 `SizedBox` 铺满、双页 `Row`+`Expanded`；`_PdfPageWidget` 移除 `InteractiveViewer`，仅 `ColorFiltered`+`ImageFiltered`）
+  └─ 被注入 ➔ `lib/features/shell/ui/book_viewer_page.dart`（`_buildPdfView()` 返回 `PdfCustomView`，翻页/滚动完全由原生 `PageView`/`ListView` 处理）
+  └─ 依赖 ➔ `pdf_render_service.dart`（`renderPageImage` / `buildColorMatrix`）/ `pdf_reader_settings.dart` / `package:pdfrx` / `dart:ui`
+**【全局状态/鉴权变动 (State & Auth)】**：无新增 Config / Permission Key（沿用既有 7 个 PDF 设置 Key + readerPageMode）。
+**验证**：`flutter analyze lib/features/shell/ui/pdf_custom_view.dart` → No issues found；全工程无新增 error（既有 129 条为 info/warning 级弃用提示，非本次引入）。沙箱环境 OS 层禁 `sandbox-exec` 无法本地 `flutter run -d macos` 自测，需用户本机实测翻页/切滚动/饱和度。
+
+### [2026-07-15 晚] 新增/修改：PDF 阅读器体验修复（用户 10 项反馈）
+**背景**：pdfrx 引擎迁移 + 前几轮交互缺陷修复后，用户实测反馈 10 个问题：①自动裁切乱切（有字被切没、留白边、切半字）；②左右单击不翻页；③双页/连续页间隙过大；④翻页方式需新增「左右单击/上下单击/单击滚动」且「无动画/仿真动画」独立成区；⑤双页模式首/末页被强制单页（需取消）；⑥去杂色降清晰度、杂点未除；⑦书架列表仅显 4 本（实际 19 本）；⑧书籍被莫名裁掉一部分；⑨饱和度不生效；⑩重排需改为真实（文本级）重排，本地方案、Android+PDF 可用、可调字号/间距、流畅。
+
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/pdf_text_reflow_service.dart`（新增 · 真实重排数据源：pdfrx `PdfPage.loadText().fullText` 逐页提取→按连字符续行/句末标点聚合成段落，本地无损）
+  └─ 被注入 ➔ `lib/features/shell/ui/book_viewer_page.dart`（`_reflow()` 调 `extract` → 进 `PdfReflowView`；无文本层提示 `pdf_reflow_empty`）
+- `lib/features/shell/ui/pdf_reflow_view.dart`（新增 · 重排阅读视图：`AnimatedBuilder(Listenable.merge([4 个 reflow notifier]))` 实时跟随字号/行距/字距/段距；顶部「退出重排」）
+  └─ 依赖 ➔ `settings_controller.dart`（`pdfReflowFontSize/LineSpacing/LetterSpacing/ParaSpacing`）/ `localization_engine.dart`
+- `lib/features/shell/ui/pdf_custom_view.dart`（修改：翻页方式扩为 5 种 0 左右滑动/1 上下滑动/2 左右单击/3 上下单击/4 单击滚动；新增 `pageAnimation` 0 无/1 仿真；`_onTapFlip` 按点击区域判前后；`_buildSpreads` 取消封面/末页强制单页、改为顺序成对；`_pageGap` 12→6）
+  └─ 被注入 ➔ `book_viewer_page.dart`（`_buildPdfView()` 传 `pageAnimation: SettingsEngine.readerPageAnimation`）
+- `lib/features/shell/service/pdf_render_service.dart`（修改：自动裁切探针 240→480、阈值 238、内容占比<0.3% 跳过、边距 2% 兜底、clamp；真实去杂色 `_denoiseImage` 3×3 邻域判定，回调式 `decodeImageFromPixels` 回写 `ui.Image`；`renderPageImage` 加 `denoise` 参数并纳入缓存 key）
+  └─ 依赖 ➔ `package:pdfrx` / `dart:ui` / `dart:async`
+- `lib/features/shell/ui/reader_settings_sheet.dart`（修改：新增 `selectedPageAnimation`/`onPageAnimationChanged`/`showReflow`；`_buildPageTurnSection` 翻页方式 5 模式单行 + 独立「翻页动画」区；`_buildReflowTypographySection`+`_reflowSlider` 重排排版 4 滑块；替换旧 4 模式文案）
+  └─ 依赖 ➔ `settings_controller.dart` / `settings_engine.dart` / `localization_engine.dart`
+- `lib/features/shell/ui/bookshelf_page.dart`（修改：`_buildDownloadListView` 由 `books.take(4)` 改为 `books`（仅 mock 兜底保留 `take(4)`），显示全部导入书籍）
+- `lib/features/shell/model/pdf_reader_settings.dart`（修改：`needsRerender => autoCrop || denoise`）
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 新增 Config Key：`app.reader.pdf.pageAnimation`（默认 1）、`app.reader.pdf.reflow.fontSize`（18.0）、`app.reader.pdf.reflow.lineSpacing`（1.6）、`app.reader.pdf.reflow.letterSpacing`（0.0）、`app.reader.pdf.reflow.paraSpacing`（8.0）；见 `settings_engine.dart` + `settings_controller.dart`（notifier + setter）。
+- 新增本地化 Key：`reader_page_turn_swipe_h/v`、`reader_page_turn_tap_h/v`、`reader_page_turn_tap_scroll`、`reader_page_animation`/`_none`/`_simulation`、`pdf_reflow_exit`/`_font_size`/`_line_spacing`/`_letter_spacing`/`_para_spacing`/`_loading`/`_empty`；删除旧 `reader_page_turn_horizontal/vertical/simulation/none`。
+- 新增 Permission Key：无。
+
+**逐项修复对照（10 项）**
+1. 自动裁切：提升探针分辨率 + 阈值 + 内容占比保护 + 边距兜底 + clamp，内容填满页回退全页；⑧书籍被裁切同源修复（旧 clamp/边距过激所致）。
+2. 单击翻页：纯单击模式（2/3）用 `GestureDetector.onTapUp` + `NeverScrollableScrollPhysics`，点击区域判定前后，`HitTestBehavior.translucent` 不抢滑动。
+3. 间隙过大：`_pageGap` 12→6，页面紧邻仅留极细分隔。
+4. 翻页方式：5 模式单行；「无动画/仿真动画」独立「翻页动画」分区。
+5. 双页首末页单页：取消，改为从首页起顺序成对。
+6. 去杂色：由「整体高斯模糊」改为「3×3 邻域去孤立墨点」，保笔画、不降清晰度。
+7. 书架仅显 4 本：`take(4)` 去掉，显示全部。
+8. 页面被裁切：随自动裁切重算修复（见①）。
+9. 饱和度不生效：矩阵逻辑本就正确，旧因崩溃/冻结无法实测；现对含彩色内容页可见（黑白文字无饱和度可改，符合色彩学）。
+10. 真实重排：`PdfTextReflowService` 取文本层 → `PdfReflowView` 可调字号/行距/字距/段距重排；本地、Android+PDF、流畅；纯扫描件（无文本层）检测后明确提示改用 OCR（阶段3）。
+
+**能力边界（如实告知）**
+- 真实重排适用于**含文本层**的 PDF（电子书/论文/文档）；**纯图片扫描件**无文本层，`PdfTextReflowService.extract` 已检测并提示 `pdf_reflow_empty`，不静默失败。扫描件文字级重排仍需 OCR（`pdf_ocr_service.recognizePage` 仍为阶段0 空壳，属阶段3 PaddleOCR）。
+- 验证：`flutter analyze lib` → **0 error**（130 条为 info/warning 级既有弃用提示，非本次引入，含若干 localization 既有 duplicate-key 提示）。沙箱 OS 层禁 `sandbox-exec` 无法本地 `flutter run` 自测，需用户本机 `flutter run` 实测。
+
+---
+
+### [2026-07-15 深夜] 修复（根因）：书籍点开即被裁切、双排裁切更严重 —— pdfrx render 参数误用导致页面溢出位图被静默裁掉
+**问题现象**：用户确认「自动裁切」开关为关闭，但进入任意书籍即发现内容被切掉一部分；双排（双页）模式裁切更明显。
+**根因（已读 pdfrx 1.3.5 源码 `lib/src/pdfium/pdfrx_pdfium.dart` 确认）**：
+- `pdf_render_service.renderPageImage` 的「无裁切」分支原调用 `page.render(width: fullW, height: fullH)`，**未传 `fullWidth/fullHeight`**。
+- pdfrx `PdfPage.render` 在 `fullWidth/fullHeight` 缺省时回退为**页面原生 pt 尺寸**（如 595×842），而位图尺寸取传入的 `width/height`（单页约 1200、双页约 591）。
+- PDFium 按 `fullWidth×fullHeight`（原生尺寸）把整页渲染进**更小的位图**，导致**页面右/下边缘溢出位图被静默裁掉**；位图越小于原生页，裁切越多。
+- 双页 `targetWidth = (pageW − 6)/2` 远小于单页，位图更小 → 裁切比例更大 → 与「双排裁切更多」现象完全吻合。
+**修复（仅 `lib/features/shell/service/pdf_render_service.dart`）**：
+- 无裁切分支改为 `page.render(fullWidth: fullW, fullHeight: fullH)`（不传 x/y/width/height），使 `width ??= fullWidth`、`height ??= fullHeight`，位图尺寸 == 整页渲染尺寸，零溢出、零裁切。
+- 兜底分支（裁切包围盒退化成整页时）同样改 `fullWidth/fullHeight`。
+- 自动裁切探针 `computeCropFractions`：原 `render(width: cropScanWidth, height: probeH)` 同样漏传 `fullWidth/fullHeight`，导致探针只扫到整页左上角、自动裁切算出的包围盒偏小（开启自动裁切时仍会误切右侧内容）。改为 `render(fullWidth: cropScanWidth, fullHeight: probeH)`，探针才是真正的全页探针。
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/pdf_render_service.dart`（修复：无裁切分支与兜底分支改用 `fullWidth/fullHeight`；自动裁切探针改用 `fullWidth/fullHeight`）
+  └─ 依赖 ➔ `package:pdfrx`（render 语义：`fullWidth/fullHeight` 缺省回退页面原生尺寸，位图小于原生尺寸即裁切右/下边缘）
+- `lib/features/shell/ui/pdf_custom_view.dart`（既有加固：单页 `FittedBox(BoxFit.contain)` 包裹 `RawImage`，双页 `Row` 外层 `ClipRect(clipBehavior: Clip.none)`，二者均为防御性防裁切，与 render 层根因修复互补）
+  └─ 被注入 ➔ `lib/features/shell/ui/book_viewer_page.dart`
+**【全局状态/鉴权变动 (State & Auth)】**：无新增 Config / Permission Key（沿用既有 7 个 PDF 设置 Key + readerPageMode）。
+**验证**：`flutter analyze lib/features/shell/service/pdf_render_service.dart lib/features/shell/ui/pdf_custom_view.dart` → No issues found（0 error）。沙箱 OS 层禁 `sandbox-exec` 无法本地 `flutter run` 自测，需用户本机实测：关闭自动裁切进入任意 PDF，确认单页/双页内容均完整、无边缘被切。
+
+---
+
+### [2026-07-16 凌晨] 新增：PDF「更多设置」全面重组 —— 画面增强 + 页面裁切 + 双屏模式
+
+**背景**：用户要求将分散的 PDF 调节项归入两个圆角卡片（画面增强 / 页面裁切），每个滑块增加 [−]/[+] 微调按钮（参考截图风格），并新增色温调节、裁切模式切换（智能/手动/框选）、双屏对比阅读。
+
+**改动范围**（7 个文件）：
+
+1. **`lib/engine/localization_engine.dart`**
+   - 新增 14 个 i18n key：`pdf_enhance`, `pdf_enhance_{sharpness,contrast,brightness,saturation,color_temp,remove_color}`, `pdf_crop{,_auto,_manual,_select,_left_right,_top_bottom}`, `pdf_dual_screen{,_desc}`。
+
+2. **`lib/engine/settings_engine.dart`**
+   - 新增 Config Key：`pdfBgColorTemp`(double), `pdfCropMode`(int), `pdfManualCrop{Left,Right,Top,Bottom}`(double×4), `pdfDualScreen`(bool)。
+   - 新增 getter/setter 共 10 组。
+
+3. **`lib/features/shell/controller/settings_controller.dart`**
+   - 新增 ValueNotifier：`pdfBgColorTemp`, `pdfCropMode`, `pdfManualCrop{Left,Right,Top,Bottom}`, `pdfDualScreen`。
+   - 新增 static setter 方法共 7 个。
+
+4. **`lib/features/shell/model/pdf_reader_settings.dart`**
+   - 新增字段：`cropMode`, `manualCropLeft/Right/Top/Bottom`, `colorTemperature`, `dualScreen`。
+   - 更新 `copyWith` / `isAdjusted` / `needsRerender` / `toString`。
+
+5. **`lib/features/shell/service/pdf_render_service.dart`**
+   - 新增 `_colorTemperature(t)` 色温矩阵方法（t<1 偏冷蓝 / t>1 偏暖黄，通过 R/G/B 通道偏移实现）。
+   - `buildColorMatrix` 合成链新增色温环节：亮度 → 色温 → 饱和度 → 对比度 → 灰度。
+
+6. **`lib/features/shell/ui/reader_settings_sheet.dart`** ⭐ 核心改动
+   - 新增 12 个构造参数（colorTemperature/cropMode/manualCropLTRB/onSelectCrop/dualScreen 等）。
+   - 原 `_showMoreSettings` 区块完全重写：
+     - **`_StyledCard`** — 圆角深色卡片容器（自适应暗色模式）。
+     - **`_FineTuneSliderRow`** — 带 `[−]` `[滑块]` `[+]` 微调按钮的滑块行（StatefulWidget，拖动连续、点击步进）。
+     - **`_buildEnhanceCard`** — 画面增强卡片：清晰度(占位)/对比度/亮度/饱和度/色温 + 去除颜色开关 + 去杂色开关。
+     - **`_buildCropCard`** — 页面裁切卡片：智能自动裁边开关 / 左右裁切(显示 L/R 百分比) / 上下裁切(显示 T/B 百分比) / 框选裁边按钮（TODO: 后续接入手动画框 UI）。
+     - 双屏模式 SwitchRow（独立于两卡片之外）。
+
+7. **`lib/features/shell/ui/book_viewer_page.dart`**
+   - 新增 8 个状态字段（_colorTemperature/_cropMode/_manualCropLTRB/_dualScreen），初始化自 SettingsEngine。
+   - `_readerSettings` getter 聚合全部新字段。
+   - ReaderSettingsSheet 构造传入全部新回调（含 onSelectCrop 占位 TODO）。
+
+**【AI 架构依赖树 (Architecture Context)】**
+- `reader_settings_sheet.dart`（UI 重组：_StyledCard + _FineTuneSliderRow + _buildEnhanceCard + _buildCropCard）
+  └─ 依赖 ➔ `localization_engine.dart`（14 新 key）
+  └─ 依赖 ➔ `settings_controller.dart`（10 新 notifier）
+- `book_viewer_page.dart`（状态上浮：8 新字段 + 回调落库）
+  └─ 注入 ➔ `ReaderSettingsSheet`
+  └─ 聚合 ➔ `PdfReaderSettings`
+- `pdf_reader_settings.dart`（数据模型扩展：8 新字段）
+  └─ 被消费 ➔ `PdfRenderService.buildColorMatrix`
+- `pdf_render_service.dart`（渲染管线：新增 _colorTemperature 色温矩阵）
+
+**【全局状态/鉴权变动 (State & Auth)】**：新增 10 个 Config Key（colorTemp/cropMode/manualCropLTRB/dualScreen）+ 8 个 ValueNotifier。全部通过 SettingsController 统一读写。
+
+**验证**：`flutter analyze lib` → **0 error**（132 条均为既有的 info/warning/deprecation 提示，非本次引入）。沙箱无法 `flutter run`，需用户本机实测。

@@ -26,6 +26,9 @@ class ReaderSettingsSheet extends StatefulWidget {
   // PDF 专属：布局模式（0 单页 / 1 双页 / 2 单页连续 / 3 双页连续）
   final int selectedLayoutMode;
   final ValueChanged<int> onLayoutModeChanged;
+  // 翻页动画（0 无动画 / 1 仿真动画）
+  final int selectedPageAnimation;
+  final ValueChanged<int> onPageAnimationChanged;
   // PDF 专属：自动裁切
   final bool autoCrop;
   final ValueChanged<bool> onAutoCropChanged;
@@ -38,12 +41,34 @@ class ReaderSettingsSheet extends StatefulWidget {
   final ValueChanged<bool> onRemoveColorChanged;
   final bool denoise;
   final ValueChanged<bool> onDenoiseChanged;
+  // PDF 专属：色温（0.5 偏冷蓝 ~ 2.0 偏暖黄）
+  final double colorTemperature;
+  final ValueChanged<double> onColorTemperatureChanged;
+  // PDF 专属：裁切模式（0=不裁切 / 1=智能自动裁边 / 2=手动裁边 / 3=框选裁边）
+  final int cropMode;
+  final ValueChanged<int> onCropModeChanged;
+  // PDF 专属：手动裁切边距（归一化 0~1）
+  final double manualCropLeft;
+  final ValueChanged<double> onManualCropLeftChanged;
+  final double manualCropRight;
+  final ValueChanged<double> onManualCropRightChanged;
+  final double manualCropTop;
+  final ValueChanged<double> onManualCropTopChanged;
+  final double manualCropBottom;
+  final ValueChanged<double> onManualCropBottomChanged;
+  // PDF 专属：框选裁边回调
+  final VoidCallback? onSelectCrop;
+  // PDF 专属：双屏模式
+  final bool dualScreen;
+  final ValueChanged<bool> onDualScreenChanged;
 
   final bool isPdfReader;
   final VoidCallback onClose;
   final VoidCallback? onAddTag;
   // PDF 专属：重排（切换为单栏连续、页面撑满的阅读模式）
   final VoidCallback onReflow;
+  // 是否处于重排模式：是则在面板中显示「重排排版」（字体大小 / 行距 / 字距 / 段距）调节
+  final bool showReflow;
 
   const ReaderSettingsSheet({
     super.key,
@@ -58,6 +83,8 @@ class ReaderSettingsSheet extends StatefulWidget {
     required this.onPageModeChanged,
     this.selectedLayoutMode = 0,
     this.onLayoutModeChanged = _noopInt,
+    this.selectedPageAnimation = 1,
+    this.onPageAnimationChanged = _noopInt,
     this.autoCrop = false,
     this.onAutoCropChanged = _noopBool,
     this.contrast = 1.0,
@@ -68,11 +95,27 @@ class ReaderSettingsSheet extends StatefulWidget {
     this.onRemoveColorChanged = _noopBool,
     this.denoise = false,
     this.onDenoiseChanged = _noopBool,
+    this.colorTemperature = 1.0,
+    this.onColorTemperatureChanged = _noopDouble,
+    this.cropMode = 0,
+    this.onCropModeChanged = _noopInt,
+    this.manualCropLeft = 0.0,
+    this.onManualCropLeftChanged = _noopDouble,
+    this.manualCropRight = 0.0,
+    this.onManualCropRightChanged = _noopDouble,
+    this.manualCropTop = 0.0,
+    this.onManualCropTopChanged = _noopDouble,
+    this.manualCropBottom = 0.0,
+    this.onManualCropBottomChanged = _noopDouble,
+    this.onSelectCrop,
+    this.dualScreen = false,
+    this.onDualScreenChanged = _noopBool,
     this.isPdfReader = false,
     this.onBackgroundColorChanged = _noopBackgroundColorChanged,
     required this.onClose,
     this.onAddTag,
     this.onReflow = _noop,
+    this.showReflow = false,
   });
 
   @override
@@ -265,46 +308,12 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    // 翻页方式：由「更多」移入「外观」，置于亮度下方
-                    _sectionTitle(context, 'reader_page_turn'),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        _PageModeChip(
-                          icon: CupertinoIcons.book,
-                          label: LocalizationEngine.text(
-                            'reader_page_turn_horizontal',
-                          ),
-                          selected: widget.selectedPageMode == 0,
-                          onPressed: () => widget.onPageModeChanged(0),
-                        ),
-                        const SizedBox(width: 8),
-                        _PageModeChip(
-                          icon: CupertinoIcons.square_stack_3d_up,
-                          label: LocalizationEngine.text(
-                            'reader_page_turn_vertical',
-                          ),
-                          selected: widget.selectedPageMode == 1,
-                          onPressed: () => widget.onPageModeChanged(1),
-                        ),
-                        const SizedBox(width: 8),
-                        _PageModeChip(
-                          icon: CupertinoIcons.sparkles,
-                          label: LocalizationEngine.text(
-                            'reader_page_turn_simulation',
-                          ),
-                          selected: widget.selectedPageMode == 2,
-                          onPressed: () => widget.onPageModeChanged(2),
-                        ),
-                        const SizedBox(width: 8),
-                        _PageModeChip(
-                          icon: Icons.motion_photos_on,
-                          label: LocalizationEngine.text('reader_page_turn_none'),
-                          selected: widget.selectedPageMode == 3,
-                          onPressed: () => widget.onPageModeChanged(3),
-                        ),
-                      ],
-                    ),
+                    // 翻页方式（单行 5 模式）+ 翻页动画（独立分区）
+                    _buildPageTurnSection(context),
+                    if (widget.showReflow) ...[
+                      const SizedBox(height: 14),
+                      _buildReflowTypographySection(context),
+                    ],
                     const SizedBox(height: 12),
                     // 布局模式：与翻页方式风格一致
                     _sectionTitle(context, 'reader_layout'),
@@ -355,50 +364,23 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                       onPressed: widget.onReflow,
                     ),
                     const SizedBox(height: 12),
-                    // 自动裁切
-                    _SwitchRow(
-                      label: LocalizationEngine.text('pdf_auto_crop'),
-                      description: LocalizationEngine.text('pdf_auto_crop_desc'),
-                      value: widget.autoCrop,
-                      onChanged: widget.onAutoCropChanged,
-                    ),
+                    // ── 画面增强（圆角卡片：清晰度/对比度/亮度/饱和度/色温/去色）──
+                    _buildEnhanceCard(context, primaryColor, labelColor,
+                        secondaryColor, borderColor),
                     const SizedBox(height: 12),
-                    // 背景调节（仅 PDF 扫描件）
-                    _sectionTitle(context, 'pdf_bg_adjust'),
-                    const SizedBox(height: 8),
-                    _SliderRow(
-                      label: LocalizationEngine.text('pdf_bg_contrast'),
-                      value: widget.contrast,
-                      min: 0.5,
-                      max: 2.0,
-                      displayValue: widget.contrast.toStringAsFixed(2),
-                      onChanged: widget.onContrastChanged,
-                    ),
-                    const SizedBox(height: 10),
-                    _SliderRow(
-                      label: LocalizationEngine.text('pdf_bg_saturation'),
-                      value: widget.saturation,
-                      min: 0.0,
-                      max: 2.0,
-                      displayValue: widget.saturation.toStringAsFixed(2),
-                      onChanged: widget.onSaturationChanged,
-                    ),
-                    const SizedBox(height: 10),
+                    // ── 页面裁切（圆角卡片：自动裁边/手动裁切/框选裁边）──
+                    _buildCropCard(context, primaryColor, labelColor,
+                        secondaryColor, borderColor),
+                    const SizedBox(height: 12),
+                    // ── 双屏模式 ──
                     _SwitchRow(
-                      label: LocalizationEngine.text('pdf_bg_remove_color'),
+                      label: LocalizationEngine.text('pdf_dual_screen'),
                       description:
-                          LocalizationEngine.text('pdf_bg_remove_color_desc'),
-                      value: widget.removeColor,
-                      onChanged: widget.onRemoveColorChanged,
+                          LocalizationEngine.text('pdf_dual_screen_desc'),
+                      value: widget.dualScreen,
+                      onChanged: widget.onDualScreenChanged,
                     ),
-                    const SizedBox(height: 8),
-                    _SwitchRow(
-                      label: LocalizationEngine.text('pdf_bg_denoise'),
-                      description: LocalizationEngine.text('pdf_bg_denoise_desc'),
-                      value: widget.denoise,
-                      onChanged: widget.onDenoiseChanged,
-                    ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 4),
                   ],
                       ],
                     ),
@@ -469,6 +451,413 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
         fontSize: 14,
         fontWeight: FontWeight.w600,
       ),
+    );
+  }
+
+  /// 翻页方式（单行 5 模式）+ 翻页动画（独立分区）。
+  ///
+  /// - 翻页方式：左右滑动(0) / 上下滑动(1) / 左右单击(2) / 上下单击(3) / 单击滚动(4)，
+  ///   五个模式同处一行，点击即切换（[widget.onPageModeChanged]）。
+  /// - 翻页动画：无动画(0) / 仿真动画(1)，独立成区（[widget.onPageAnimationChanged]）。
+  Widget _buildPageTurnSection(BuildContext context) {
+    final primaryColor = CupertinoTheme.of(context).primaryColor;
+    final borderColor = CupertinoColors.systemGrey4.resolveFrom(context);
+    final labelColor = CupertinoColors.label.resolveFrom(context);
+
+    final modes = <int, String>{
+      0: 'reader_page_turn_swipe_h',
+      1: 'reader_page_turn_swipe_v',
+      2: 'reader_page_turn_tap_h',
+      3: 'reader_page_turn_tap_v',
+      4: 'reader_page_turn_tap_scroll',
+    };
+    final anims = <int, String>{
+      0: 'reader_page_animation_none',
+      1: 'reader_page_animation_simulation',
+    };
+
+    Widget chip(String label, bool selected, VoidCallback onPressed) {
+      return Expanded(
+        child: GestureDetector(
+          onTap: onPressed,
+          child: Container(
+            height: 36,
+            alignment: Alignment.center,
+            margin: const EdgeInsets.symmetric(horizontal: 2),
+            decoration: BoxDecoration(
+              color: selected
+                  ? primaryColor.withValues(alpha: 0.12)
+                  : CupertinoColors.systemGrey6.resolveFrom(context),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: selected ? primaryColor : borderColor),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: selected ? primaryColor : labelColor,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(context, 'reader_page_turn'),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            for (final e in modes.entries)
+              chip(
+                LocalizationEngine.text(e.value),
+                widget.selectedPageMode == e.key,
+                () => widget.onPageModeChanged(e.key),
+              ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        _sectionTitle(context, 'reader_page_animation'),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            for (final e in anims.entries)
+              chip(
+                LocalizationEngine.text(e.value),
+                widget.selectedPageAnimation == e.key,
+                () => widget.onPageAnimationChanged(e.key),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// 重排排版调节：字体大小 / 行距 / 字距 / 段距（仅重排模式下显示）。
+  ///
+  /// 全部经 [SettingsController] 实时落库并广播，[PdfReflowView] 监听后即时重排。
+  Widget _buildReflowTypographySection(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(context, 'pdf_reflow'),
+        const SizedBox(height: 8),
+        _reflowSlider(
+          context,
+          'pdf_reflow_font_size',
+          SettingsController.pdfReflowFontSize,
+          12,
+          32,
+          (v) => SettingsController.setPdfReflowFontSize(v),
+          (v) => v.toStringAsFixed(0),
+        ),
+        _reflowSlider(
+          context,
+          'pdf_reflow_line_spacing',
+          SettingsController.pdfReflowLineSpacing,
+          1.0,
+          3.0,
+          (v) => SettingsController.setPdfReflowLineSpacing(v),
+          (v) => v.toStringAsFixed(1),
+        ),
+        _reflowSlider(
+          context,
+          'pdf_reflow_letter_spacing',
+          SettingsController.pdfReflowLetterSpacing,
+          0.0,
+          4.0,
+          (v) => SettingsController.setPdfReflowLetterSpacing(v),
+          (v) => v.toStringAsFixed(1),
+        ),
+        _reflowSlider(
+          context,
+          'pdf_reflow_para_spacing',
+          SettingsController.pdfReflowParaSpacing,
+          0.0,
+          24.0,
+          (v) => SettingsController.setPdfReflowParaSpacing(v),
+          (v) => v.toStringAsFixed(0),
+        ),
+      ],
+    );
+  }
+
+  /// 单个重排排版滑块：左侧标签 + 中部滑块（实时跟随）+ 右侧数值。
+  Widget _reflowSlider(
+    BuildContext context,
+    String key,
+    ValueNotifier<double> notifier,
+    double min,
+    double max,
+    ValueChanged<double> onChanged,
+    String Function(double) format,
+  ) {
+    final primaryColor = CupertinoTheme.of(context).primaryColor;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 56,
+            child: Text(
+              LocalizationEngine.text(key),
+              style: const TextStyle(fontSize: 13),
+            ),
+          ),
+          Expanded(
+            child: ValueListenableBuilder<double>(
+              valueListenable: notifier,
+              builder: (context, value, _) => CupertinoSlider(
+                value: value.clamp(min, max),
+                min: min,
+                max: max,
+                onChanged: onChanged,
+                activeColor: primaryColor,
+                thumbColor: primaryColor,
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 44,
+            child: ValueListenableBuilder<double>(
+              valueListenable: notifier,
+              builder: (context, value, _) => Text(
+                format(value),
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: CupertinoColors.secondaryLabel,
+                ),
+                textAlign: TextAlign.right,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ────────────────────────────────────────────────────────────────
+  // 画面增强卡片（圆角深色容器，每行带 [−] 滑块 [+] 微调按钮）
+  // ────────────────────────────────────────────────────────────────
+
+  /// 画面增强分区：清晰度(占位)/对比度/亮度/饱和度/色温 + 去除颜色开关。
+  Widget _buildEnhanceCard(
+    BuildContext context,
+    Color primaryColor,
+    Color labelColor,
+    Color secondaryColor,
+    Color borderColor,
+  ) {
+    final bgColor = CupertinoColors.systemGrey6.resolveFrom(context);
+    return _StyledCard(
+      title: LocalizationEngine.text('pdf_enhance'),
+      children: [
+        // 清晰度（UI 占位，暂不接入渲染管线）
+        _FineTuneSliderRow(
+          label: LocalizationEngine.text('pdf_enhance_sharpness'),
+          value: 1.0,
+          min: 0.5,
+          max: 2.0,
+          step: 0.1,
+          onChanged: (_) {},
+          primaryColor: primaryColor,
+        ),
+        const SizedBox(height: 10),
+        // 对比度
+        _FineTuneSliderRow(
+          label: LocalizationEngine.text('pdf_enhance_contrast'),
+          value: widget.contrast,
+          min: 0.5,
+          max: 2.0,
+          step: 0.01,
+          onChanged: widget.onContrastChanged,
+          primaryColor: primaryColor,
+        ),
+        const SizedBox(height: 10),
+        // 亮度
+        _FineTuneSliderRow(
+          label: LocalizationEngine.text('pdf_enhance_brightness'),
+          value: widget.brightness,
+          min: 0.3,
+          max: 1.5,
+          step: 0.05,
+          onChanged: widget.onBrightnessChanged,
+          primaryColor: primaryColor,
+        ),
+        const SizedBox(height: 10),
+        // 饱和度
+        _FineTuneSliderRow(
+          label: LocalizationEngine.text('pdf_enhance_saturation'),
+          value: widget.saturation,
+          min: 0.0,
+          max: 2.0,
+          step: 0.01,
+          onChanged: widget.onSaturationChanged,
+          primaryColor: primaryColor,
+        ),
+        const SizedBox(height: 10),
+        // 色温
+        _FineTuneSliderRow(
+          label: LocalizationEngine.text('pdf_enhance_color_temp'),
+          value: widget.colorTemperature,
+          min: 0.5,
+          max: 2.0,
+          step: 0.01,
+          onChanged: widget.onColorTemperatureChanged,
+          primaryColor: primaryColor,
+        ),
+        const SizedBox(height: 10),
+        // 去除颜色（开关）
+        _SwitchRow(
+          label: LocalizationEngine.text('pdf_enhance_remove_color'),
+          description:
+              LocalizationEngine.text('pdf_bg_remove_color_desc'),
+          value: widget.removeColor,
+          onChanged: widget.onRemoveColorChanged,
+        ),
+        const SizedBox(height: 4),
+        // 去杂色（开关）
+        _SwitchRow(
+          label: LocalizationEngine.text('pdf_bg_denoise'),
+          description: LocalizationEngine.text('pdf_bg_denoise_desc'),
+          value: widget.denoise,
+          onChanged: widget.onDenoiseChanged,
+        ),
+      ],
+    );
+  }
+
+  // ────────────────────────────────────────────────────────────────
+  // 页面裁切卡片（自动裁边 / 手动裁切 / 框选裁边）
+  // ────────────────────────────────────────────────────────────────
+
+  /// 页面裁切分区：智能自动裁边开关 + 手动裁切滑块 + 框选裁边入口。
+  Widget _buildCropCard(
+    BuildContext context,
+    Color primaryColor,
+    Color labelColor,
+    Color secondaryColor,
+    Color borderColor,
+  ) {
+    return _StyledCard(
+      title: LocalizationEngine.text('pdf_crop'),
+      children: [
+        // 智能自动裁边开关
+        _SwitchRow(
+          label: LocalizationEngine.text('pdf_crop_auto'),
+          value: widget.cropMode == 1 || (widget.autoCrop && widget.cropMode == 0),
+          onChanged: (v) {
+            if (v) {
+              widget.onCropModeChanged(1);
+              widget.onAutoCropChanged(true);
+            } else {
+              widget.onCropModeChanged(0);
+              widget.onAutoCropChanged(false);
+            }
+          },
+        ),
+        const SizedBox(height: 12),
+        // 左右裁切
+        _FineTuneSliderRow(
+          label: LocalizationEngine.text('pdf_crop_left_right'),
+          value: widget.manualCropLeft + widget.manualCropRight,
+          min: 0.0,
+          max: 0.4,
+          step: 0.01,
+          displayValue:
+              '${(widget.manualCropLeft * 100).toStringAsFixed(0)} / ${(widget.manualCropRight * 100).toStringAsFixed(0)}',
+          onChanged: (_) {}, // 由下方独立 L/R 控制
+          primaryColor: primaryColor,
+        ),
+        const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.only(left: 72),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  LocalizationEngine.text('pdf_crop_left_right'),
+                  style: TextStyle(
+                      color: secondaryColor, fontSize: 11),
+                ),
+              ),
+              Text(
+                'L:${(widget.manualCropLeft * 100).toStringAsFixed(0)}%  R:${(widget.manualCropRight * 100).toStringAsFixed(0)}%',
+                style: TextStyle(
+                    color: secondaryColor, fontSize: 11),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        // 上下裁切
+        _FineTuneSliderRow(
+          label: LocalizationEngine.text('pdf_crop_top_bottom'),
+          value: widget.manualCropTop + widget.manualCropBottom,
+          min: 0.0,
+          max: 0.4,
+          step: 0.01,
+          displayValue:
+              '${(widget.manualCropTop * 100).toStringAsFixed(0)} / ${(widget.manualCropBottom * 100).toStringAsFixed(0)}',
+          onChanged: (_) {}, // 由下方独立 T/B 控制
+          primaryColor: primaryColor,
+        ),
+        const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.only(left: 72),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  LocalizationEngine.text('pdf_crop_top_bottom'),
+                  style: TextStyle(
+                      color: secondaryColor, fontSize: 11),
+                ),
+              ),
+              Text(
+                'T:${(widget.manualCropTop * 100).toStringAsFixed(0)}%  B:${(widget.manualCropBottom * 100).toStringAsFixed(0)}%',
+                style: TextStyle(
+                    color: secondaryColor, fontSize: 11),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        // 框选裁边按钮
+        GestureDetector(
+          onTap: widget.onSelectCrop ?? _noop,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(
+              color: CupertinoColors.systemGrey6.resolveFrom(context),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: borderColor),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(CupertinoIcons.crop,
+                    size: 16, color: primaryColor),
+                const SizedBox(width: 6),
+                Text(
+                  LocalizationEngine.text('pdf_crop_select'),
+                  style: TextStyle(
+                    color: labelColor,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -891,50 +1280,7 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                           ),
                         ],
                         const SizedBox(height: 8),
-                        Text(
-                          LocalizationEngine.text('reader_page_turn'),
-                          style: TextStyle(
-                            color: labelColor,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            _PageModeChip(
-                              icon: CupertinoIcons.book,
-                              label: LocalizationEngine.text(
-                                'reader_page_turn_horizontal',
-                              ),
-                              selected: widget.selectedPageMode == 0,
-                              onPressed: () => widget.onPageModeChanged(0),
-                            ),
-                            const SizedBox(width: 8),
-                            _PageModeChip(
-                              icon: CupertinoIcons.square_stack_3d_up,
-                              label: LocalizationEngine.text('reader_page_turn_vertical'),
-                              selected: widget.selectedPageMode == 1,
-                              onPressed: () => widget.onPageModeChanged(1),
-                            ),
-                            const SizedBox(width: 8),
-                            _PageModeChip(
-                              icon: CupertinoIcons.sparkles,
-                              label: LocalizationEngine.text(
-                                'reader_page_turn_simulation',
-                              ),
-                              selected: widget.selectedPageMode == 2,
-                              onPressed: () => widget.onPageModeChanged(2),
-                            ),
-                            const SizedBox(width: 8),
-                            _PageModeChip(
-                              icon: Icons.motion_photos_on,
-                              label: LocalizationEngine.text('reader_page_turn_none'),
-                              selected: widget.selectedPageMode == 3,
-                              onPressed: () => widget.onPageModeChanged(3),
-                            ),
-                          ],
-                        ),
+                        _buildPageTurnSection(context),
                       ],
                       const SizedBox(height: 8),
                       Padding(
@@ -1280,5 +1626,203 @@ class _SliderRow extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+// ────────────────────────────────────────────────────────────────
+// 新增：圆角卡片容器 + 带 [−]/[+] 微调按钮的滑块行
+// ────────────────────────────────────────────────────────────────
+
+/// 圆角深色卡片容器（画面增强 / 页面裁切共用）。
+class _StyledCard extends StatelessWidget {
+  final String title;
+  final List<Widget> children;
+
+  const _StyledCard({required this.title, required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    final labelColor = CupertinoColors.label.resolveFrom(context);
+    final bgColor =
+        CupertinoColors.systemGrey6.resolveFrom(context); // 暗色模式自适应
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 卡片标题
+          Text(
+            title,
+            style: TextStyle(
+              color: labelColor,
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 10),
+          ...children,
+        ],
+      ),
+    );
+  }
+}
+
+/// 带 [−] [滑块] [+] 微调按钮的滑块行。
+///
+/// 布局：标签 | [−] [═══●═══] [+]
+/// 点击 [−]/[+] 以 [step] 为单位微调，拖动滑块连续调节。
+class _FineTuneSliderRow extends StatefulWidget {
+  final String label;
+  final double value;
+  final double min;
+  final double max;
+  final double step;
+  final ValueChanged<double> onChanged;
+  final Color primaryColor;
+  final String? displayValue;
+
+  const _FineTuneSliderRow({
+    required this.label,
+    required this.value,
+    required this.min,
+    required this.max,
+    this.step = 0.01,
+    required this.onChanged,
+    required this.primaryColor,
+    this.displayValue,
+  });
+
+  @override
+  State<_FineTuneSliderRow> createState() => _FineTuneSliderRowState();
+}
+
+class _FineTuneSliderRowState extends State<_FineTuneSliderRow> {
+  late double _value;
+
+  @override
+  void initState() {
+    super.initState();
+    _value = widget.value;
+  }
+
+  @override
+  void didUpdateWidget(_FineTuneSliderRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.value != oldWidget.value && !_isDragging) {
+      _value = widget.value;
+    }
+  }
+
+  bool _isDragging = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final labelColor = CupertinoColors.label.resolveFrom(context);
+    final secondaryColor =
+        CupertinoColors.secondaryLabel.resolveFrom(context);
+    final btnBg =
+        CupertinoColors.systemGrey5.resolveFrom(context);
+
+    return Row(
+      children: [
+        // 标签
+        SizedBox(
+          width: 56,
+          child: Text(
+            widget.label,
+            style: TextStyle(color: labelColor, fontSize: 13),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        // [−] 按钮
+        GestureDetector(
+          onTap: () => _adjust(-1),
+          child: Container(
+            width: 28,
+            height: 28,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: btnBg,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              '−',
+              style: TextStyle(
+                  color: secondaryColor,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600),
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        // 滑块
+        Expanded(
+          child: CupertinoSlider(
+            value: _value.clamp(widget.min, widget.max),
+            min: widget.min,
+            max: widget.max,
+            onChangeStart: (_) => _isDragging = true,
+            onChangeEnd: (_) {
+              _isDragging = false;
+            },
+            onChanged: (v) {
+              setState(() => _value = v);
+              widget.onChanged(v);
+            },
+            activeColor: widget.primaryColor,
+            thumbColor: widget.primaryColor,
+          ),
+        ),
+        const SizedBox(width: 6),
+        // [+] 按钮
+        GestureDetector(
+          onTap: () => _adjust(1),
+          child: Container(
+            width: 28,
+            height: 28,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: btnBg,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              '+',
+              style: TextStyle(
+                  color: secondaryColor,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600),
+            ),
+          ),
+        ),
+        if (widget.displayValue != null) ...[
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 52,
+            child: Text(
+              widget.displayValue!,
+              style:
+                  TextStyle(color: secondaryColor, fontSize: 11),
+              textAlign: TextAlign.right,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  void _adjust(int direction) {
+    setState(() {
+      _value = (_value + direction * widget.step)
+          .clamp(widget.min, widget.max);
+    });
+    widget.onChanged(_value);
   }
 }

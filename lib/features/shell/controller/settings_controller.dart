@@ -17,10 +17,12 @@ class SettingsController {
   static final ValueNotifier<Color> readerBackgroundColor =
       ValueNotifier<Color>(SettingsEngine.readerBackgroundColor);
 
-  // PDF 阅读器视觉设置（翻页方式 / 布局 / 自动裁切 / 背景调节）的全局 notifier。
-  // UI 仅监听这些 notifier，不直接写持久化（符合禁区 3）。
+  // PDF 阅读器视觉设置（翻页方式 / 翻页动画 / 布局 / 自动裁切 / 背景调节 / 重排排版）的
+  // 全局 notifier。UI 仅监听这些 notifier，不直接写持久化（符合禁区 3）。
   static final ValueNotifier<int> readerPageMode =
       ValueNotifier<int>(SettingsEngine.readerPageMode);
+  static final ValueNotifier<int> readerPageAnimation =
+      ValueNotifier<int>(SettingsEngine.readerPageAnimation);
   static final ValueNotifier<int> readerLayoutMode =
       ValueNotifier<int>(SettingsEngine.readerLayoutMode);
   static final ValueNotifier<bool> pdfAutoCrop =
@@ -35,6 +37,29 @@ class SettingsController {
       ValueNotifier<bool>(SettingsEngine.pdfBgRemoveColor);
   static final ValueNotifier<bool> pdfBgDenoise =
       ValueNotifier<bool>(SettingsEngine.pdfBgDenoise);
+  static final ValueNotifier<double> pdfBgColorTemp =
+      ValueNotifier<double>(SettingsEngine.pdfBgColorTemp);
+  static final ValueNotifier<int> pdfCropMode =
+      ValueNotifier<int>(SettingsEngine.pdfCropMode);
+  static final ValueNotifier<double> pdfManualCropLeft =
+      ValueNotifier<double>(SettingsEngine.pdfManualCropLeft);
+  static final ValueNotifier<double> pdfManualCropRight =
+      ValueNotifier<double>(SettingsEngine.pdfManualCropRight);
+  static final ValueNotifier<double> pdfManualCropTop =
+      ValueNotifier<double>(SettingsEngine.pdfManualCropTop);
+  static final ValueNotifier<double> pdfManualCropBottom =
+      ValueNotifier<double>(SettingsEngine.pdfManualCropBottom);
+  static final ValueNotifier<bool> pdfDualScreen =
+      ValueNotifier<bool>(SettingsEngine.pdfDualScreen);
+  // 重排排版参数 notifier（重排后字体大小 / 行距 / 字距 / 段距，本地方案全平台通用）。
+  static final ValueNotifier<double> pdfReflowFontSize =
+      ValueNotifier<double>(SettingsEngine.pdfReflowFontSize);
+  static final ValueNotifier<double> pdfReflowLineSpacing =
+      ValueNotifier<double>(SettingsEngine.pdfReflowLineSpacing);
+  static final ValueNotifier<double> pdfReflowLetterSpacing =
+      ValueNotifier<double>(SettingsEngine.pdfReflowLetterSpacing);
+  static final ValueNotifier<double> pdfReflowParaSpacing =
+      ValueNotifier<double>(SettingsEngine.pdfReflowParaSpacing);
   static final ValueNotifier<String> startupPage =
       ValueNotifier<String>(SettingsEngine.startupPage);
     static final ValueNotifier<String> startupSplashType =
@@ -216,6 +241,78 @@ class SettingsController {
   static void setPdfBgDenoise(bool value) {
     SettingsEngine.setPdfBgDenoise(value);
     pdfBgDenoise.value = value;
+  }
+
+  /// 设置 PDF 色温（0.5 偏冷蓝 ~ 2.0 偏暖黄，1.0 为原始）。
+  static void setPdfBgColorTemp(double value) {
+    SettingsEngine.setPdfBgColorTemp(value);
+    pdfBgColorTemp.value = value;
+  }
+
+  /// 设置 PDF 页面裁切模式（0=不裁切 / 1=自动 / 2=手动 / 3=框选）。
+  static void setPdfCropMode(int value) {
+    SettingsEngine.setPdfCropMode(value);
+    pdfCropMode.value = value;
+  }
+
+  /// 设置 PDF 手动裁切左边距（0~1）。
+  static void setPdfManualCropLeft(double value) {
+    SettingsEngine.setPdfManualCropLeft(value);
+    pdfManualCropLeft.value = value;
+  }
+
+  /// 设置 PDF 手动裁切右边距（0~1）。
+  static void setPdfManualCropRight(double value) {
+    SettingsEngine.setPdfManualCropRight(value);
+    pdfManualCropRight.value = value;
+  }
+
+  /// 设置 PDF 手动裁切上边距（0~1）。
+  static void setPdfManualCropTop(double value) {
+    SettingsEngine.setPdfManualCropTop(value);
+    pdfManualCropTop.value = value;
+  }
+
+  /// 设置 PDF 手动裁切下边距（0~1）。
+  static void setPdfManualCropBottom(double value) {
+    SettingsEngine.setPdfManualCropBottom(value);
+    pdfManualCropBottom.value = value;
+  }
+
+  /// 设置 PDF 双屏模式开关。
+  static void setPdfDualScreen(bool value) {
+    SettingsEngine.setPdfDualScreen(value);
+    pdfDualScreen.value = value;
+  }
+
+  /// 设置 PDF 翻页动画（0 无 / 1 仿真）。
+  static void setReaderPageAnimation(int value) {
+    SettingsEngine.setReaderPageAnimation(value);
+    readerPageAnimation.value = value;
+  }
+
+  /// 设置重排字体大小。
+  static void setPdfReflowFontSize(double value) {
+    SettingsEngine.setPdfReflowFontSize(value);
+    pdfReflowFontSize.value = value;
+  }
+
+  /// 设置重排行距。
+  static void setPdfReflowLineSpacing(double value) {
+    SettingsEngine.setPdfReflowLineSpacing(value);
+    pdfReflowLineSpacing.value = value;
+  }
+
+  /// 设置重排字距（字符间距）。
+  static void setPdfReflowLetterSpacing(double value) {
+    SettingsEngine.setPdfReflowLetterSpacing(value);
+    pdfReflowLetterSpacing.value = value;
+  }
+
+  /// 设置重排段距（段落间距）。
+  static void setPdfReflowParaSpacing(double value) {
+    SettingsEngine.setPdfReflowParaSpacing(value);
+    pdfReflowParaSpacing.value = value;
   }
 
   static void setStartupPage(String value) {

@@ -37,10 +37,13 @@ class SettingsEngine {
   static const String readerBackgroundColorKey = 'app.readerBackgroundColor';
   static const Color readerBackgroundColorDefault = Color(0xFFF7F3EC);
 
-  // PDF 阅读器专属视觉设置（翻页方式 / 布局 / 自动裁切 / 背景调节）
-  // 翻页方式：0=左右翻页 1=上下滚动 2=仿真 3=无（0/2 横向，1/3 纵向）
+  // PDF 阅读器专属视觉设置（翻页方式 / 翻页动画 / 布局 / 自动裁切 / 背景调节 / 重排排版）
+  // 翻页方式（同一行）：0=左右滑动 1=上下滑动 2=左右单击 3=上下单击 4=单击滚动
   static const String readerPageModeKey = 'app.reader.pdf.pageMode';
   static const int readerPageModeDefault = 0;
+  // 翻页动画（独立栏目「翻页动画」）：0=无动画（瞬时跳转） 1=仿真动画（带过渡）
+  static const String readerPageAnimationKey = 'app.reader.pdf.pageAnimation';
+  static const int readerPageAnimationDefault = 1;
   // 布局模式：0=单页 1=双页 2=单页连续 3=双页连续
   static const String readerLayoutModeKey = 'app.reader.pdf.layoutMode';
   static const int readerLayoutModeDefault = 0;
@@ -58,6 +61,33 @@ class SettingsEngine {
   static const bool pdfBgRemoveColorDefault = false;
   static const String pdfBgDenoiseKey = 'app.reader.pdf.bg.denoise';
   static const bool pdfBgDenoiseDefault = false;
+  // 色温（0.5 偏冷蓝 ~ 2.0 偏暖黄，1.0 为原始色温）
+  static const String pdfBgColorTempKey = 'app.reader.pdf.bg.colorTemp';
+  static const double pdfBgColorTempDefault = 1.0;
+  // 页面裁切模式：0=不裁切 / 1=智能自动裁边 / 2=手动裁边 / 3=框选裁边
+  static const String pdfCropModeKey = 'app.reader.pdf.cropMode';
+  static const int pdfCropModeDefault = 0;
+  // 手动裁切边距（归一化 0~1，表示页面宽高的裁切比例）
+  static const String pdfManualCropLeftKey = 'app.reader.pdf.crop.left';
+  static const double pdfManualCropLeftDefault = 0.0;
+  static const String pdfManualCropRightKey = 'app.reader.pdf.crop.right';
+  static const double pdfManualCropRightDefault = 0.0;
+  static const String pdfManualCropTopKey = 'app.reader.pdf.crop.top';
+  static const double pdfManualCropTopDefault = 0.0;
+  static const String pdfManualCropBottomKey = 'app.reader.pdf.crop.bottom';
+  static const double pdfManualCropBottomDefault = 0.0;
+  // 双屏模式：左右分屏独立滑动，用于对比阅读
+  static const String pdfDualScreenKey = 'app.reader.pdf.dualScreen';
+  static const bool pdfDualScreenDefault = false;
+  // 重排排版（重排后可读写的字体排版参数，本地方案、全平台通用）
+  static const String pdfReflowFontSizeKey = 'app.reader.pdf.reflow.fontSize';
+  static const double pdfReflowFontSizeDefault = 18.0;
+  static const String pdfReflowLineSpacingKey = 'app.reader.pdf.reflow.lineSpacing';
+  static const double pdfReflowLineSpacingDefault = 1.6;
+  static const String pdfReflowLetterSpacingKey = 'app.reader.pdf.reflow.letterSpacing';
+  static const double pdfReflowLetterSpacingDefault = 0.0;
+  static const String pdfReflowParaSpacingKey = 'app.reader.pdf.reflow.paraSpacing';
+  static const double pdfReflowParaSpacingDefault = 8.0;
 
   // Startup page settings
   static const String startupPageKey = 'app.startupPage';
@@ -136,6 +166,15 @@ class SettingsEngine {
     Config.set(readerPageModeKey, value);
   }
 
+  static int get readerPageAnimation {
+    return Config.get(readerPageAnimationKey) as int? ??
+        readerPageAnimationDefault;
+  }
+
+  static void setReaderPageAnimation(int value) {
+    Config.set(readerPageAnimationKey, value);
+  }
+
   static int get readerLayoutMode {
     return Config.get(readerLayoutModeKey) as int? ?? readerLayoutModeDefault;
   }
@@ -192,6 +231,100 @@ class SettingsEngine {
 
   static void setPdfBgDenoise(bool value) {
     Config.set(pdfBgDenoiseKey, value);
+  }
+
+  static double get pdfBgColorTemp {
+    return Config.get(pdfBgColorTempKey) as double? ?? pdfBgColorTempDefault;
+  }
+
+  static void setPdfBgColorTemp(double value) {
+    Config.set(pdfBgColorTempKey, value);
+  }
+
+  static int get pdfCropMode {
+    return Config.get(pdfCropModeKey) as int? ?? pdfCropModeDefault;
+  }
+
+  static void setPdfCropMode(int value) {
+    Config.set(pdfCropModeKey, value);
+  }
+
+  static double get pdfManualCropLeft {
+    return Config.get(pdfManualCropLeftKey) as double? ?? pdfManualCropLeftDefault;
+  }
+
+  static void setPdfManualCropLeft(double value) {
+    Config.set(pdfManualCropLeftKey, value);
+  }
+
+  static double get pdfManualCropRight {
+    return Config.get(pdfManualCropRightKey) as double? ?? pdfManualCropRightDefault;
+  }
+
+  static void setPdfManualCropRight(double value) {
+    Config.set(pdfManualCropRightKey, value);
+  }
+
+  static double get pdfManualCropTop {
+    return Config.get(pdfManualCropTopKey) as double? ?? pdfManualCropTopDefault;
+  }
+
+  static void setPdfManualCropTop(double value) {
+    Config.set(pdfManualCropTopKey, value);
+  }
+
+  static double get pdfManualCropBottom {
+    return Config.get(pdfManualCropBottomKey) as double? ??
+        pdfManualCropBottomDefault;
+  }
+
+  static void setPdfManualCropBottom(double value) {
+    Config.set(pdfManualCropBottomKey, value);
+  }
+
+  static bool get pdfDualScreen {
+    return Config.get(pdfDualScreenKey) as bool? ?? pdfDualScreenDefault;
+  }
+
+  static void setPdfDualScreen(bool value) {
+    Config.set(pdfDualScreenKey, value);
+  }
+
+  // 重排排版参数存取
+  static double get pdfReflowFontSize {
+    return Config.get(pdfReflowFontSizeKey) as double? ??
+        pdfReflowFontSizeDefault;
+  }
+
+  static void setPdfReflowFontSize(double value) {
+    Config.set(pdfReflowFontSizeKey, value);
+  }
+
+  static double get pdfReflowLineSpacing {
+    return Config.get(pdfReflowLineSpacingKey) as double? ??
+        pdfReflowLineSpacingDefault;
+  }
+
+  static void setPdfReflowLineSpacing(double value) {
+    Config.set(pdfReflowLineSpacingKey, value);
+  }
+
+  static double get pdfReflowLetterSpacing {
+    return Config.get(pdfReflowLetterSpacingKey) as double? ??
+        pdfReflowLetterSpacingDefault;
+  }
+
+  static void setPdfReflowLetterSpacing(double value) {
+    Config.set(pdfReflowLetterSpacingKey, value);
+  }
+
+  static double get pdfReflowParaSpacing {
+    return Config.get(pdfReflowParaSpacingKey) as double? ??
+        pdfReflowParaSpacingDefault;
+  }
+
+  static void setPdfReflowParaSpacing(double value) {
+    Config.set(pdfReflowParaSpacingKey, value);
   }
 
   // Startup page

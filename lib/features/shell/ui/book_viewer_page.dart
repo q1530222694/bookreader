@@ -11,8 +11,10 @@ import '../controller/bookshelf_controller.dart';
 import '../controller/settings_controller.dart';
 import '../model/pdf_reader_settings.dart';
 import '../service/pdf_render_service.dart';
+import '../service/pdf_text_reflow_service.dart';
 import '../service/reading_session_service.dart';
 import 'pdf_custom_view.dart';
+import 'pdf_reflow_view.dart';
 import 'reader_settings_sheet.dart';
 
 /// BookViewerPage 展示 PDF 书籍，支持翻页 / 布局 / 自动裁切 / 背景调节等设置。
@@ -55,8 +57,16 @@ class _BookViewerPageState extends State<BookViewerPage>
   int _selectedThemeIndex = 1;
   double _brightness = 1.0;
   int _selectedFontIndex = 0;
-  // 翻页方式：0 左右翻页 / 1 上下滚动 / 2 仿真 / 3 无（初始化自持久化，回调中落库）。
+  // 翻页方式：0 左右滑动 / 1 上下滑动 / 2 左右单击 / 3 上下单击 / 4 单击滚动。
+  // 初始化自持久化，回调中落库。
   int _selectedPageMode = SettingsEngine.readerPageMode;
+
+  // 重排状态：_isReflowing 表示当前处于重排阅读视图；_reflowParagraphs 为已提取段落；
+  // _reflowLoading 为提取中；_reflowError 为无文本层 / 提取失败提示。
+  bool _isReflowing = false;
+  List<String>? _reflowParagraphs;
+  bool _reflowLoading = false;
+  String? _reflowError;
 
   // PDF 专属视觉设置（初始化自全局持久化，回调中上浮并落库）。
   // 渲染效果由 PdfCustomView 真实实现（2-up / 连续 / 原生裁切 / GPU 滤镜）。
@@ -66,6 +76,13 @@ class _BookViewerPageState extends State<BookViewerPage>
   double _saturation = SettingsEngine.pdfBgSaturation;
   bool _removeColor = SettingsEngine.pdfBgRemoveColor;
   bool _denoise = SettingsEngine.pdfBgDenoise;
+  double _colorTemperature = SettingsEngine.pdfBgColorTemp;
+  int _cropMode = SettingsEngine.pdfCropMode;
+  double _manualCropLeft = SettingsEngine.pdfManualCropLeft;
+  double _manualCropRight = SettingsEngine.pdfManualCropRight;
+  double _manualCropTop = SettingsEngine.pdfManualCropTop;
+  double _manualCropBottom = SettingsEngine.pdfManualCropBottom;
+  bool _dualScreen = SettingsEngine.pdfDualScreen;
 
   @override
   void initState() {
@@ -297,42 +314,84 @@ class _BookViewerPageState extends State<BookViewerPage>
   /// 由当前状态聚合的 PDF 阅读器视觉设置（供 GPU 滤镜合成与布局判断消费）。
   PdfReaderSettings get _readerSettings => PdfReaderSettings(
         layoutMode: _layoutMode,
+        cropMode: _cropMode,
         autoCrop: _autoCrop,
+        manualCropLeft: _manualCropLeft,
+        manualCropRight: _manualCropRight,
+        manualCropTop: _manualCropTop,
+        manualCropBottom: _manualCropBottom,
         brightness: _brightness,
         contrast: _contrast,
         saturation: _saturation,
+        colorTemperature: _colorTemperature,
         removeColor: _removeColor,
         denoise: _denoise,
+        dualScreen: _dualScreen,
       );
 
-  /// 重排：一键切换为「上下滚动 + 单栏连续 + 去白边」的紧凑阅读模式，适合手机阅读。
+  /// 重排：基于 PDF 文本层做「真实重排」（本地、无损、跨平台、流畅）。
   ///
-  /// 组合三项已实现的能力：翻页方式=上下滚动(1)、布局=单页连续(2)、自动裁切=开，
-  /// 全部由 pdfrx 低层自建的 [PdfCustomView] 真实实现（连续滚动 + 原生精确裁切去白边）。
-  ///
-  /// 说明：对「图片扫描件」而言这是版式层面的重排（连续滚动 + 去白边 + 撑满宽度），
-  /// 并非文字级重排（后者需 OCR 识别文字后重新排版，属阶段3 PaddleOCR 集成范畴）。
-  void _reflow() {
+  /// 经 [PdfTextReflowService.extract] 从 [PdfDocument] 取出按阅读顺序排列的真实文本段落，
+  /// 再交由 [PdfReflowView] 以可调字号 / 行距 / 字距 / 段距重新流式排版。提取过程异步进行，
+  /// 期间显示加载提示；纯图片扫描件（无文本层）会提示改用 OCR。
+  Future<void> _reflow() async {
+    if (!mounted || _pdfDocument == null) return;
+    setState(() {
+      _reflowLoading = true;
+      _reflowError = null;
+    });
+    try {
+      final result = await PdfTextReflowService.extract(_pdfDocument!);
+      if (!mounted) return;
+      if (!result.hasTextLayer) {
+        setState(() {
+          _reflowLoading = false;
+          _reflowParagraphs = null;
+          _isReflowing = false;
+          _reflowError = LocalizationEngine.text('pdf_reflow_empty');
+        });
+        return;
+      }
+      setState(() {
+        _reflowParagraphs = result.paragraphs;
+        _isReflowing = true;
+        _reflowLoading = false;
+        _reflowError = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _reflowLoading = false;
+        _reflowError = '重排失败：$e';
+      });
+    }
+  }
+
+  /// 退出重排：返回原 PDF 版式阅读视图。
+  void _exitReflow() {
     if (!mounted) return;
     setState(() {
-      _selectedPageMode = 1; // 上下滚动
-      _layoutMode = 2; // 单页连续
-      _autoCrop = true; // 去白边
-      SettingsController.setReaderPageMode(1);
-      SettingsController.setReaderLayoutMode(2);
-      SettingsController.setPdfAutoCrop(true);
+      _isReflowing = false;
     });
   }
 
   /// 构建 PDF 阅读视图。
   ///
-  /// 直接委托给自建的 [PdfCustomView]：双栏 2-up / 连续滚动 / 翻页吸附、原生精确裁切、
-  /// 颜色调整与智能去杂色等均由该视图内部按 [PdfReaderSettings] 真实实现。
+  /// 重排模式下委托给 [PdfReflowView]（真实文本重排 + 可调排版）；否则委托给自建的
+  /// [PdfCustomView]：双栏 2-up / 连续滚动 / 翻页吸附、原生精确裁切、颜色调整与智能去杂色
+  /// 等均由该视图内部按 [PdfReaderSettings] 与 [pageAnimation] 真实实现。
   Widget _buildPdfView() {
+    if (_isReflowing && _reflowParagraphs != null) {
+      return PdfReflowView(
+        paragraphs: _reflowParagraphs!,
+        onExit: _exitReflow,
+      );
+    }
     return PdfCustomView(
       document: _pdfDocument!,
       settings: _readerSettings,
       pageMode: _selectedPageMode,
+      pageAnimation: SettingsEngine.readerPageAnimation,
       onPageChanged: _syncProgress,
     );
   }
@@ -371,9 +430,49 @@ class _BookViewerPageState extends State<BookViewerPage>
                     child: Column(
                       children: [
                         Expanded(
-                              child: _pdfDocument == null
-                                  ? const Center(child: CupertinoActivityIndicator())
-                                  : _buildPdfView(),
+                          child: _pdfDocument == null
+                              ? const Center(child: CupertinoActivityIndicator())
+                              : _reflowLoading
+                                  ? Center(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          CupertinoActivityIndicator(),
+                                          SizedBox(height: 12),
+                                          Text(
+                                            LocalizationEngine.text(
+                                              'pdf_reflow_loading',
+                                            ),
+                                            style: const TextStyle(
+                                              fontSize: 14,
+                                              color: CupertinoColors.systemGrey,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    )
+                                  : _isReflowing && _reflowParagraphs != null
+                                      ? PdfReflowView(
+                                          paragraphs: _reflowParagraphs!,
+                                          onExit: _exitReflow,
+                                        )
+                                      : _reflowError != null
+                                          ? Center(
+                                              child: Padding(
+                                                padding:
+                                                    const EdgeInsets.all(24),
+                                                child: Text(
+                                                  _reflowError!,
+                                                  textAlign: TextAlign.center,
+                                                  style: const TextStyle(
+                                                    fontSize: 15,
+                                                    color: CupertinoColors
+                                                        .systemGrey,
+                                                  ),
+                                                ),
+                                              ),
+                                            )
+                                          : _buildPdfView(),
                         ),
                         if (_errorText != null)
                           Padding(
@@ -555,6 +654,7 @@ class _BookViewerPageState extends State<BookViewerPage>
                             selectedPageMode: _selectedPageMode,
                             selectedBackgroundColor: readerBackgroundColor,
                             isPdfReader: true,
+                            showReflow: _isReflowing,
                             onThemeChanged: (index) =>
                                 setState(() => _selectedThemeIndex = index),
                             onBrightnessChanged: (value) =>
@@ -599,6 +699,56 @@ class _BookViewerPageState extends State<BookViewerPage>
                             onDenoiseChanged: (value) => setState(() {
                               _denoise = value;
                               SettingsController.setPdfBgDenoise(value);
+                            }),
+                            colorTemperature: _colorTemperature,
+                            onColorTemperatureChanged: (value) =>
+                                setState(() {
+                              _colorTemperature = value;
+                              SettingsController.setPdfBgColorTemp(value);
+                            }),
+                            cropMode: _cropMode,
+                            onCropModeChanged: (value) => setState(() {
+                              _cropMode = value;
+                              if (value == 1) {
+                                _autoCrop = true;
+                                SettingsController.setPdfAutoCrop(true);
+                              } else if (value == 0) {
+                                _autoCrop = false;
+                                SettingsController.setPdfAutoCrop(false);
+                              }
+                              SettingsController.setPdfCropMode(value);
+                            }),
+                            manualCropLeft: _manualCropLeft,
+                            onManualCropLeftChanged: (value) => setState(() {
+                              _manualCropLeft = value;
+                              SettingsController.setPdfManualCropLeft(value);
+                            }),
+                            manualCropRight: _manualCropRight,
+                            onManualCropRightChanged: (value) =>
+                                setState(() {
+                              _manualCropRight = value;
+                              SettingsController
+                                  .setPdfManualCropRight(value);
+                            }),
+                            manualCropTop: _manualCropTop,
+                            onManualCropTopChanged: (value) => setState(() {
+                              _manualCropTop = value;
+                              SettingsController.setPdfManualCropTop(value);
+                            }),
+                            manualCropBottom: _manualCropBottom,
+                            onManualCropBottomChanged: (value) =>
+                                setState(() {
+                              _manualCropBottom = value;
+                              SettingsController
+                                  .setPdfManualCropBottom(value);
+                            }),
+                            onSelectCrop: () {
+                              // TODO: 框选裁边 — 显示书籍画面供手动画框（后续实现）
+                            },
+                            dualScreen: _dualScreen,
+                            onDualScreenChanged: (value) => setState(() {
+                              _dualScreen = value;
+                              SettingsController.setPdfDualScreen(value);
                             }),
                             onAddTag: _showAddTagDialog,
                             onReflow: _reflow,
