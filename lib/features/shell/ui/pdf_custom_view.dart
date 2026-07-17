@@ -230,12 +230,41 @@ class PdfCustomViewState extends State<PdfCustomView> {
         _listKey.currentContext?.findRenderObject() as RenderBox?;
     final targetBox =
         _spreadKeys[index].currentContext?.findRenderObject() as RenderBox?;
-    if (listBox == null || targetBox == null) return 0.0;
-    final listTop = listBox.localToGlobal(Offset.zero).dy;
-    final targetTop = targetBox.localToGlobal(Offset.zero).dy;
-    final delta = targetTop - listTop; // 目标页相对视口顶部的屏幕位移
-    return (_scrollController!.offset + delta)
-        .clamp(0.0, _scrollController!.position.maxScrollExtent);
+    if (listBox != null && targetBox != null) {
+      final listTop = listBox.localToGlobal(Offset.zero).dy;
+      final targetTop = targetBox.localToGlobal(Offset.zero).dy;
+      final delta = targetTop - listTop; // 目标页相对视口顶部的屏幕位移
+      return (_scrollController!.offset + delta)
+          .clamp(0.0, _scrollController!.position.maxScrollExtent);
+    }
+    // 目标页尚未构建（懒加载列表）：以最近的已构建页为锚点，按平均高度估算绝对偏移，
+    // 避免连续模式下跳转到远处页面时偏移为 0（页面不跳转）。
+    final anchor = _nearestBuiltSpread(index);
+    if (anchor != null && listBox != null) {
+      final anchorBox =
+          _spreadKeys[anchor].currentContext!.findRenderObject() as RenderBox;
+      final listTop = listBox.localToGlobal(Offset.zero).dy;
+      final anchorTop = anchorBox.localToGlobal(Offset.zero).dy;
+      final avgH = anchorBox.size.height + _pageGap;
+      final delta = (index - anchor) * avgH - (anchorTop - listTop);
+      return (_scrollController!.offset + delta)
+          .clamp(0.0, _scrollController!.position.maxScrollExtent);
+    }
+    return 0.0;
+  }
+
+  /// 从 [index] 向两侧寻找第一个已构建（有 renderObject）的对开页，作为偏移估算锚点。
+  int? _nearestBuiltSpread(int index) {
+    for (int d = 0; d < _spreadKeys.length; d++) {
+      if (index - d >= 0 && _spreadKeys[index - d].currentContext != null) {
+        return index - d;
+      }
+      if (index + d < _spreadKeys.length &&
+          _spreadKeys[index + d].currentContext != null) {
+        return index + d;
+      }
+    }
+    return null;
   }
 
   /// 由 1-based 页码推导对开页索引（双页模式每两页一对开，单页模式一一对应）。
@@ -362,6 +391,9 @@ class PdfCustomViewState extends State<PdfCustomView> {
           body = PageView.builder(
             controller: _pageController,
             scrollDirection: scrollDir,
+            // 关闭默认硬裁剪，否则旋转/圆筒/反转等 3D 变换在越过视口边界时被裁掉，
+            // 导致 2~8 自定义翻页动画看不到真实过渡。静止态页面恰好填满视口、不会漏出。
+            clipBehavior: Clip.none,
             // 纯单击模式禁用滑动，仅由点击驱动翻页；其余模式允许滑动。
             physics: _swipeEnabled
                 ? null
@@ -512,7 +544,7 @@ class PdfCustomViewState extends State<PdfCustomView> {
   /// 无动画(0)/仿真(1) 直接返回原页（交给 PageView 原生吸附与滚动曲线）。
   Widget _buildAnimatedSpread(int index, Axis scrollDir, double pageW, double pageH) {
     final child = _buildSpread(index, scrollDir, pageW, pageH);
-    if (widget.pageAnimation <= 1 || _pageController == null) return child;
+    if (widget.pageAnimation == 0 || _pageController == null) return child;
     return AnimatedBuilder(
       animation: _pageController!,
       builder: (context, c) {
@@ -536,6 +568,43 @@ class PdfCustomViewState extends State<PdfCustomView> {
     double pageH,
   ) {
     switch (widget.pageAnimation) {
+      case 1: // 仿真翻页：当前页绕书脊做带透视的翻起，露出下一页，模拟真实翻书。
+        {
+          final isH = axis == Axis.horizontal;
+          final turn = position; // 0=居中；>0 翻向下一页；<0 翻回上一页
+          // 前进绕左缘(书脊在左，露出右侧下一页)；后退绕右缘。
+          final spineX = turn >= 0 ? 0.0 : pageW;
+          final spineY = turn >= 0 ? 0.0 : pageH;
+          final m = Matrix4.identity()
+            ..setEntry(3, 2, 0.0022) // 透视
+            ..translate(spineX, spineY)
+            ..rotateY(isH ? turn * (math.pi / 2) : 0.0)
+            ..rotateX(isH ? 0.0 : turn * (math.pi / 2))
+            ..translate(-spineX, -spineY);
+          final shadow = (turn.abs() * 0.33).clamp(0.0, 0.33);
+          final overlay = Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: isH
+                    ? (turn >= 0 ? Alignment.centerRight : Alignment.centerLeft)
+                    : (turn >= 0 ? Alignment.bottomCenter : Alignment.topCenter),
+                end: isH
+                    ? (turn >= 0 ? Alignment.centerLeft : Alignment.centerRight)
+                    : (turn >= 0 ? Alignment.topCenter : Alignment.bottomCenter),
+                colors: [
+                  CupertinoColors.black.withValues(alpha: shadow),
+                  CupertinoColors.black.withValues(alpha: 0.0),
+                ],
+              ),
+            ),
+          );
+          return Stack(
+            children: [
+              Transform(transform: m, child: child),
+              Positioned.fill(child: IgnorePointer(child: overlay)),
+            ],
+          );
+        }
       case 2: // 淡入淡出：随偏移增大而淡出
         return Opacity(
           opacity: (1 - position.abs()).clamp(0.0, 1.0),
@@ -623,6 +692,7 @@ class _PdfPageWidgetState extends State<_PdfPageWidget> {
         old.settings.manualCropRight != widget.settings.manualCropRight ||
         old.settings.manualCropTop != widget.settings.manualCropTop ||
         old.settings.manualCropBottom != widget.settings.manualCropBottom ||
+        old.settings.cropBandVersion != widget.settings.cropBandVersion ||
         old.targetWidth.round() != widget.targetWidth.round() ||
         old.settings.cropOddEvenMode != widget.settings.cropOddEvenMode) {
       _load();
@@ -701,6 +771,20 @@ class _PdfPageWidgetState extends State<_PdfPageWidget> {
       child = ColorFiltered(
         colorFilter: ColorFilter.matrix(matrix),
         child: child,
+      );
+    }
+    // 阅读背景覆盖：开启时用半透明背景色覆盖扫描件，制造「更换背景」观感。
+    if (widget.settings.bgOverlay) {
+      child = Stack(
+        fit: StackFit.expand,
+        children: [
+          child,
+          IgnorePointer(
+            child: Container(
+              color: widget.settings.bgOverlayColor.withValues(alpha: 0.4),
+            ),
+          ),
+        ],
       );
     }
     // 注：原先在此包裹的 InteractiveViewer（pinch 缩放）其手势识别器会拦截单指滑动，

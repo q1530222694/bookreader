@@ -1,3 +1,5 @@
+import 'dart:ui' show Color;
+
 /// PDF 阅读器的视觉设置集合。
 ///
 /// 聚合「布局模式 / 自动裁切 / 手动裁切 / 框选裁切 / 背景调节
@@ -34,11 +36,21 @@ class PdfReaderSettings {
   /// 色温（0.5 偏冷蓝 ~ 2.0 偏暖黄，1.0 为原始色温）
   final double colorTemperature;
 
+  /// 清晰度（0.5~2.0，1.0 为原始；>1 锐化、<1 轻微柔化）。
+  /// 像素级卷积（unsharp mask）实现，需触发重渲染（见 [needsRerender]）。
+  final double sharpness;
+
   /// 去除颜色：仅显示黑白灰（灰度化）
   final bool removeColor;
 
   /// 智能去杂色：去除影响阅读的小黑点 / 杂点（轻微高斯模糊近似）
   final bool denoise;
+
+  /// 阅读背景覆盖：开启后用半透明背景色覆盖扫描件，制造「更换背景」观感。
+  final bool bgOverlay;
+
+  /// 阅读背景覆盖色（通常为选中的阅读背景色）。
+  final Color bgOverlayColor;
 
   /// 双屏模式：左右分屏独立滑动对比阅读
   final bool dualScreen;
@@ -46,6 +58,11 @@ class PdfReaderSettings {
   /// 奇偶页分开裁边模式：0=统一裁切（所有页用相同边距）/ 1=仅奇数页生效 /
   /// 2=仅偶数页生效。当不为0时，不匹配的页面不应用手动/框选裁切。
   final int cropOddEvenMode;
+
+  /// 垂直基准带版本号：每次 [PdfRenderService.calibrateVerticalBand] 完成（拿到新基准带）
+  /// 即自增。仅作为「重新渲染触发器」——页面 widget 检测到版本变化即重载并按新基准带对齐；
+  /// 基准带的实际数值存放在服务内部缓存，不在此对象上。
+  final int cropBandVersion;
 
   const PdfReaderSettings({
     this.layoutMode = 0,
@@ -59,10 +76,14 @@ class PdfReaderSettings {
     this.contrast = 1.0,
     this.saturation = 1.0,
     this.colorTemperature = 1.0,
+    this.sharpness = 1.0,
     this.removeColor = false,
     this.denoise = false,
     this.dualScreen = false,
     this.cropOddEvenMode = 0,
+    this.bgOverlay = false,
+    this.bgOverlayColor = const Color(0xFFF7F3EC),
+    this.cropBandVersion = 0,
   });
 
   /// 派生新实例（不可变更新）。
@@ -78,10 +99,14 @@ class PdfReaderSettings {
     double? contrast,
     double? saturation,
     double? colorTemperature,
+    double? sharpness,
     bool? removeColor,
     bool? denoise,
     bool? dualScreen,
     int? cropOddEvenMode,
+    bool? bgOverlay,
+    Color? bgOverlayColor,
+    int? cropBandVersion,
   }) {
     return PdfReaderSettings(
       layoutMode: layoutMode ?? this.layoutMode,
@@ -95,10 +120,14 @@ class PdfReaderSettings {
       contrast: contrast ?? this.contrast,
       saturation: saturation ?? this.saturation,
       colorTemperature: colorTemperature ?? this.colorTemperature,
+      sharpness: sharpness ?? this.sharpness,
       removeColor: removeColor ?? this.removeColor,
       denoise: denoise ?? this.denoise,
       dualScreen: dualScreen ?? this.dualScreen,
       cropOddEvenMode: cropOddEvenMode ?? this.cropOddEvenMode,
+      bgOverlay: bgOverlay ?? this.bgOverlay,
+      bgOverlayColor: bgOverlayColor ?? this.bgOverlayColor,
+      cropBandVersion: cropBandVersion ?? this.cropBandVersion,
     );
   }
 
@@ -114,6 +143,7 @@ class PdfReaderSettings {
       contrast != 1.0 ||
       saturation != 1.0 ||
       colorTemperature != 1.0 ||
+      sharpness != 1.0 ||
       removeColor ||
       denoise;
 
@@ -123,15 +153,17 @@ class PdfReaderSettings {
       (cropMode == 1 && autoCrop) ||
       cropMode == 2 ||
       cropMode == 3 ||
-      denoise;
+      denoise ||
+      sharpness != 1.0;
 
   @override
   String toString() {
     return 'PdfReaderSettings(layoutMode:$layoutMode, cropMode:$cropMode, '
         'autoCrop:$autoCrop, manualCropLTRB:($manualCropLeft,$manualCropRight,$manualCropTop,$manualCropBottom), '
-        'brightness:$brightness, contrast:$contrast, saturation:$saturation, '
-        'colorTemp:$colorTemperature, removeColor:$removeColor, denoise:$denoise, '
+      'brightness:$brightness, contrast:$contrast, saturation:$saturation, '
+      'colorTemp:$colorTemperature, sharpness:$sharpness, removeColor:$removeColor, denoise:$denoise, '
         'dualScreen:$dualScreen, '
-        'cropOddEvenMode:$cropOddEvenMode)';
+        'bgOverlay:$bgOverlay, bgOverlayColor:$bgOverlayColor, '
+        'cropOddEvenMode:$cropOddEvenMode, cropBandVersion:$cropBandVersion)';
   }
 }

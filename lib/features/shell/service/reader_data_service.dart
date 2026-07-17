@@ -261,6 +261,38 @@ class ReaderDataStore {
     result.sort((a, b) => b.bookmark.createdAt.compareTo(a.bookmark.createdAt));
     return result;
   }
+
+  /// 跨书汇总：读取所有书籍的笔记（按创建时间倒序），每条携带 bookId 与书名。
+  ///
+  /// [bookTitleResolver] 用于把 bookId 解析为书名；无法解析时回退为『未知书籍』。
+  /// 用于「回忆页 - 收藏笔记统计」与「随机回忆」（抽取真实笔记内容）。
+  static Future<List<NoteWithBook>> loadAllNotes(
+    List<String> bookIds,
+    String Function(String bookId) bookTitleResolver,
+  ) async {
+    final result = <NoteWithBook>[];
+    for (final id in bookIds) {
+      final list = await loadNotes(id);
+      for (final n in list) {
+        result.add(NoteWithBook(
+          bookId: id,
+          title: bookTitleResolver(id),
+          note: n,
+        ));
+      }
+    }
+    result.sort((a, b) => b.note.createdAt.compareTo(a.note.createdAt));
+    return result;
+  }
+
+  /// 跨书笔记总数（用于统计卡片的「收藏笔记」计数，替代占位常量）。
+  static Future<int> countAllNotes(List<String> bookIds) async {
+    var total = 0;
+    for (final id in bookIds) {
+      total += (await loadNotes(id)).length;
+    }
+    return total;
+  }
 }
 
 /// 跨书书签：组合书签与其所属书籍信息（bookId / 书名）。
@@ -273,5 +305,18 @@ class BookmarkWithBook {
     required this.bookId,
     required this.title,
     required this.bookmark,
+  });
+}
+
+/// 跨书笔记：组合笔记与其所属书籍信息（bookId / 书名）。
+class NoteWithBook {
+  final String bookId;
+  final String title;
+  final NoteItem note;
+
+  const NoteWithBook({
+    required this.bookId,
+    required this.title,
+    required this.note,
   });
 }

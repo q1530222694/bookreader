@@ -10,6 +10,31 @@ import 'package:synchronized/synchronized.dart';
 
 import '../model/pdf_reader_settings.dart';
 
+/// 智能清晰度自动评估结果：可直接回填到 [PdfReaderSettings] / [SettingsController]。
+///
+/// 由 [PdfRenderService.autoEnhance] 基于页面像素统计得出，涵盖「亮度 / 对比度 /
+/// 清晰度 / 智能去杂色」四项。所有取值均已裁剪到各参数的合法区间。
+class PdfAutoEnhanceResult {
+  /// 推荐亮度（0.3~1.5，1.0 为原始）。
+  final double brightness;
+
+  /// 推荐对比度（0.5~2.0，1.0 为原始）。
+  final double contrast;
+
+  /// 推荐清晰度（0.5~2.0，1.0 为原始；>1 锐化）。
+  final double sharpness;
+
+  /// 是否启用智能去杂色（扫描件通常含孤立墨点，默认开启）。
+  final bool denoise;
+
+  const PdfAutoEnhanceResult({
+    required this.brightness,
+    required this.contrast,
+    required this.sharpness,
+    required this.denoise,
+  });
+}
+
 /// PDF 渲染服务（纯逻辑层，无 UI 依赖）。
 ///
 /// 底层引擎：pdfrx（基于 PDFium，全平台）。本服务负责：
@@ -24,6 +49,16 @@ import '../model/pdf_reader_settings.dart';
 ///
 /// 被 [lib/features/shell/ui/pdf_custom_view.dart] 调用，
 /// 不直接触碰任何持久化或 UI 状态（符合「SDK/服务层不反向依赖 UI」铁律）。
+
+/// 垂直对齐基准带：取全文档采样页内容框 top/bottom 的中位数，作为统一垂直边界。
+/// 让全文档在垂直方向对齐到统一上下边界，消除逐页独立裁切导致的翻页上下跳动。
+/// 独立顶层私有类（不可嵌套于 PdfRenderService，Dart 不允许 static class）。
+class _VerticalBand {
+  final double top;
+  final double bottom;
+  const _VerticalBand(this.top, this.bottom);
+}
+
 class PdfRenderService {
   PdfRenderService._();
 
@@ -34,6 +69,78 @@ class PdfRenderService {
   /// 避免对同页反复调用 PDFium 原生渲染（多次原生渲染是 Windows 下崩溃的高危来源）。
   /// 缓存持有 [ui.Image]，文档关闭时统一 dispose，避免重复解码与内存泄漏。
   static final Map<String, ui.Image> _renderCache = {};
+
+  /// 垂直对齐基准带缓存（按 文档 sourceName 维度）。value 为 null 表示「校准中」，
+  /// 非 null 为已标定的上下基准（top/bottom，归一化 0~1）。基准带让全文档在垂直方向
+  /// 对齐到统一边界，消除逐页独立裁切导致的翻页上下跳动。
+  static final Map<String, _VerticalBand?> _bandCache = {};
+
+  /// 清空某文档的全部渲染与裁切缓存（不释放文档本身），供基准带标定完成后触发重渲。
+  static void _clearDocCaches(PdfDocument document) {
+    final id = document.sourceName;
+    _renderCache.removeWhere((key, _) => key.startsWith('$id:'));
+    _cropCache.removeWhere((key, _) => key.startsWith('$id:'));
+  }
+
+  /// 标定垂直对齐基准带：均匀采样最多 [_bandSampleCount] 页，取各页内容框 top/bottom
+  /// 的中位数作为统一基准；完成后清空缓存使后续页面按新基准重渲。
+  /// 返回标定后的基准带（失败/页数不足返回 null）。同一文档重复调用直接命中缓存。
+  static const int _bandSampleCount = 40;
+  static Future<_VerticalBand?> calibrateVerticalBand(PdfDocument document) async {
+    final id = document.sourceName;
+    if (_bandCache.containsKey(id)) return _bandCache[id]; // 已标定或校准中
+    _bandCache[id] = null; // 占位「校准中」，防并发重入
+    try {
+      final pageCount = document.pages.length;
+      if (pageCount <= 0) {
+        _bandCache.remove(id);
+        return null;
+      }
+      final tops = <double>[];
+      final bottoms = <double>[];
+      final n = _bandSampleCount;
+      for (var i = 0; i < n; i++) {
+        final idx = pageCount == 1
+            ? 1
+            : ((i * (pageCount - 1) / (n - 1)).round() + 1).clamp(1, pageCount);
+        final rect = await computeCropFractions(document, idx);
+        tops.add(rect.top);
+        bottoms.add(rect.bottom);
+        await Future.delayed(Duration.zero); // 让出事件循环，避免校准阻塞翻页
+      }
+      if (tops.length < 2) {
+        _bandCache.remove(id);
+        _clearDocCaches(document);
+        return null;
+      }
+      final band = _VerticalBand(_median(tops), _median(bottoms));
+      _bandCache[id] = band;
+      _clearDocCaches(document);
+      return band;
+    } catch (_) {
+      _bandCache.remove(id);
+      return null;
+    }
+  }
+
+  /// 对单页内容框应用垂直基准带：若本页内容框完全落在基准带内，垂直方向改用统一基准
+  /// （上下对齐、不跳动）；否则保留本页垂直（保护满版插图/超出页）。无基准时回退逐页。
+  static Rect _applyVerticalBand(PdfDocument document, Rect perPage) {
+    final band = _bandCache[document.sourceName];
+    if (band == null) return perPage;
+    const tol = 0.01;
+    final within =
+        perPage.top >= band.top - tol && perPage.bottom <= band.bottom + tol;
+    if (!within) return perPage;
+    return Rect.fromLTRB(perPage.left, band.top, perPage.right, band.bottom);
+  }
+
+  /// 中位数（对副本排序，比平均值更抗异常页）。
+  static double _median(List<double> xs) {
+    final s = [...xs]..sort();
+    final m = s.length ~/ 2;
+    return s.length.isOdd ? s[m] : (s[m - 1] + s[m]) / 2;
+  }
 
   /// 文档级串行锁：同一 PdfDocument 的所有原生渲染（render）严格互斥。
   ///
@@ -51,8 +158,10 @@ class PdfRenderService {
   /// 单页最大渲染像素宽度，兼顾清晰度与内存（移动端足够，桌面端也不会爆内存）。
   static const int maxRenderWidth = 2000;
 
-  /// 自动裁切扫描用的探针图宽度（越大边界越准、越慢；480 在精度与速度间平衡）。
-  static const int cropScanWidth = 1200;
+  /// 自动裁切扫描用的探针图宽度。原 1200 对「定位内容边界」过度：配合边缘收紧
+  /// （edge tightening）只需知道内容起止位置，480px 已足够精确，检测像素量约降 6 倍，
+  /// 首开与翻页更顺。
+  static const int cropScanWidth = 480;
 
   /// 渲染单页为 [ui.Image]，支持原生精确裁切与智能去杂色。
   ///
@@ -69,6 +178,7 @@ class PdfRenderService {
     required double renderWidth,
     bool autoCrop = false,
     bool denoise = false,
+    double sharpness = 1.0,
     double manualCropLeft = 0,
     double manualCropRight = 0,
     double manualCropTop = 0,
@@ -96,7 +206,12 @@ class PdfRenderService {
     // 裁切去除了左右边距（宽度占比 <1）时按比例放大渲染宽度，使裁切出的内容在显示时
     // 仍能铺满原显示宽度，从而与相邻未裁切页面在宽度上对齐，避免大小不一。
     final Rect? crop = manualRect ??
-        (autoCrop ? await computeCropFractions(document, pageNumber) : null);
+        (autoCrop
+            // 借用裁切文档思路：对逐页内容框叠加「垂直基准带」对齐——落在基准带内的页
+            // 统一用基准带上下边界，消除竖向滚动时的页面跳动；超界页回退逐页垂直。
+            ? _applyVerticalBand(
+                document, await computeCropFractions(document, pageNumber))
+            : null);
 
     double effW = fullW;
     if (crop != null) {
@@ -104,8 +219,15 @@ class PdfRenderService {
       effW = (fullW / frac).clamp(1.0, maxRenderWidth.toDouble());
     }
 
+    // 基准带签名：基准带存在时把其上下边界纳入缓存键，使校准前/后的渲染缓存互不命中；
+    // 基准带为 null（未校准）时记为 'nb'。与 calibrateVerticalBand 内的 _clearDocCaches 双保险。
+    final band = _bandCache[document.sourceName];
+    final bandSig = band == null
+        ? 'nb'
+        : '${band.top.toStringAsFixed(4)}_${band.bottom.toStringAsFixed(4)}';
     final cacheKey =
-        '${document.sourceName}:$pageNumber:${effW.round()}:$autoCrop:$denoise:'
+        '${document.sourceName}:$pageNumber:${effW.round()}:$autoCrop:$denoise:$sharpness:'
+        '$bandSig:'
         '${manualCropLeft.toStringAsFixed(3)}_${manualCropRight.toStringAsFixed(3)}_'
         '${manualCropTop.toStringAsFixed(3)}_${manualCropBottom.toStringAsFixed(3)}';
     final cached = _renderCache[cacheKey];
@@ -165,9 +287,15 @@ class PdfRenderService {
       if (result == null) return null;
 
       // 智能去杂色：在原生渲染结果上做真正的去噪点（保留文字笔画），而非模糊。
-      final out = denoise ? await _denoiseImage(result) : result;
-      if (out != result) {
+      ui.Image out = denoise ? await _denoiseImage(result) : result;
+      if (denoise && out != result) {
         result.dispose(); // 去杂色产生了新图，释放旧图（缓存持有新图）。
+      }
+      // 清晰度：像素级 unsharp mask 锐化（>1 锐化、<1 柔化），仅在非原始值时重渲染。
+      if (sharpness != 1.0) {
+        final sharpened = await _sharpenImage(out, sharpness);
+        out.dispose(); // out 为原始渲染或去杂色中间图，已被 sharpened 取代。
+        out = sharpened;
       }
       _renderCache[cacheKey] = out;
       return out;
@@ -197,6 +325,7 @@ class PdfRenderService {
         return false;
       });
       _cropCache.removeWhere((key, _) => key.startsWith('$id:'));
+      _bandCache.remove(id); // 基准带仅按文档缓存，关闭时一并释放
       await document.dispose();
     });
     _docLocks.remove(id);
@@ -261,7 +390,8 @@ class PdfRenderService {
   /// 扫描原始像素（RGBA 或 BGRA）求内容包围盒，返回归一化 [Rect]。
   ///
   /// 改进版（2026-07-16 优化白边去除效果）：
-  /// - 探针分辨率已由调用方提升（cropScanWidth=1200），边界更准、细内容不丢失；
+  /// - 探针分辨率 cropScanWidth=480：配合边缘收紧只需定位内容起止，480px 已足够精确，
+  ///   检测像素量较原 1200 约降 6 倍，首开与翻页更顺；
   /// - 近白阈值提高到 242（原 238）：更积极地将近白色背景判定为背景，减少残留白边；
   /// - 四周保留安全间隙（当前 2%，至少 3px），在检测到的内容包围盒之外再外扩，确保不裁掉内容；
   /// - 新增「边缘收紧」：在初步包围盒基础上，从四边逐列/行向内扫描，收缩到第一个
@@ -429,6 +559,166 @@ class PdfRenderService {
     } catch (_) {
       // 去杂色失败不应影响阅读，退回原图。
       return src;
+    }
+  }
+
+  /// 真正的清晰度增强：对渲染出的位图做 unsharp mask（原图 + amount ×（原图 − 模糊图）），
+  /// 提升文字与线条的边缘对比，使扫描件更清晰。返回处理后的新 [ui.Image]。
+  ///
+  /// [amount] 为锐化强度：>1 锐化、<1 轻微柔化（1.0 调用方已跳过，不会进入本方法）。
+  /// 模糊层用 3×3 均值近似（轻量），与 [PdfReaderSettings.sharpness] 配合。
+  static Future<ui.Image> _sharpenImage(ui.Image src, double amount) async {
+    try {
+      final bytes = await src.toByteData(format: ui.ImageByteFormat.rawRgba);
+      if (bytes == null) return src;
+      final rgba = bytes.buffer.asUint8List();
+      final w = src.width;
+      final h = src.height;
+      final out = Uint8List.fromList(rgba);
+
+      for (var y = 0; y < h; y++) {
+        for (var x = 0; x < w; x++) {
+          final i = (y * w + x) * 4;
+          // 3×3 邻域均值作为低频（模糊）层。
+          int sr = 0, sg = 0, sb = 0, sn = 0;
+          for (var ny = y - 1; ny <= y + 1; ny++) {
+            for (var nx = x - 1; nx <= x + 1; nx++) {
+              if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+              final j = (ny * w + nx) * 4;
+              sr += rgba[j];
+              sg += rgba[j + 1];
+              sb += rgba[j + 2];
+              sn++;
+            }
+          }
+          final br = sr ~/ sn, bg = sg ~/ sn, bb = sb ~/ sn;
+          // unsharp：out = original + amount × (original − blurred)
+          out[i] = (rgba[i] + amount * (rgba[i] - br))
+              .clamp(0, 255)
+              .toInt();
+          out[i + 1] = (rgba[i + 1] + amount * (rgba[i + 1] - bg))
+              .clamp(0, 255)
+              .toInt();
+          out[i + 2] = (rgba[i + 2] + amount * (rgba[i + 2] - bb))
+              .clamp(0, 255)
+              .toInt();
+          out[i + 3] = rgba[i + 3];
+        }
+      }
+
+      final completer = Completer<ui.Image>();
+      ui.decodeImageFromPixels(
+        out,
+        w,
+        h,
+        ui.PixelFormat.rgba8888,
+        (image) => completer.complete(image),
+      );
+      return await completer.future;
+    } catch (_) {
+      // 锐化失败不应影响阅读，退回原图。
+      return src;
+    }
+  }
+
+  /// 智能清晰度：基于页面像素统计，自动估算推荐的「亮度 / 对比度 / 清晰度 / 智能去杂色」，
+  /// 返回 [PdfAutoEnhanceResult]，可由 UI 一键回填到 [PdfReaderSettings] / [SettingsController]。
+  ///
+  /// 算法（启发式，计算 PDF 扫描件足够好，纯 Dart 无模型）：
+  /// - 对比度：用亮度直方图 2% / 98% 分位（黑点/白点）拉伸到 [0,255]；
+  /// - 亮度：把中灰点居中到 128 的乘法近似；
+  /// - 清晰度：用边缘能量（与左/上邻域亮度差）估计高频丰富度，越低越模糊 → 越强锐化；
+  /// - 去杂色：存在文本内容（暗点占比 >0.2%）即启用（[ _denoiseImage] 仅移除孤立墨点，安全）。
+  static Future<PdfAutoEnhanceResult> autoEnhance(ui.Image src) async {
+    try {
+      final bytes = await src.toByteData(format: ui.ImageByteFormat.rawRgba);
+      if (bytes == null) {
+        return const PdfAutoEnhanceResult(
+          brightness: 1.0,
+          contrast: 1.0,
+          sharpness: 1.0,
+          denoise: false,
+        );
+      }
+      final rgba = bytes.buffer.asUint8List();
+      final w = src.width;
+      final h = src.height;
+      final n = w * h;
+
+      // 亮度直方图 + 暗点计数。
+      final hist = List<int>.filled(256, 0);
+      int inkCount = 0;
+      for (var p = 0; p < n; p++) {
+        final i = p * 4;
+        final lum = (0.299 * rgba[i] +
+                0.587 * rgba[i + 1] +
+                0.114 * rgba[i + 2])
+            .toInt()
+            .clamp(0, 255);
+        hist[lum]++;
+        if (lum < 140) inkCount++;
+      }
+
+      // 黑点 / 白点（2% 与 98% 分位）。
+      int blackPt = 0, whitePt = 255, cum = 0;
+      final lowTh = (n * 0.02).toInt();
+      final highTh = (n * 0.98).toInt();
+      for (var v = 0; v < 256; v++) {
+        cum += hist[v];
+        if (cum >= lowTh && blackPt == 0) blackPt = v;
+        if (cum >= highTh) {
+          whitePt = v;
+          break;
+        }
+      }
+      final span = (whitePt - blackPt).clamp(1, 255);
+      // 对比度：把 [blackPt, whitePt] 拉伸到 [0,255]。
+      final contrast = (255.0 / span).clamp(0.5, 2.0);
+      // 亮度：中灰点居中到 128（乘法近似）。
+      final mid = (blackPt + whitePt) ~/ 2;
+      final brightness = (128.0 / mid.clamp(1, 255)).clamp(0.3, 1.5);
+
+      // 清晰度：边缘能量（与左/上邻域亮度差的绝对值之和）估计高频丰富度。
+      int edgeEnergy = 0;
+      for (var y = 1; y < h; y++) {
+        for (var x = 1; x < w; x++) {
+          final i = (y * w + x) * 4;
+          final j = (y * w + (x - 1)) * 4;
+          final k = ((y - 1) * w + x) * 4;
+          final l1 =
+              0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2];
+          final l2 =
+              0.299 * rgba[j] + 0.587 * rgba[j + 1] + 0.114 * rgba[j + 2];
+          final l3 =
+              0.299 * rgba[k] + 0.587 * rgba[k + 1] + 0.114 * rgba[k + 2];
+          edgeEnergy += ((l1 - l2).abs() + (l1 - l3).abs()).toInt();
+        }
+      }
+      final avgEdge = edgeEnergy / ((w - 1) * (h - 1));
+      double sharpness = 1.0;
+      if (avgEdge < 18) {
+        sharpness = 1.6;
+      } else if (avgEdge < 30) {
+        sharpness = 1.3;
+      }
+
+      // 去杂色：存在文本内容（暗点占比 >0.2%）即启用，安全去除孤立墨点。
+      final inkRatio = inkCount / n;
+      final denoise = inkRatio > 0.002;
+
+      return PdfAutoEnhanceResult(
+        brightness: brightness,
+        contrast: contrast,
+        sharpness: sharpness,
+        denoise: denoise,
+      );
+    } catch (_) {
+      return const PdfAutoEnhanceResult(
+        brightness: 1.0,
+        contrast: 1.0,
+        sharpness: 1.0,
+        denoise: false,
+      );
     }
   }
 

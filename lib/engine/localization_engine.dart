@@ -247,6 +247,7 @@ class LocalizationEngine {
     'reader_search_empty': {'zh': '未找到匹配内容', 'en': 'No matches'},
     'reader_searching': {'zh': '搜索中…', 'en': 'Searching…'},
     'reader_go_to_page': {'zh': '跳转', 'en': 'Go'},
+    'reader_return_before': {'zh': '返回跳转前', 'en': 'Return'},
     'reader_note_hint': {'zh': '输入笔记内容…', 'en': 'Note content…'},
     'reader_note_view_full': {'zh': '笔记全文', 'en': 'Note Full Text'},
     'reader_note_jump': {'zh': '跳转', 'en': 'Jump'},
@@ -393,6 +394,34 @@ class LocalizationEngine {
       'zh': '提取正文重新排版，可调字体大小/行距/字距',
       'en': 'Extract text and re-typeset; adjustable font size/spacing'
     },
+    'pdf_reflow_ocr_progress': {'zh': '识别第 %d / %d 页', 'en': 'Recognizing page %d / %d'},
+    'pdf_enhance_smart_clarity': {'zh': '智能清晰度', 'en': 'Smart Clarity'},
+    'pdf_enhance_smart_clarity_running': {'zh': '正在分析…', 'en': 'Analyzing…'},
+    // 扫描件质检（OQC）：整本质量检查
+    'pdf_oqc_title': {'zh': '扫描件质检', 'en': 'Scan QC'},
+    'pdf_oqc_desc': {
+      'zh': '对整本 PDF 做质量检查：空白页 / 模糊 / 黑边 / 倾斜 / 重影',
+      'en': 'Whole-PDF quality check: blank / blur / black margin / skew / ghost'
+    },
+    'pdf_oqc_running': {'zh': '正在质检第 %d / %d 页', 'en': 'Checking page %d / %d'},
+    'pdf_oqc_running_hint': {
+      'zh': '逐页渲染并做像素统计，请稍候',
+      'en': 'Rendering each page and analyzing pixels, please wait'
+    },
+    'pdf_oqc_failed': {'zh': '质检失败', 'en': 'QC failed'},
+    'pdf_oqc_summary': {'zh': '质检概览', 'en': 'Summary'},
+    'pdf_oqc_total': {'zh': '总页数', 'en': 'Pages'},
+    'pdf_oqc_blank': {'zh': '空白页', 'en': 'Blank'},
+    'pdf_oqc_blurry': {'zh': '模糊', 'en': 'Blurry'},
+    'pdf_oqc_margin': {'zh': '黑边', 'en': 'Black Margin'},
+    'pdf_oqc_ghost': {'zh': '重影', 'en': 'Ghost'},
+    'pdf_oqc_skew': {'zh': '倾斜', 'en': 'Skew'},
+    'pdf_oqc_no_issue': {'zh': '未发现明显问题', 'en': 'No issues found'},
+    'pdf_oqc_issue_hint': {
+      'zh': '共 %d 页存在需要关注的问题',
+      'en': '%d pages may need attention'
+    },
+    'pdf_oqc_page': {'zh': '第 %d 页', 'en': 'Page %d'},
     'reader_add_tag': {'zh': '添加标签', 'en': 'Add Tag'},
     'reader_add_tag_placeholder': {'zh': '输入标签', 'en': 'Enter tag'},
     'add': {'zh': '添加', 'en': 'Add'},

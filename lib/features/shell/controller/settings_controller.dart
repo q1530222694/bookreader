@@ -3,6 +3,7 @@ import 'package:flutter/cupertino.dart';
 import '../../../engine/settings_engine.dart';
 import '../model/custom_theme_color_model.dart';
 import '../service/custom_theme_color_service.dart';
+import '../service/pdf_book_settings_service.dart';
 
 /// SettingsController exposes app setting state to Shell UI.
 class SettingsController {
@@ -39,6 +40,10 @@ class SettingsController {
       ValueNotifier<bool>(SettingsEngine.pdfBgDenoise);
   static final ValueNotifier<double> pdfBgColorTemp =
       ValueNotifier<double>(SettingsEngine.pdfBgColorTemp);
+  static final ValueNotifier<double> pdfBgSharpness =
+      ValueNotifier<double>(SettingsEngine.pdfBgSharpness);
+  static final ValueNotifier<bool> pdfBgOverlay =
+      ValueNotifier<bool>(SettingsEngine.pdfBgOverlay);
   static final ValueNotifier<int> pdfCropMode =
       ValueNotifier<int>(SettingsEngine.pdfCropMode);
   static final ValueNotifier<double> pdfManualCropLeft =
@@ -62,6 +67,155 @@ class SettingsController {
       ValueNotifier<double>(SettingsEngine.pdfReflowLetterSpacing);
   static final ValueNotifier<double> pdfReflowParaSpacing =
       ValueNotifier<double>(SettingsEngine.pdfReflowParaSpacing);
+
+  // —— 每本书独立设置（按 bookId 持久化到磁盘）——
+  // 全局 [SettingsEngine] 仅作「默认基线」；单本书的覆盖写在 [_activeOverrides]，
+  // 由 [bindBook] 加载并落到各 notifier，任何 PDF notifier 变化经监听落盘。
+  static String? _activeBookId;
+  static Map<String, Object?> _activeOverrides = {};
+  static bool _pdfListenersBound = false;
+  static bool _applyingOverrides = false;
+
+  /// 静态初始化时捕获的全局默认基线（此时 Config 为空，取到各 Key 的默认值）。
+  static final Map<String, Object?> _defaults = {
+    SettingsEngine.readerPageModeKey: SettingsEngine.readerPageMode,
+    SettingsEngine.readerPageAnimationKey: SettingsEngine.readerPageAnimation,
+    SettingsEngine.readerLayoutModeKey: SettingsEngine.readerLayoutMode,
+    SettingsEngine.pdfAutoCropKey: SettingsEngine.pdfAutoCrop,
+    SettingsEngine.pdfBgBrightnessKey: SettingsEngine.pdfBgBrightness,
+    SettingsEngine.pdfBgContrastKey: SettingsEngine.pdfBgContrast,
+    SettingsEngine.pdfBgSaturationKey: SettingsEngine.pdfBgSaturation,
+    SettingsEngine.pdfBgRemoveColorKey: SettingsEngine.pdfBgRemoveColor,
+    SettingsEngine.pdfBgDenoiseKey: SettingsEngine.pdfBgDenoise,
+    SettingsEngine.pdfBgColorTempKey: SettingsEngine.pdfBgColorTemp,
+    SettingsEngine.pdfBgSharpnessKey: SettingsEngine.pdfBgSharpness,
+    SettingsEngine.pdfBgOverlayKey: SettingsEngine.pdfBgOverlay,
+    SettingsEngine.pdfCropModeKey: SettingsEngine.pdfCropMode,
+    SettingsEngine.pdfManualCropLeftKey: SettingsEngine.pdfManualCropLeft,
+    SettingsEngine.pdfManualCropRightKey: SettingsEngine.pdfManualCropRight,
+    SettingsEngine.pdfManualCropTopKey: SettingsEngine.pdfManualCropTop,
+    SettingsEngine.pdfManualCropBottomKey: SettingsEngine.pdfManualCropBottom,
+    SettingsEngine.pdfDualScreenKey: SettingsEngine.pdfDualScreen,
+    SettingsEngine.pdfCropOddEvenModeKey: SettingsEngine.pdfCropOddEvenMode,
+    SettingsEngine.pdfReflowFontSizeKey: SettingsEngine.pdfReflowFontSize,
+    SettingsEngine.pdfReflowLineSpacingKey: SettingsEngine.pdfReflowLineSpacing,
+    SettingsEngine.pdfReflowLetterSpacingKey: SettingsEngine.pdfReflowLetterSpacing,
+    SettingsEngine.pdfReflowParaSpacingKey: SettingsEngine.pdfReflowParaSpacing,
+  };
+
+  static final List<ChangeNotifier> _pdfNotifiers = [
+    readerPageMode,
+    readerPageAnimation,
+    readerLayoutMode,
+    pdfAutoCrop,
+    pdfBgBrightness,
+    pdfBgContrast,
+    pdfBgSaturation,
+    pdfBgRemoveColor,
+    pdfBgDenoise,
+    pdfBgColorTemp,
+    pdfBgSharpness,
+    pdfBgOverlay,
+    pdfCropMode,
+    pdfManualCropLeft,
+    pdfManualCropRight,
+    pdfManualCropTop,
+    pdfManualCropBottom,
+    pdfDualScreen,
+    pdfCropOddEvenMode,
+    pdfReflowFontSize,
+    pdfReflowLineSpacing,
+    pdfReflowLetterSpacing,
+    pdfReflowParaSpacing,
+  ];
+
+  /// 绑定到某本书：加载其覆盖设置并落到 notifier；无覆盖则回退到全局默认基线。
+  /// 需在 PDF 阅读页 initState 调用（可 await，内部已幂等加载磁盘）。
+  static Future<void> bindBook(String bookId) async {
+    await PdfBookSettingsService.ensureLoaded();
+    _activeBookId = bookId;
+    _activeOverrides = PdfBookSettingsService.load(bookId);
+    _bindPdfListeners();
+    _applyingOverrides = true;
+    readerPageMode.value = _int(SettingsEngine.readerPageModeKey);
+    readerPageAnimation.value = _int(SettingsEngine.readerPageAnimationKey);
+    readerLayoutMode.value = _int(SettingsEngine.readerLayoutModeKey);
+    pdfAutoCrop.value = _bol(SettingsEngine.pdfAutoCropKey);
+    pdfBgBrightness.value = _dbl(SettingsEngine.pdfBgBrightnessKey);
+    pdfBgContrast.value = _dbl(SettingsEngine.pdfBgContrastKey);
+    pdfBgSaturation.value = _dbl(SettingsEngine.pdfBgSaturationKey);
+    pdfBgRemoveColor.value = _bol(SettingsEngine.pdfBgRemoveColorKey);
+    pdfBgDenoise.value = _bol(SettingsEngine.pdfBgDenoiseKey);
+    pdfBgColorTemp.value = _dbl(SettingsEngine.pdfBgColorTempKey);
+    pdfBgSharpness.value = _dbl(SettingsEngine.pdfBgSharpnessKey);
+    pdfBgOverlay.value = _bol(SettingsEngine.pdfBgOverlayKey);
+    pdfCropMode.value = _int(SettingsEngine.pdfCropModeKey);
+    pdfManualCropLeft.value = _dbl(SettingsEngine.pdfManualCropLeftKey);
+    pdfManualCropRight.value = _dbl(SettingsEngine.pdfManualCropRightKey);
+    pdfManualCropTop.value = _dbl(SettingsEngine.pdfManualCropTopKey);
+    pdfManualCropBottom.value = _dbl(SettingsEngine.pdfManualCropBottomKey);
+    pdfDualScreen.value = _bol(SettingsEngine.pdfDualScreenKey);
+    pdfCropOddEvenMode.value = _int(SettingsEngine.pdfCropOddEvenModeKey);
+    pdfReflowFontSize.value = _dbl(SettingsEngine.pdfReflowFontSizeKey);
+    pdfReflowLineSpacing.value = _dbl(SettingsEngine.pdfReflowLineSpacingKey);
+    pdfReflowLetterSpacing.value = _dbl(SettingsEngine.pdfReflowLetterSpacingKey);
+    pdfReflowParaSpacing.value = _dbl(SettingsEngine.pdfReflowParaSpacingKey);
+    _applyingOverrides = false;
+  }
+
+  /// 仅绑定一次：为所有 PDF notifier 注册同一落盘监听。
+  static void _bindPdfListeners() {
+    if (_pdfListenersBound) return;
+    _pdfListenersBound = true;
+    for (final n in _pdfNotifiers) {
+      n.addListener(_persistActiveBook);
+    }
+  }
+
+  /// 任一 PDF notifier 变化即把当前整组值落盘到当前书（bindBook 期间跳过）。
+  static void _persistActiveBook() {
+    if (_applyingOverrides || _activeBookId == null) return;
+    _activeOverrides = {
+      SettingsEngine.readerPageModeKey: readerPageMode.value,
+      SettingsEngine.readerPageAnimationKey: readerPageAnimation.value,
+      SettingsEngine.readerLayoutModeKey: readerLayoutMode.value,
+      SettingsEngine.pdfAutoCropKey: pdfAutoCrop.value,
+      SettingsEngine.pdfBgBrightnessKey: pdfBgBrightness.value,
+      SettingsEngine.pdfBgContrastKey: pdfBgContrast.value,
+      SettingsEngine.pdfBgSaturationKey: pdfBgSaturation.value,
+      SettingsEngine.pdfBgRemoveColorKey: pdfBgRemoveColor.value,
+      SettingsEngine.pdfBgDenoiseKey: pdfBgDenoise.value,
+      SettingsEngine.pdfBgColorTempKey: pdfBgColorTemp.value,
+      SettingsEngine.pdfBgSharpnessKey: pdfBgSharpness.value,
+      SettingsEngine.pdfBgOverlayKey: pdfBgOverlay.value,
+      SettingsEngine.pdfCropModeKey: pdfCropMode.value,
+      SettingsEngine.pdfManualCropLeftKey: pdfManualCropLeft.value,
+      SettingsEngine.pdfManualCropRightKey: pdfManualCropRight.value,
+      SettingsEngine.pdfManualCropTopKey: pdfManualCropTop.value,
+      SettingsEngine.pdfManualCropBottomKey: pdfManualCropBottom.value,
+      SettingsEngine.pdfDualScreenKey: pdfDualScreen.value,
+      SettingsEngine.pdfCropOddEvenModeKey: pdfCropOddEvenMode.value,
+      SettingsEngine.pdfReflowFontSizeKey: pdfReflowFontSize.value,
+      SettingsEngine.pdfReflowLineSpacingKey: pdfReflowLineSpacing.value,
+      SettingsEngine.pdfReflowLetterSpacingKey: pdfReflowLetterSpacing.value,
+      SettingsEngine.pdfReflowParaSpacingKey: pdfReflowParaSpacing.value,
+    };
+    PdfBookSettingsService.save(_activeBookId!, _activeOverrides);
+  }
+
+  static int _int(String key) =>
+      _activeOverrides.containsKey(key)
+          ? _activeOverrides[key] as int
+          : _defaults[key] as int;
+  static double _dbl(String key) =>
+      _activeOverrides.containsKey(key)
+          ? _activeOverrides[key] as double
+          : _defaults[key] as double;
+  static bool _bol(String key) =>
+      _activeOverrides.containsKey(key)
+          ? _activeOverrides[key] as bool
+          : _defaults[key] as bool;
+
   static final ValueNotifier<String> startupPage =
       ValueNotifier<String>(SettingsEngine.startupPage);
     static final ValueNotifier<String> startupSplashType =
@@ -249,6 +403,18 @@ class SettingsController {
   static void setPdfBgColorTemp(double value) {
     SettingsEngine.setPdfBgColorTemp(value);
     pdfBgColorTemp.value = value;
+  }
+
+  /// 设置 PDF 清晰度（0.5~2.0，1.0 为原始；>1 锐化、<1 柔化）。
+  static void setPdfBgSharpness(double value) {
+    SettingsEngine.setPdfBgSharpness(value);
+    pdfBgSharpness.value = value;
+  }
+
+  /// 设置 PDF 阅读背景覆盖开关（开启后用半透明背景色覆盖扫描件）。
+  static void setPdfBgOverlay(bool value) {
+    SettingsEngine.setPdfBgOverlay(value);
+    pdfBgOverlay.value = value;
   }
 
   /// 设置 PDF 页面裁切模式（0=不裁切 / 1=自动 / 2=手动 / 3=框选）。

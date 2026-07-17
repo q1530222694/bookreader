@@ -18,6 +18,7 @@ import '../service/pdf_ocr_service.dart';
 import '../service/reading_session_service.dart';
 import 'pdf_custom_view.dart';
 import 'pdf_reflow_view.dart';
+import 'pdf_oqc_report_page.dart';
 import 'reader_settings_sheet.dart';
 
 /// BookViewerPage 展示 PDF 书籍，支持翻页 / 布局 / 自动裁切 / 背景调节等设置。
@@ -53,6 +54,8 @@ class _BookViewerPageState extends State<BookViewerPage>
   DateTime? _sessionStart;
   double? _lastSyncedProgress;
   bool _showSettings = false;
+  bool _bgOverlay = false;
+  int? _returnPage;
   // 框选裁边状态
   bool _showCropSelector = false;
   Offset? _cropStartPos;
@@ -71,6 +74,11 @@ class _BookViewerPageState extends State<BookViewerPage>
   // 翻页方式：0 左右滑动 / 1 上下滑动 / 2 左右单击 / 3 上下单击 / 4 单击滚动。
   // 初始化自持久化，回调中落库。
   int _selectedPageMode = SettingsEngine.readerPageMode;
+  int _selectedPageAnimation = SettingsEngine.readerPageAnimation;
+  double _sharpness = SettingsEngine.pdfBgSharpness;
+  bool _smartClarityBusy = false;
+  int _reflowOcrCurrent = 0;
+  int _reflowOcrTotal = 0;
 
   // 重排状态：_isReflowing 表示当前处于重排阅读视图；_reflowParagraphs 为已提取段落；
   // _reflowLoading 为提取中；_reflowError 为无文本层 / 提取失败提示。
@@ -96,6 +104,8 @@ class _BookViewerPageState extends State<BookViewerPage>
   double _manualCropBottom = SettingsEngine.pdfManualCropBottom;
   bool _dualScreen = SettingsEngine.pdfDualScreen;
   int _cropOddEvenMode = SettingsEngine.pdfCropOddEvenMode;
+  // 垂直基准带版本号：每次基准带校准完成自增，驱动可见页按新基准带重新渲染（消除竖向跳动）。
+  int _cropBandVersion = 0;
 
   // 当前阅读页码（1-based），由翻页回调同步；用于设置面板初始化进度/笔记/书签。
   int _currentPage = 1;
@@ -130,10 +140,43 @@ class _BookViewerPageState extends State<BookViewerPage>
       _settingsAnimation,
     );
     _startSession();
+    _initBookSettings();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _initializePdf();
     });
+  }
+
+  /// 绑定当前书的独立设置：加载该书覆盖（无则回退全局默认）落到 notifier，
+  /// 并把本地状态变量同步为该书值，使 PdfCustomView 与设置面板按「这本书」呈现。
+  Future<void> _initBookSettings() async {
+    await SettingsController.bindBook(widget.bookId);
+    if (!mounted) return;
+    setState(() {
+      _selectedPageMode = SettingsController.readerPageMode.value;
+      _selectedPageAnimation = SettingsController.readerPageAnimation.value;
+      _sharpness = SettingsController.pdfBgSharpness.value;
+      _layoutMode = SettingsController.readerLayoutMode.value;
+      _autoCrop = SettingsController.pdfAutoCrop.value;
+      _contrast = SettingsController.pdfBgContrast.value;
+      _saturation = SettingsController.pdfBgSaturation.value;
+      _removeColor = SettingsController.pdfBgRemoveColor.value;
+      _denoise = SettingsController.pdfBgDenoise.value;
+      _colorTemperature = SettingsController.pdfBgColorTemp.value;
+      _cropMode = SettingsController.pdfCropMode.value;
+      _manualCropLeft = SettingsController.pdfManualCropLeft.value;
+      _manualCropRight = SettingsController.pdfManualCropRight.value;
+      _manualCropTop = SettingsController.pdfManualCropTop.value;
+      _manualCropBottom = SettingsController.pdfManualCropBottom.value;
+      _dualScreen = SettingsController.pdfDualScreen.value;
+      _cropOddEvenMode = SettingsController.pdfCropOddEvenMode.value;
+      _bgOverlay = SettingsController.pdfBgOverlay.value;
+    });
+    // 若本书已开启自动裁切且文档已就绪（如再次绑定），补触发基准带校准，确保两种
+    // 就绪顺序（先设置后文档 / 先文档后设置）都能覆盖。
+    if (_pdfDocument != null && (_autoCrop || _cropMode == 1)) {
+      _triggerBandCalibration();
+    }
   }
 
   Future<void> _initializePdf() async {
@@ -147,6 +190,11 @@ class _BookViewerPageState extends State<BookViewerPage>
     setState(() {
       _errorText = null;
     });
+    // 若开启自动裁切，异步校准垂直基准带（完成后自增版本号强制可见页按基准带对齐，
+    // 消除竖向跳动）。放在文档就绪后，避免文档为空或竞争。
+    if (_autoCrop || _cropMode == 1) {
+      _triggerBandCalibration();
+    }
     // 若指定了初始页码（如从书签进入），待 PdfCustomView 挂载后跳转到目标页。
     if (widget.initialPage != null && widget.initialPage! > 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -160,6 +208,21 @@ class _BookViewerPageState extends State<BookViewerPage>
         _errorText = '打开 PDF 失败：$error';
       });
     }
+  }
+
+  /// 触发垂直基准带校准（fire-and-forget）。
+  ///
+  /// 仅当开启自动裁切（cropMode==1 / autoCrop）时有意义。校准采样至多 40 页、取中位数
+  /// 得到统一的上下边界；完成后自增 [_cropBandVersion]，使可见页经 didUpdateWidget 重载、
+  /// 按基准带对齐，消除竖向滚动时的页面跳动。采样过程让出事件循环，不阻塞翻页。
+  void _triggerBandCalibration() {
+    if (!(_autoCrop || _cropMode == 1)) return;
+    final doc = _pdfDocument;
+    if (doc == null) return;
+    PdfRenderService.calibrateVerticalBand(doc).then((_) {
+      if (!mounted) return;
+      setState(() => _cropBandVersion++);
+    });
   }
 
   @override
@@ -323,6 +386,23 @@ class _BookViewerPageState extends State<BookViewerPage>
     }
   }
 
+  /// 从目录 / 书签 / 搜索 / 页码跳转等显式跳转：记录跳转前页码以便「返回」，
+  /// 并关闭设置面板使跳转结果可见。
+  void _navigateToPage(int page) {
+    if (_returnPage == null) _returnPage = _currentPage;
+    _toggleSettings(); // 关闭设置面板
+    _pdfViewKey.currentState?.jumpToPage(page);
+    setState(() {}); // 显示「返回」按钮
+  }
+
+  /// 返回跳转前的页面并隐藏「返回」按钮。
+  void _returnToBeforeJump() {
+    final target = _returnPage;
+    _returnPage = null;
+    if (target != null) _pdfViewKey.currentState?.jumpToPage(target);
+    setState(() {});
+  }
+
   /// 横屏模式开关：开启时锁定为横屏，关闭时恢复跟随系统（竖屏优先）。
   void _toggleLandscape(bool enabled) {
     if (enabled) {
@@ -367,10 +447,14 @@ class _BookViewerPageState extends State<BookViewerPage>
         contrast: _contrast,
         saturation: _saturation,
         colorTemperature: _colorTemperature,
+        sharpness: _sharpness,
         removeColor: _removeColor,
         denoise: _denoise,
         dualScreen: _dualScreen,
         cropOddEvenMode: _cropOddEvenMode,
+        cropBandVersion: _cropBandVersion,
+        bgOverlay: _bgOverlay,
+        bgOverlayColor: SettingsController.readerBackgroundColor.value,
       );
 
   /// 重排：基于 PDF 文本层做「真实重排」（本地、无损、跨平台、流畅）。
@@ -416,7 +500,11 @@ class _BookViewerPageState extends State<BookViewerPage>
           _pdfDocument!,
           onProgress: (current, total) {
             if (!mounted) return;
-            // 进度可在未来扩展为具体百分比；此处仅维持加载态。
+            // 实时上报 OCR 逐页进度，供加载态显示「识别第 X / Y 页」。
+            setState(() {
+              _reflowOcrCurrent = current;
+              _reflowOcrTotal = total;
+            });
           },
         );
         if (!mounted) return;
@@ -464,6 +552,58 @@ class _BookViewerPageState extends State<BookViewerPage>
     setState(() {
       _isReflowing = false;
     });
+  }
+
+  /// OCR 重排进度文案：识别第 current / total 页。
+  String _ocrProgressText() {
+    final t = LocalizationEngine.text('pdf_reflow_ocr_progress');
+    return t
+        .replaceFirst('%d', '$_reflowOcrCurrent')
+        .replaceFirst('%d', '$_reflowOcrTotal');
+  }
+
+  /// 智能清晰度：对当前页做像素统计，自动计算并应用亮度 / 对比度 / 清晰度 / 去杂色。
+  Future<void> _runSmartClarity() async {
+    if (_smartClarityBusy || _pdfDocument == null) return;
+    setState(() => _smartClarityBusy = true);
+    try {
+      final page = _currentPage.clamp(1, _pdfDocument!.pages.length);
+      // 用「未增强」的原始渲染做分析，避免与当前增强参数互相叠加。
+      final img = await PdfRenderService.renderPageImage(
+        _pdfDocument!,
+        page,
+        renderWidth: 1080,
+        denoise: false,
+        sharpness: 1.0,
+      );
+      if (img == null) return;
+      final result = await PdfRenderService.autoEnhance(img);
+      if (!mounted) return;
+      setState(() {
+        _brightness = result.brightness;
+        _contrast = result.contrast;
+        _sharpness = result.sharpness;
+        _denoise = result.denoise;
+      });
+      SettingsController.setPdfBgBrightness(result.brightness);
+      SettingsController.setPdfBgContrast(result.contrast);
+      SettingsController.setPdfBgSharpness(result.sharpness);
+      SettingsController.setPdfBgDenoise(result.denoise);
+    } catch (_) {
+      // 智能清晰度失败不影响阅读。
+    } finally {
+      if (mounted) setState(() => _smartClarityBusy = false);
+    }
+  }
+
+  /// 扫描件质检（OQC）：对当前打开的 PDF 做整本质量检查，结果页展示逐页报告。
+  void _runOqc() {
+    if (_pdfDocument == null) return;
+    Navigator.of(context).push(
+      CupertinoPageRoute(
+        builder: (_) => PdfOqcReportPage(document: _pdfDocument!),
+      ),
+    );
   }
 
   /// 开始框选裁边：进入裁边选择模式，在当前页面上手绘画框。
@@ -795,6 +935,17 @@ class _BookViewerPageState extends State<BookViewerPage>
                                               color: CupertinoColors.systemGrey,
                                             ),
                                           ),
+                                          if (_isOcrLoading &&
+                                              _reflowOcrTotal > 0) ...[
+                                            const SizedBox(height: 6),
+                                            Text(
+                                              _ocrProgressText(),
+                                              style: const TextStyle(
+                                                fontSize: 13,
+                                                color: CupertinoColors.systemGrey,
+                                              ),
+                                            ),
+                                          ],
                                         ],
                                       ),
                                     )
@@ -978,6 +1129,53 @@ class _BookViewerPageState extends State<BookViewerPage>
                   },
                 ),
               ),
+              if (_returnPage != null)
+                Positioned(
+                  top: MediaQuery.of(context).padding.top + 8,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: GestureDetector(
+                      onTap: _returnToBeforeJump,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: CupertinoColors.systemBackground
+                              .resolveFrom(context),
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                              color: CupertinoColors.systemGrey
+                                  .withValues(alpha: 0.2),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(CupertinoIcons.chevron_left,
+                                size: 16,
+                                color: CupertinoTheme.of(context)
+                                    .primaryColor),
+                            const SizedBox(width: 4),
+                            Text(
+                              '${LocalizationEngine.text('reader_return_before')} · ${_returnPage}P',
+                              style: TextStyle(
+                                color: CupertinoTheme.of(context)
+                                    .primaryColor,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               Positioned(
                 left: 0,
                 right: 0,
@@ -1017,6 +1215,11 @@ class _BookViewerPageState extends State<BookViewerPage>
                               _selectedPageMode = index;
                               SettingsController.setReaderPageMode(index);
                             }),
+                            selectedPageAnimation: _selectedPageAnimation,
+                            onPageAnimationChanged: (index) => setState(() {
+                              _selectedPageAnimation = index;
+                              SettingsController.setReaderPageAnimation(index);
+                            }),
                             onBackgroundColorChanged: (color) =>
                                 SettingsController.setReaderBackgroundColor(color),
                             // PDF 专属：布局模式（UI 保留，效果待叠加层接入）
@@ -1030,6 +1233,7 @@ class _BookViewerPageState extends State<BookViewerPage>
                             onAutoCropChanged: (value) => setState(() {
                               _autoCrop = value;
                               SettingsController.setPdfAutoCrop(value);
+                              if (value) _triggerBandCalibration();
                             }),
                             // PDF 专属：背景调节（UI 保留，效果待叠加层接入）
                             contrast: _contrast,
@@ -1052,11 +1256,19 @@ class _BookViewerPageState extends State<BookViewerPage>
                               _denoise = value;
                               SettingsController.setPdfBgDenoise(value);
                             }),
+                            smartClarityBusy: _smartClarityBusy,
+                            onSmartClarity: _runSmartClarity,
+                            onOqc: _runOqc,
                             colorTemperature: _colorTemperature,
                             onColorTemperatureChanged: (value) =>
                                 setState(() {
                               _colorTemperature = value;
                               SettingsController.setPdfBgColorTemp(value);
+                            }),
+                            sharpness: _sharpness,
+                            onSharpnessChanged: (value) => setState(() {
+                              _sharpness = value;
+                              SettingsController.setPdfBgSharpness(value);
                             }),
                             cropMode: _cropMode,
                             onCropModeChanged: (value) => setState(() {
@@ -1064,6 +1276,7 @@ class _BookViewerPageState extends State<BookViewerPage>
                               if (value == 1) {
                                 _autoCrop = true;
                                 SettingsController.setPdfAutoCrop(true);
+                                _triggerBandCalibration();
                               } else if (value == 0) {
                                 _autoCrop = false;
                                 SettingsController.setPdfAutoCrop(false);
@@ -1142,6 +1355,12 @@ class _BookViewerPageState extends State<BookViewerPage>
                             onToggleLandscape: _toggleLandscape,
                             onAddTag: _showAddTagDialog,
                             onReflow: _reflow,
+                            onNavigate: _navigateToPage,
+                            bgOverlay: _bgOverlay,
+                            onBgOverlayChanged: (value) => setState(() {
+                              _bgOverlay = value;
+                              SettingsController.setPdfBgOverlay(value);
+                            }),
                             onClose: _toggleSettings,
                           ),
                         ),

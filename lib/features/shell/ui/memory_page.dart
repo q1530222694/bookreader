@@ -8,6 +8,7 @@ import '../controller/bookshelf_controller.dart';
 import '../model/book_model.dart';
 import '../model/reading_stats_model.dart';
 import '../service/app_stats_service.dart';
+import '../service/reader_data_service.dart';
 import '../service/reading_session_service.dart';
 import 'book_viewer_page.dart';
 import 'comic_viewer_page.dart';
@@ -52,6 +53,9 @@ class _MemoryPageState extends State<MemoryPage> {
   /// 趋势图类型（0=条形, 1=折线）
   int _trendChartType = 0;
 
+  /// 收藏笔记真实总数（跨书汇总，替代占位 0）。
+  int _totalNotesCount = 0;
+
   _MemoryPageState()
       : _now = DateTime.now(),
         _displayMonth = DateTime(DateTime.now().year, DateTime.now().month),
@@ -64,9 +68,26 @@ class _MemoryPageState extends State<MemoryPage> {
   final DateTime _now;
 
   @override
+  void initState() {
+    super.initState();
+    _loadTotalNotes();
+    _controller.books.addListener(_loadTotalNotes);
+  }
+
+  @override
   void dispose() {
+    _controller.books.removeListener(_loadTotalNotes);
     _controller.dispose();
     super.dispose();
+  }
+
+  /// 加载跨书收藏笔记总数（真实数据）。
+  void _loadTotalNotes() {
+    final ids = _controller.books.value.map((b) => b.id).toList();
+    ReaderDataStore.countAllNotes(ids).then((count) {
+      if (!mounted) return;
+      setState(() => _totalNotesCount = count);
+    });
   }
 
   // ──────────────────── 区间与数据提取 ────────────────────
@@ -427,7 +448,7 @@ class _MemoryPageState extends State<MemoryPage> {
     final hours = (minutes / 60).round();
     final bookCount = _booksCompletedInRange(books, start, end);
     final pages = (minutes * 1.5).round(); // 按每分钟约 1.5 页估算（无逐页数据）
-    const notesCount = 0; // 暂无笔记/书签数据源，如实显示 0
+    final notesCount = _totalNotesCount; // 收藏笔记真实总数（跨书汇总）
 
     final items = <_MetricCard>[
       _MetricCard(

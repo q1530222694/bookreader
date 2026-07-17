@@ -66,6 +66,11 @@ class SettingsEngine {
   // 色温（0.5 偏冷蓝 ~ 2.0 偏暖黄，1.0 为原始色温）
   static const String pdfBgColorTempKey = 'app.reader.pdf.bg.colorTemp';
   static const double pdfBgColorTempDefault = 1.0;
+  // 清晰度（0.5~2.0，1.0 为原始；>1 锐化、<1 轻微柔化），像素级卷积，需重渲染。
+  static const String pdfBgSharpnessKey = 'app.reader.pdf.bg.sharpness';
+  static const double pdfBgSharpnessDefault = 1.0;
+  static const String pdfBgOverlayKey = 'app.reader.pdf.bg.overlay';
+  static const bool pdfBgOverlayDefault = false;
   // 页面裁切模式：0=不裁切 / 1=智能自动裁边 / 2=手动裁边 / 3=框选裁边
   static const String pdfCropModeKey = 'app.reader.pdf.cropMode';
   static const int pdfCropModeDefault = 0;
@@ -247,6 +252,22 @@ class SettingsEngine {
 
   static void setPdfBgColorTemp(double value) {
     Config.set(pdfBgColorTempKey, value);
+  }
+
+  static double get pdfBgSharpness {
+    return Config.get(pdfBgSharpnessKey) as double? ?? pdfBgSharpnessDefault;
+  }
+
+  static void setPdfBgSharpness(double value) {
+    Config.set(pdfBgSharpnessKey, value);
+  }
+
+  static bool get pdfBgOverlay {
+    return Config.get(pdfBgOverlayKey) as bool? ?? pdfBgOverlayDefault;
+  }
+
+  static void setPdfBgOverlay(bool value) {
+    Config.set(pdfBgOverlayKey, value);
   }
 
   static int get pdfCropMode {

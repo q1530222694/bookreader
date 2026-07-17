@@ -14,24 +14,6 @@ import 'txt_viewer_page.dart';
 import 'comic_viewer_page.dart';
 import 'package:open_filex/open_filex.dart';
 
-class _BookDownloadItemData {
-  const _BookDownloadItemData({
-    required this.title,
-    required this.fileMeta,
-    required this.progress,
-    required this.timestamp,
-    required this.type,
-    this.book,
-  });
-
-  final String title;
-  final String fileMeta;
-  final double progress;
-  final String timestamp;
-  final String type;
-  final BookModel? book;
-}
-
 /// BookshelfPage provides the bookshelf UI and import actions.
 class BookshelfPage extends StatefulWidget {
   const BookshelfPage({super.key, this.controller});
@@ -47,8 +29,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   late final bool _ownsController;
   final TextEditingController _searchController = TextEditingController();
   String _searchText = '';
-  bool _showCoverMode = true;
-  bool _showDownloadListMode = false;
+  bool _showCoverMode = true; // true=封面网格；false=书籍列表
   String _selectedCategory = 'all';
 
   @override
@@ -659,217 +640,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }).toList();
   }
 
-  static const List<_BookDownloadItemData> _mockDownloadItems = [
-    _BookDownloadItemData(
-      title: 'Flutter 开发实战',
-      fileMeta: 'PDF · 12.4 MB',
-      progress: 0.48,
-      timestamp: '刚刚',
-      type: 'pdf',
-    ),
-    _BookDownloadItemData(
-      title: '产品设计手册',
-      fileMeta: 'EPUB · 8.1 MB',
-      progress: 0.72,
-      timestamp: '2小时前',
-      type: 'epub',
-    ),
-    _BookDownloadItemData(
-      title: '高效阅读笔记',
-      fileMeta: 'TXT · 1.2 MB',
-      progress: 0.34,
-      timestamp: '昨天',
-      type: 'txt',
-    ),
-    _BookDownloadItemData(
-      title: '架构设计精要',
-      fileMeta: 'PDF · 6.8 MB',
-      progress: 0.91,
-      timestamp: '3天前',
-      type: 'pdf',
-    ),
-  ];
-
-  Widget _buildDownloadListView(List<BookModel> books) {
-    final displayItems = books.isEmpty
-        ? _mockDownloadItems
-        : books.map((book) {
-            final title = _bookTitle(book);
-            return _BookDownloadItemData(
-              title: title,
-              fileMeta: '${_localizedFileType(book.normalizedType)} · ${_formatFileSize(book.fileSizeBytes)}',
-              progress: book.progress.clamp(0.0, 1.0),
-              timestamp: book.lastReadAt != null ? '最近阅读' : LocalizationEngine.text('just_now'),
-              type: book.type,
-              book: book,
-            );
-          }).toList();
-
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
-      itemCount: displayItems.length,
-      separatorBuilder: (context, index) => Container(
-        height: 1,
-        color: CupertinoColors.systemGrey5.resolveFrom(context),
-      ),
-      itemBuilder: (context, index) {
-        return _buildDownloadListItem(context, displayItems[index]);
-      },
-    );
-  }
-
-  Widget _buildDownloadListItem(BuildContext context, _BookDownloadItemData item) {
-    final theme = CupertinoTheme.of(context);
-    final progressColor = theme.primaryColor;
-    final book = item.book;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 70,
-            child: AspectRatio(
-              aspectRatio: 3 / 4,
-              child: book != null
-                  ? _buildBookThumbnail(book)
-                  : Container(
-                      decoration: BoxDecoration(
-                        color: CupertinoColors.systemGrey6.resolveFrom(context),
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: CupertinoColors.systemGrey.withOpacity(0.16),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Center(
-                        child: Icon(
-                          CupertinoIcons.book_fill,
-                          color: progressColor,
-                          size: 28,
-                        ),
-                      ),
-                    ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: book != null ? () => _openBook(book) : null,
-              onLongPressStart: book != null
-                  ? (details) => _showBookActions(
-                        context,
-                        book,
-                        anchorPosition: details.globalPosition,
-                      )
-                  : null,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          item.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.textStyle.copyWith(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: CupertinoColors.label.resolveFrom(context),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    item.fileMeta,
-                    style: theme.textTheme.textStyle.copyWith(
-                      fontSize: 12,
-                      color: CupertinoColors.secondaryLabel.resolveFrom(context),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      SizedBox(
-                        width: 140,
-                        child: Container(
-                          height: 5,
-                          decoration: BoxDecoration(
-                            color: CupertinoColors.systemGrey5.resolveFrom(context),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: FractionallySizedBox(
-                            alignment: Alignment.centerLeft,
-                            widthFactor: item.progress.clamp(0.0, 1.0),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: progressColor,
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '${(item.progress * 100).toStringAsFixed(0)}%',
-                        style: theme.textTheme.textStyle.copyWith(
-                          fontSize: 12,
-                          color: CupertinoColors.secondaryLabel.resolveFrom(context),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        item.timestamp,
-                        style: theme.textTheme.textStyle.copyWith(
-                          fontSize: 12,
-                          color: CupertinoColors.secondaryLabel.resolveFrom(context),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          if (book != null)
-            Builder(
-              builder: (buttonContext) {
-                return CupertinoButton(
-                  key: ValueKey('bookshelf_list_more_button_${book.id}'),
-                  padding: const EdgeInsets.all(6),
-                  minSize: 0,
-                  borderRadius: BorderRadius.circular(999),
-                  color: CupertinoColors.systemGrey6.withOpacity(0.95),
-                  onPressed: () => _showBookActions(buttonContext, book),
-                  child: const Icon(CupertinoIcons.ellipsis, size: 16),
-                );
-              },
-            )
-          else
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: CupertinoColors.systemGrey6.withOpacity(0.95),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: const Icon(CupertinoIcons.ellipsis, size: 16),
-            ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildGeneratedCover(BookModel book) {
     final seed = book.title.hashCode % 7;
@@ -1660,18 +1430,19 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                 ),
                                 const SizedBox(width: 8),
                                 GestureDetector(
-                                  onTap: () {
-                                    setState(() {
-                                      _showDownloadListMode = !_showDownloadListMode;
-                                    });
-                                  },
+                                onTap: () {
+                                  setState(() {
+                                    _showCoverMode = !_showCoverMode;
+                                  });
+                                },
                                   child: Padding(
                                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                                     child: Icon(
                                       CupertinoIcons.slider_horizontal_3,
-                                      color: _showDownloadListMode
-                                          ? CupertinoTheme.of(context).primaryColor
-                                          : CupertinoColors.inactiveGray.resolveFrom(context),
+                                      color: _showCoverMode
+                                          ? CupertinoColors.inactiveGray
+                                              .resolveFrom(context)
+                                          : CupertinoTheme.of(context).primaryColor,
                                     ),
                                   ),
                                 ),
@@ -1700,33 +1471,31 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                           ),
                                         ),
                                       )
-                                    : _showDownloadListMode
-                                        ? _buildDownloadListView(filteredBooks)
-                                        : _showCoverMode
-                                            ? GridView.builder(
-                                                shrinkWrap: true,
-                                                physics: const NeverScrollableScrollPhysics(),
-                                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                                  crossAxisCount: 2,
-                                                  childAspectRatio: 1.72,
-                                                  crossAxisSpacing: 12,
-                                                  mainAxisSpacing: 12,
-                                                ),
-                                                itemCount: filteredBooks.length,
-                                                itemBuilder: (context, index) {
-                                                  return _buildGridCard(filteredBooks[index]);
-                                                },
-                                              )
-                                            : ListView.builder(
-                                                shrinkWrap: true,
-                                                physics: const NeverScrollableScrollPhysics(),
-                                                padding: const EdgeInsets.symmetric(vertical: 4),
-                                                itemCount: filteredBooks.length,
-                                                itemBuilder: (context, index) {
-                                                  return _buildBookListItem(filteredBooks[index]);
-                                                },
-                                              ),
+                                    : _showCoverMode
+                                        ? GridView.builder(
+                                            shrinkWrap: true,
+                                            physics: const NeverScrollableScrollPhysics(),
+                                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                              crossAxisCount: 2,
+                                              childAspectRatio: 1.72,
+                                              crossAxisSpacing: 12,
+                                              mainAxisSpacing: 12,
+                                            ),
+                                            itemCount: filteredBooks.length,
+                                            itemBuilder: (context, index) {
+                                              return _buildGridCard(filteredBooks[index]);
+                                            },
+                                          )
+                                        : ListView.builder(
+                                            shrinkWrap: true,
+                                            physics: const NeverScrollableScrollPhysics(),
+                                            padding: const EdgeInsets.symmetric(vertical: 4),
+                                            itemCount: filteredBooks.length,
+                                            itemBuilder: (context, index) {
+                                              return _buildBookListItem(filteredBooks[index]);
+                                            },
+                                          ),
                         ],
                       ),
                       ),

@@ -70,6 +70,18 @@ class ReaderSettingsSheet extends StatefulWidget {
   // PDF 专属：奇偶页分开裁边（0=统一 / 1=仅奇数页 / 2=仅偶数页）
   final int cropOddEvenMode;
   final ValueChanged<int> onCropOddEvenModeChanged;
+  // PDF 专属：画面增强——清晰度（非锐化掩膜，1.0 为原始）与智能清晰度按钮
+  final double sharpness;
+  final ValueChanged<double> onSharpnessChanged;
+  final bool smartClarityBusy;
+  final VoidCallback onSmartClarity;
+  // PDF 专属：扫描件质检入口回调
+  final VoidCallback onOqc;
+  // PDF 专属：阅读背景覆盖开关（半透明背景色覆盖扫描件）
+  final bool bgOverlay;
+  final ValueChanged<bool> onBgOverlayChanged;
+  // PDF 专属：显式跳转（目录/书签/搜索/页码跳转）回调；父级据此记录「返回」并关闭面板。
+  final ValueChanged<int>? onNavigate;
 
   // 进度 / 目录 / 笔记 / 搜索 所需上下文
   final String bookId;
@@ -114,6 +126,14 @@ class ReaderSettingsSheet extends StatefulWidget {
     this.onDenoiseChanged = _noopBool,
     this.colorTemperature = 1.0,
     this.onColorTemperatureChanged = _noopDouble,
+    this.sharpness = 1.0,
+    this.onSharpnessChanged = _noopDouble,
+    this.smartClarityBusy = false,
+    this.onSmartClarity = _noop,
+    this.onOqc = _noop,
+    this.bgOverlay = false,
+    this.onBgOverlayChanged = _noopBool,
+    this.onNavigate,
     this.cropMode = 0,
     this.onCropModeChanged = _noopInt,
     this.manualCropLeft = 0.0,
@@ -314,7 +334,9 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
         final e = entries[i];
         final page = e.node.dest?.pageNumber ?? 0;
         return GestureDetector(
-          onTap: page > 0 ? () => widget.onJumpToPage(page) : null,
+          onTap: page > 0
+              ? () => (widget.onNavigate ?? widget.onJumpToPage)(page)
+              : null,
           child: Container(
             padding: EdgeInsets.only(
               left: 12.0 * e.depth,
@@ -365,7 +387,7 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
     final target = raw.clamp(1, max);
     _pageInputController.text = '$target';
     setState(() => _progressValue = target.toDouble());
-    widget.onJumpToPage(target);
+    (widget.onNavigate ?? widget.onJumpToPage)(target);
   }
 
   void _onSearchChanged(String q) {
@@ -549,7 +571,7 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
             itemBuilder: (context, i) {
               final pg = _searchResults[i];
               return GestureDetector(
-                onTap: () => widget.onJumpToPage(pg),
+                onTap: () => (widget.onNavigate ?? widget.onJumpToPage)(pg),
                 child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
                   child: Row(
@@ -610,14 +632,16 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                     CupertinoButton(
                       padding: EdgeInsets.zero,
                       minSize: 0,
-                      onPressed: () => widget.onJumpToPage(b.pageNumber),
+                      onPressed: () =>
+                          (widget.onNavigate ?? widget.onJumpToPage)(b.pageNumber),
                       child: Icon(CupertinoIcons.bookmark,
                           size: 16, color: primaryColor),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: GestureDetector(
-                        onTap: () => _showRenameBookmarkDialog(b),
+                        onTap: () =>
+                            (widget.onNavigate ?? widget.onJumpToPage)(b.pageNumber),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -1060,7 +1084,17 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    _sectionTitle(context, 'reader_background'),
+                    Row(
+                      children: [
+                        Expanded(
+                            child: _sectionTitle(context, 'reader_background')),
+                        CupertinoSwitch(
+                          value: widget.bgOverlay,
+                          onChanged: widget.onBgOverlayChanged,
+                          activeColor: primaryColor,
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 6),
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
@@ -1184,6 +1218,9 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                       },
                     ),
                     const SizedBox(height: 4),
+                    // ── 扫描件质检（OQC）──
+                    if (widget.isPdfReader)
+                      _OqcActionRow(onPressed: widget.onOqc),
                   ],
                       ],
                     ),
@@ -1383,102 +1420,85 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
   /// 重排排版调节：字体大小 / 行距 / 字距 / 段距（仅重排模式下显示）。
   ///
   /// 全部经 [SettingsController] 实时落库并广播，[PdfReflowView] 监听后即时重排。
+  /// 每项均用与画面增强一致的 [_FineTuneSliderRow]（[−] 滑块 [+] 微调按钮 + 数值），
+  /// 完整显示当前参数值，避免「只有一个滑块不知道调的是哪个」。
   Widget _buildReflowTypographySection(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _sectionTitle(context, 'pdf_reflow'),
         const SizedBox(height: 8),
-        _reflowSlider(
+        _reflowFineTune(
           context,
           'pdf_reflow_font_size',
           SettingsController.pdfReflowFontSize,
+          (v) => SettingsController.setPdfReflowFontSize(v),
           12,
           32,
-          (v) => SettingsController.setPdfReflowFontSize(v),
+          1,
           (v) => v.toStringAsFixed(0),
         ),
-        _reflowSlider(
+        _reflowFineTune(
           context,
           'pdf_reflow_line_spacing',
           SettingsController.pdfReflowLineSpacing,
+          (v) => SettingsController.setPdfReflowLineSpacing(v),
           1.0,
           3.0,
-          (v) => SettingsController.setPdfReflowLineSpacing(v),
+          0.1,
           (v) => v.toStringAsFixed(1),
         ),
-        _reflowSlider(
+        _reflowFineTune(
           context,
           'pdf_reflow_letter_spacing',
           SettingsController.pdfReflowLetterSpacing,
+          (v) => SettingsController.setPdfReflowLetterSpacing(v),
           0.0,
           4.0,
-          (v) => SettingsController.setPdfReflowLetterSpacing(v),
+          0.1,
           (v) => v.toStringAsFixed(1),
         ),
-        _reflowSlider(
+        _reflowFineTune(
           context,
           'pdf_reflow_para_spacing',
           SettingsController.pdfReflowParaSpacing,
+          (v) => SettingsController.setPdfReflowParaSpacing(v),
           0.0,
           24.0,
-          (v) => SettingsController.setPdfReflowParaSpacing(v),
+          1,
           (v) => v.toStringAsFixed(0),
         ),
       ],
     );
   }
 
-  /// 单个重排排版滑块：左侧标签 + 中部滑块（实时跟随）+ 右侧数值。
-  Widget _reflowSlider(
+  /// 单个重排排版微调行：标签 + [−] 滑块 [+] 微调按钮（复用画面增强同款
+  /// [_FineTuneSliderRow]），实时跟随 [ValueNotifier] 并显示当前数值。
+  Widget _reflowFineTune(
     BuildContext context,
     String key,
     ValueNotifier<double> notifier,
+    ValueChanged<double> onChanged,
     double min,
     double max,
-    ValueChanged<double> onChanged,
+    double step,
     String Function(double) format,
   ) {
     final primaryColor = CupertinoTheme.of(context).primaryColor;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 56,
-            child: Text(
-              LocalizationEngine.text(key),
-              style: const TextStyle(fontSize: 13),
-            ),
-          ),
-          Expanded(
-            child: ValueListenableBuilder<double>(
-              valueListenable: notifier,
-              builder: (context, value, _) => CupertinoSlider(
-                value: value.clamp(min, max),
-                min: min,
-                max: max,
-                onChanged: onChanged,
-                activeColor: primaryColor,
-                thumbColor: primaryColor,
-              ),
-            ),
-          ),
-          SizedBox(
-            width: 44,
-            child: ValueListenableBuilder<double>(
-              valueListenable: notifier,
-              builder: (context, value, _) => Text(
-                format(value),
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: CupertinoColors.secondaryLabel,
-                ),
-                textAlign: TextAlign.right,
-              ),
-            ),
-          ),
-        ],
+      padding: const EdgeInsets.only(bottom: 10),
+      child: ValueListenableBuilder<double>(
+        valueListenable: notifier,
+        builder: (context, value, _) => _FineTuneSliderRow(
+          label: LocalizationEngine.text(key),
+          value: value,
+          min: min,
+          max: max,
+          step: step,
+          onChanged: onChanged,
+          primaryColor: primaryColor,
+          displayValue: format(value),
+        ),
       ),
     );
   }
@@ -1499,14 +1519,14 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
     return _StyledCard(
       title: LocalizationEngine.text('pdf_enhance'),
       children: [
-        // 清晰度（UI 占位，暂不接入渲染管线）
+        // 清晰度（接入渲染管线：像素级 unsharp mask 锐化，见 PdfRenderService._sharpenImage）
         _FineTuneSliderRow(
           label: LocalizationEngine.text('pdf_enhance_sharpness'),
-          value: 1.0,
+          value: widget.sharpness,
           min: 0.5,
           max: 2.0,
           step: 0.1,
-          onChanged: (_) {},
+          onChanged: widget.onSharpnessChanged,
           primaryColor: primaryColor,
         ),
         const SizedBox(height: 10),
@@ -1570,7 +1590,114 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
           value: widget.denoise,
           onChanged: widget.onDenoiseChanged,
         ),
+        const SizedBox(height: 10),
+        // 智能清晰度：一键自动调整亮度/对比度/清晰度/去杂色（自动增强扫描件）
+        _SmartClarityButton(
+          onPressed: widget.onSmartClarity,
+          primaryColor: primaryColor,
+          busy: widget.smartClarityBusy,
+        ),
       ],
+    );
+  }
+
+  /// 智能清晰度按钮：点击触发自动分析当前页并计算最佳画面参数（亮度/对比度/清晰度/去杂色）。
+  ///
+  /// [busy] 为 true 时显示加载指示器并禁用点击（分析为异步像素统计）。
+  Widget _SmartClarityButton({
+    required VoidCallback onPressed,
+    required Color primaryColor,
+    required bool busy,
+  }) {
+    final labelColor = CupertinoColors.label.resolveFrom(context);
+    final secondaryColor = CupertinoColors.secondaryLabel.resolveFrom(context);
+    return GestureDetector(
+      onTap: busy ? null : onPressed,
+      child: Container(
+        height: 42,
+        decoration: BoxDecoration(
+          color: busy
+              ? CupertinoColors.systemGrey5.resolveFrom(context)
+              : primaryColor.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (busy) ...[
+              const CupertinoActivityIndicator(radius: 9),
+              const SizedBox(width: 8),
+            ] else ...[
+              Icon(CupertinoIcons.brightness, size: 16, color: primaryColor),
+              const SizedBox(width: 8),
+            ],
+            Text(
+              LocalizationEngine.text(
+                busy
+                    ? 'pdf_enhance_smart_clarity_running'
+                    : 'pdf_enhance_smart_clarity',
+              ),
+              style: TextStyle(
+                color: busy ? secondaryColor : primaryColor,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 扫描件质检（OQC）入口行：点击对当前打开的 PDF 做整本质量检查
+  /// （空白页 / 模糊 / 黑边 / 倾斜 / 重影），结果由 [PdfOqcReportPage] 展示。
+  Widget _OqcActionRow({required VoidCallback onPressed}) {
+    final primaryColor = CupertinoTheme.of(context).primaryColor;
+    final labelColor = CupertinoColors.label.resolveFrom(context);
+    final secondaryColor = CupertinoColors.secondaryLabel.resolveFrom(context);
+    return GestureDetector(
+      onTap: onPressed,
+      child: Container(
+        margin: const EdgeInsets.only(top: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          color: CupertinoColors.secondarySystemBackground.resolveFrom(context),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: CupertinoColors.systemGrey4.resolveFrom(context),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(CupertinoIcons.check_mark_circled_solid,
+                size: 20, color: primaryColor),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    LocalizationEngine.text('pdf_oqc_title'),
+                    style: TextStyle(
+                        color: labelColor, fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    LocalizationEngine.text('pdf_oqc_desc'),
+                    style: TextStyle(color: secondaryColor, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              CupertinoIcons.chevron_forward,
+              size: 16,
+              color:
+                  CupertinoColors.systemGrey.resolveFrom(context),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

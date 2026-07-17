@@ -6,6 +6,7 @@ import '../controller/bookshelf_controller.dart';
 import '../model/book_model.dart';
 import '../model/reading_stats_model.dart';
 import '../service/reader_data_service.dart';
+import '../service/reading_session_service.dart';
 import 'book_viewer_page.dart';
 import 'comic_viewer_page.dart';
 import 'epub_viewer_page.dart';
@@ -37,20 +38,76 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
   /// 跨书最近书签（最多 3 条，按添加时间倒序），用于「去年的今天」下方的书签卡片。
   List<BookmarkWithBook> _recentBookmarks = const [];
 
+  /// 收藏笔记真实总数（替代占位常量），用于阅读统计卡片。
+  int _totalNotesCount = 0;
+
+  /// 随机回忆抽取到的真实笔记（含所属书籍信息）；null 表示暂无笔记。
+  NoteWithBook? _randomMemoryNote;
+
+  /// 阅读日历当前展示的月份（默认当前月）。
+  DateTime _calendarMonth = DateTime(DateTime.now().year, DateTime.now().month);
+
+  /// 阅读日历格子内容：false=显示当日阅读时长最多的书封面；true=显示当日阅读时长文本。
+  bool _calendarShowDuration = false;
+
   @override
   void initState() {
     super.initState();
     _loadRecentBookmarks();
+    _loadTotalNotes();
+    _loadRandomMemory();
     // 书籍列表异步就绪后，书签标题需要重新解析（避免回退为「未知书籍」）。
     _controller.books.addListener(_loadRecentBookmarks);
+    _controller.books.addListener(_loadTotalNotes);
+    _controller.books.addListener(_loadRandomMemory);
+    // 阅读会话变化（如本次阅读结束记录）时刷新阅读日历。
+    ReadingSessionService.sessionsNotifier.addListener(_onSessionsChanged);
   }
 
   @override
   void dispose() {
     _controller.books.removeListener(_loadRecentBookmarks);
+    _controller.books.removeListener(_loadTotalNotes);
+    _controller.books.removeListener(_loadRandomMemory);
+    ReadingSessionService.sessionsNotifier.removeListener(_onSessionsChanged);
     _controller.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  /// 阅读会话变化 → 重绘阅读日历。
+  void _onSessionsChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// 加载跨书收藏笔记总数（真实数据）。
+  void _loadTotalNotes() {
+    final ids = _controller.books.value.map((b) => b.id).toList();
+    ReaderDataStore.countAllNotes(ids).then((count) {
+      if (!mounted) return;
+      setState(() => _totalNotesCount = count);
+    });
+  }
+
+  /// 从真实笔记中随机抽一条用于「随机回忆」；无笔记时置 null（卡片显示空态）。
+  void _loadRandomMemory() {
+    final books = _controller.books.value;
+    final titleMap = <String, String>{
+      for (final b in books) b.id: b.title,
+    };
+    ReaderDataStore.loadAllNotes(
+      books.map((b) => b.id).toList(),
+      (id) => titleMap[id] ?? LocalizationEngine.text('unknown_book'),
+    ).then((notes) {
+      if (!mounted) return;
+      if (notes.isEmpty) {
+        setState(() => _randomMemoryNote = null);
+        return;
+      }
+      // 用微秒时间戳取模做轻量随机，避免额外 import dart:math。
+      final r = DateTime.now().microsecondsSinceEpoch % notes.length;
+      setState(() => _randomMemoryNote = notes[r]);
+    });
   }
 
   /// 加载跨书最近 3 条书签（书名通过当前书籍列表解析）。
@@ -158,6 +215,10 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
 
                     // 阅读热力图（日历网格）
                     _buildHeatmapCard(theme, stats),
+                    const SizedBox(height: 12),
+
+                    // 阅读日历：当月网格，每格显示当日阅读时长最多的书封面（或时长）
+                    _buildReadingCalendarCard(theme, books),
                     const SizedBox(height: 12),
 
                     // 被遗忘的书籍（简要列表）
@@ -515,63 +576,86 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
     CupertinoThemeData theme,
     List<BookModel> books,
   ) {
-    final book = books.length > 1 ? books[1] : null;
+    final primary = theme.primaryColor;
+    final labelColor = CupertinoColors.label.resolveFrom(context);
+    final secondaryColor = CupertinoColors.secondaryLabel.resolveFrom(context);
+    final note = _randomMemoryNote;
+    final book = note != null ? _controller.getBook(note.bookId) : null;
+    final hasData = note != null && book != null;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: CupertinoColors.systemIndigo.withOpacity(0.9),
+        color: CupertinoColors.secondarySystemBackground.resolveFrom(context),
         borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: primary.withOpacity(0.06),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              _sectionIcon(theme, CupertinoIcons.shuffle, onDark: true),
+              _sectionIcon(theme, CupertinoIcons.shuffle),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   LocalizationEngine.text('random_memory'),
                   style: TextStyle(
-                    color: CupertinoColors.white,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: labelColor,
                   ),
                 ),
               ),
+              // 刷新：从真实笔记中重新随机抽一条
               CupertinoButton(
                 padding: EdgeInsets.zero,
                 minimumSize: const Size(32, 32),
-                onPressed: () {},
-                child: const Icon(
+                onPressed: _loadRandomMemory,
+                child: Icon(
                   CupertinoIcons.refresh,
-                  color: CupertinoColors.white,
+                  color: secondaryColor,
                 ),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          Text(
-            book?.title ?? '《安波里姆宝典》',
-            style: const TextStyle(
-              color: CupertinoColors.white,
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
+          if (hasData) ...[
+            Text(
+              book!.title,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: labelColor,
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            "当时的想法：'要保持长期主义'",
-            style: TextStyle(color: CupertinoColors.white.withOpacity(0.9)),
-          ),
-          const SizedBox(height: 14),
-          Align(
-            alignment: Alignment.bottomRight,
-            child:               CupertinoButton.filled(
+            const SizedBox(height: 8),
+            Text(
+              '当时的笔记：${note!.note.summary}',
+              style: TextStyle(color: secondaryColor),
+            ),
+            const SizedBox(height: 14),
+            Align(
+              alignment: Alignment.bottomRight,
+              child: CupertinoButton.filled(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 onPressed: () => _openBook(book),
                 child: const Text('继续阅读'),
               ),
-          ),
+            ),
+          ] else
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                '还没有笔记，先去读书并记点想法吧～',
+                style: TextStyle(color: secondaryColor),
+              ),
+            ),
         ],
       ),
     );
@@ -865,7 +949,7 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
     final bookCount = ReadingStats.completedBooksInRange(books, start, end);
     // 按平均每分钟 1.5 页估算阅读页数（与导航栏副标题保持一致）
     final pages = (_periodMinutes() * 1.5).round();
-    const notesCount = 26; // 收藏笔记数（暂用占位值，后续对接笔记模块）
+    final notesCount = _totalNotesCount; // 收藏笔记真实总数（跨书汇总）
 
     /// 单个统计数字卡片
     Widget statItem({
@@ -1400,6 +1484,266 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
         borderRadius: BorderRadius.circular(9),
       ),
       child: Icon(icon, size: 17, color: color),
+    );
+  }
+
+  /// 将阅读秒数压缩为单元格内的短文本（如 1h20m / 45m / 0m），中性不本地化。
+  String _compactDuration(int seconds) {
+    final m = (seconds / 60).round();
+    if (m <= 0) return '0m';
+    if (m >= 60) {
+      final h = m ~/ 60;
+      final mm = m % 60;
+      return mm > 0 ? '${h}h${mm}m' : '${h}h';
+    }
+    return '${m}m';
+  }
+
+  /// 由书名生成稳定色块（无封面时占位）。
+  Color _coverFallbackColor(String title) {
+    const palette = [
+      CupertinoColors.systemBlue,
+      CupertinoColors.systemGreen,
+      CupertinoColors.systemIndigo,
+      CupertinoColors.systemOrange,
+      CupertinoColors.systemPink,
+      CupertinoColors.systemPurple,
+      CupertinoColors.systemTeal,
+    ];
+    return palette[title.hashCode % palette.length];
+  }
+
+  /// 构建「阅读日历」卡片：当月网格，每个日期格展示当日阅读时长最多的书封面，
+  /// 或（经右上切换）展示当日总阅读时长。数据源为 ReadingSessionService（按日期+按书聚合），
+  /// 比 ReadingStats 的「全部堆到 lastReadAt 当天」单点近似更真实。
+  Widget _buildReadingCalendarCard(
+    CupertinoThemeData theme,
+    List<BookModel> books,
+  ) {
+    final primary = theme.primaryColor;
+    final labelColor = CupertinoColors.label.resolveFrom(context);
+    final secondaryColor = CupertinoColors.secondaryLabel.resolveFrom(context);
+    final bg = CupertinoColors.secondarySystemBackground.resolveFrom(context);
+
+    final month = _calendarMonth;
+    final monthStart = DateTime(month.year, month.month, 1);
+    final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
+    final today = DateTime.now();
+    final todayDay = DateTime(today.year, today.month, today.day);
+
+    // 按 bookId 聚合当日阅读秒数 → 找到时长最多的书与当日总时长。
+    Map<String, int> _aggForDay(DateTime day) {
+      final byBook = <String, int>{};
+      for (final s in ReadingSessionService.sessionsNotifier.value) {
+        final d = s.startedAt;
+        if (d.year == day.year && d.month == day.month && d.day == day.day) {
+          byBook[s.bookId] = (byBook[s.bookId] ?? 0) + s.durationSeconds;
+        }
+      }
+      return byBook;
+    }
+
+    final bookMap = <String, BookModel>{for (final b in books) b.id: b};
+
+    // 构造 7 列网格（周一为首列），含月初/月末补空。
+    final cells = <DateTime?>[];
+    for (var i = 1; i < monthStart.weekday; i++) cells.add(null);
+    for (var d = 1; d <= daysInMonth; d++) {
+      cells.add(DateTime(month.year, month.month, d));
+    }
+    while (cells.length % 7 != 0) cells.add(null);
+
+    Widget dayCell(DateTime? day) {
+      if (day == null) {
+        return const SizedBox.shrink();
+      }
+      final byBook = _aggForDay(day);
+      final has = byBook.isNotEmpty;
+      final isToday = day == todayDay;
+
+      // 时长最多的书封面 / 或当日总时长文本
+      Widget content;
+      if (!has) {
+        content = const SizedBox.shrink();
+      } else if (_calendarShowDuration) {
+        final total = byBook.values.fold(0, (a, b) => a + b);
+        content = Center(
+          child: Text(
+            _compactDuration(total),
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: labelColor,
+            ),
+          ),
+        );
+      } else {
+        final top = byBook.entries.reduce((a, b) => a.value >= b.value ? a : b);
+        final book = bookMap[top.key];
+        if (book?.coverBytes != null) {
+          content = Image.memory(
+            book!.coverBytes!,
+            fit: BoxFit.cover,
+            errorBuilder: (c, e, s) => Container(
+              color: _coverFallbackColor(book.title),
+            ),
+          );
+        } else {
+          content = Container(color: _coverFallbackColor(book?.title ?? ''));
+        }
+      }
+
+      return Container(
+        margin: const EdgeInsets.all(2),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          border: isToday
+              ? Border.all(color: primary, width: 2)
+              : null,
+          color: has ? null : CupertinoColors.systemGrey6.resolveFrom(context),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (has) content,
+            Positioned(
+              top: 3,
+              left: 4,
+              child: Text(
+                '${day.day}',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: isToday
+                      ? primary
+                      : (has
+                          ? CupertinoColors.white
+                          : CupertinoColors.tertiaryLabel.resolveFrom(context)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: primary.withOpacity(0.06),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _sectionIcon(theme, CupertinoIcons.calendar),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  '阅读日历',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: labelColor,
+                  ),
+                ),
+              ),
+              // 封面 / 时长 切换
+              GestureDetector(
+                onTap: () =>
+                    setState(() => _calendarShowDuration = !_calendarShowDuration),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: primary.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Text(
+                    _calendarShowDuration ? '时长' : '封面',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: primary,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          // 月份导航
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CupertinoButton(
+                padding: EdgeInsets.zero,
+                minSize: 28,
+                onPressed: () => setState(() => _calendarMonth =
+                    DateTime(month.year, month.month - 1)),
+                child: const Icon(CupertinoIcons.chevron_left, size: 18),
+              ),
+              Text(
+                '${month.year}年${month.month}月',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: labelColor,
+                ),
+              ),
+              CupertinoButton(
+                padding: EdgeInsets.zero,
+                minSize: 28,
+                onPressed: () => setState(() => _calendarMonth =
+                    DateTime(month.year, month.month + 1)),
+                child: const Icon(CupertinoIcons.chevron_right, size: 18),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // 星期表头（周一为首列）
+          Row(
+            children: const ['一', '二', '三', '四', '五', '六', '日']
+                .map((w) => Expanded(
+                      child: Center(
+                        child: Text(
+                          w,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: CupertinoColors.tertiaryLabel,
+                          ),
+                        ),
+                      ),
+                    ))
+                .toList(),
+          ),
+          const SizedBox(height: 4),
+          GridView.count(
+            crossAxisCount: 7,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 2,
+            crossAxisSpacing: 2,
+            childAspectRatio: 1,
+            children: cells.map(dayCell).toList(),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '有阅读的日期显示当日阅读最久的书封面；点右上「时长」可切换显示当日总阅读时长。',
+            style: TextStyle(fontSize: 11, color: secondaryColor),
+          ),
+        ],
+      ),
     );
   }
 
