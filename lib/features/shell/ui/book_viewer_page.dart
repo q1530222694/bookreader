@@ -14,6 +14,7 @@ import '../controller/settings_controller.dart';
 import '../model/pdf_reader_settings.dart';
 import '../service/pdf_render_service.dart';
 import '../service/pdf_text_reflow_service.dart';
+import '../service/pdf_ocr_service.dart';
 import '../service/reading_session_service.dart';
 import 'pdf_custom_view.dart';
 import 'pdf_reflow_view.dart';
@@ -29,6 +30,8 @@ class BookViewerPage extends StatefulWidget {
   final String filePath;
   final String bookId;
   final BookshelfController? controller;
+  /// 打开时直接跳转到的页码（1-based），用于书签/进度快速定位；为空则从持久化进度恢复。
+  final int? initialPage;
 
   const BookViewerPage({
     super.key,
@@ -36,6 +39,7 @@ class BookViewerPage extends StatefulWidget {
     required this.filePath,
     required this.bookId,
     this.controller,
+    this.initialPage,
   });
 
   @override
@@ -73,6 +77,7 @@ class _BookViewerPageState extends State<BookViewerPage>
   bool _isReflowing = false;
   List<String>? _reflowParagraphs;
   bool _reflowLoading = false;
+  bool _isOcrLoading = false;
   String? _reflowError;
 
   // PDF 专属视觉设置（初始化自全局持久化，回调中上浮并落库）。
@@ -142,6 +147,13 @@ class _BookViewerPageState extends State<BookViewerPage>
     setState(() {
       _errorText = null;
     });
+    // 若指定了初始页码（如从书签进入），待 PdfCustomView 挂载后跳转到目标页。
+    if (widget.initialPage != null && widget.initialPage! > 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _pdfViewKey.currentState?.jumpToPage(widget.initialPage!);
+      });
+    }
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -382,25 +394,65 @@ class _BookViewerPageState extends State<BookViewerPage>
     try {
       final result = await PdfTextReflowService.extract(_pdfDocument!);
       if (!mounted) return;
-      if (!result.hasTextLayer) {
+      if (result.hasTextLayer && result.paragraphs.isNotEmpty) {
         setState(() {
+          _reflowParagraphs = result.paragraphs;
+          _isReflowing = true;
           _reflowLoading = false;
-          _reflowParagraphs = null;
-          _isReflowing = false;
-          _reflowError = LocalizationEngine.text('pdf_reflow_empty');
+          _reflowError = null;
+          _isOcrLoading = false;
         });
         return;
       }
+      // 纯图片扫描件（无文本层）：尝试 OCR 重排（需内置模型且总开关开启）。
+      if (SettingsEngine.pdfOcrEnabled &&
+          await PdfOcrService.isModelAvailable()) {
+        setState(() {
+          _reflowLoading = true;
+          _isOcrLoading = true;
+          _reflowError = null;
+        });
+        final ocrResult = await PdfTextReflowService.extractOcr(
+          _pdfDocument!,
+          onProgress: (current, total) {
+            if (!mounted) return;
+            // 进度可在未来扩展为具体百分比；此处仅维持加载态。
+          },
+        );
+        if (!mounted) return;
+        if (ocrResult.paragraphs.isEmpty) {
+          setState(() {
+            _reflowLoading = false;
+            _isOcrLoading = false;
+            _reflowParagraphs = null;
+            _isReflowing = false;
+            _reflowError = LocalizationEngine.text('pdf_reflow_ocr_failed');
+          });
+          return;
+        }
+        setState(() {
+          _reflowParagraphs = ocrResult.paragraphs;
+          _isReflowing = true;
+          _reflowLoading = false;
+          _isOcrLoading = false;
+          _reflowError = null;
+        });
+        return;
+      }
+      // 无文本层且未内置 OCR 模型：提示用户。
       setState(() {
-        _reflowParagraphs = result.paragraphs;
-        _isReflowing = true;
         _reflowLoading = false;
-        _reflowError = null;
+        _isOcrLoading = false;
+        _reflowParagraphs = null;
+        _isReflowing = false;
+        _reflowError =
+            LocalizationEngine.text('pdf_reflow_ocr_unavailable');
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _reflowLoading = false;
+        _isOcrLoading = false;
         _reflowError = '重排失败：$e';
       });
     }
@@ -734,7 +786,9 @@ class _BookViewerPageState extends State<BookViewerPage>
                                           SizedBox(height: 12),
                                           Text(
                                             LocalizationEngine.text(
-                                              'pdf_reflow_loading',
+                                              _isOcrLoading
+                                                  ? 'pdf_reflow_ocr_loading'
+                                                  : 'pdf_reflow_loading',
                                             ),
                                             style: const TextStyle(
                                               fontSize: 14,

@@ -218,4 +218,60 @@ class ReaderDataStore {
     await saveBookmarks(bookId, list);
     return list;
   }
+
+  /// 修改指定页书签的自定义名称（label），返回新列表。
+  ///
+  /// 书签支持用户自定义备注名，便于快速识别；[label] 为空时回退为默认占位。
+  static Future<List<BookmarkItem>> updateBookmarkLabel(
+    String bookId,
+    int pageNumber,
+    String label,
+  ) async {
+    final list = await loadBookmarks(bookId);
+    final idx = list.indexWhere((b) => b.pageNumber == pageNumber);
+    if (idx < 0) return list;
+    list[idx] = BookmarkItem(
+      pageNumber: list[idx].pageNumber,
+      label: label.trim(),
+      createdAt: list[idx].createdAt,
+    );
+    await saveBookmarks(bookId, list);
+    return list;
+  }
+
+  /// 跨书汇总：读取所有书籍的书签（按添加时间倒序），每条携带 bookId 与书名。
+  ///
+  /// [bookTitleResolver] 用于把 bookId 解析为书名；无法解析时回退为『未知书籍』。
+  /// 用于「回忆页 - 书签」卡片与「查看全部书签」页。
+  static Future<List<BookmarkWithBook>> loadAllBookmarks(
+    List<String> bookIds,
+    String Function(String bookId) bookTitleResolver,
+  ) async {
+    final result = <BookmarkWithBook>[];
+    for (final id in bookIds) {
+      final list = await loadBookmarks(id);
+      for (final b in list) {
+        result.add(BookmarkWithBook(
+          bookId: id,
+          title: bookTitleResolver(id),
+          bookmark: b,
+        ));
+      }
+    }
+    result.sort((a, b) => b.bookmark.createdAt.compareTo(a.bookmark.createdAt));
+    return result;
+  }
+}
+
+/// 跨书书签：组合书签与其所属书籍信息（bookId / 书名）。
+class BookmarkWithBook {
+  final String bookId;
+  final String title;
+  final BookmarkItem bookmark;
+
+  const BookmarkWithBook({
+    required this.bookId,
+    required this.title,
+    required this.bookmark,
+  });
 }

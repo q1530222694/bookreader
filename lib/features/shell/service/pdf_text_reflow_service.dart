@@ -1,4 +1,9 @@
+import 'dart:ui' as ui;
+
+import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
+
+import 'pdf_ocr_service.dart';
 
 /// 重排结果：已聚合的可重排正文段落 + 是否含有文本层。
 class PdfReflowResult {
@@ -96,5 +101,56 @@ class PdfTextReflowService {
         last == 0x3002 || // 。
         last == 0xFF01 || // ！
         last == 0xFF1F; // ？
+  }
+
+  /// 扫描件 OCR 重排：逐页渲染为位图并经 [PdfOcrService] 识别，复用文本层聚合逻辑产出段落。
+  ///
+  /// 仅用于无文本层的纯图片 PDF（扫描件）。逐页 [render] → [ui.Image] → PNG 字节 →
+  /// [PdfOcrService.recognizePage] 得到按阅读顺序排列的文本行，行间以换行拼接后交给
+  /// [_appendPageText] 做与文本层一致的续行 / 断段聚合。全部为本地 CPU/NPU 运算，
+  /// [onProgress] 回调用于向 UI 上报识别进度（已识别页数 / 总页数）。
+  /// 模型缺失或识别失败时抛错，由上层捕获提示。
+  static Future<PdfReflowResult> extractOcr(
+    PdfDocument document, {
+    void Function(int current, int total)? onProgress,
+  }) async {
+    final paragraphs = <String>[];
+    final total = document.pages.length;
+    for (var i = 0; i < total; i++) {
+      final page = document.pages[i];
+      final pw = page.width;
+      final ph = page.height;
+      if (pw <= 0 || ph <= 0) {
+        onProgress?.call(i + 1, total);
+        continue;
+      }
+      // 渲染宽度取页面 2 倍但上限 1080，兼顾清晰度与性能。
+      final double effW = (pw * 2).clamp(300, 1080).toDouble();
+      final double fullH = effW * ph / pw;
+      final PdfImage? img = await page.render(
+        fullWidth: effW,
+        fullHeight: fullH,
+        backgroundColor: Colors.white,
+      );
+      if (img == null) {
+        onProgress?.call(i + 1, total);
+        continue;
+      }
+      final ui.Image uiImg = await img.createImage();
+      img.dispose();
+      final png = await uiImg.toByteData(format: ui.ImageByteFormat.png);
+      uiImg.dispose();
+      if (png == null) {
+        onProgress?.call(i + 1, total);
+        continue;
+      }
+      final lines = await PdfOcrService.recognizePage(
+        png.buffer.asUint8List(),
+      );
+      final pageText = lines.map((l) => l.text).join('\n');
+      if (pageText.trim().isNotEmpty) _appendPageText(paragraphs, pageText);
+      onProgress?.call(i + 1, total);
+    }
+    return PdfReflowResult(paragraphs: paragraphs, hasTextLayer: false);
   }
 }

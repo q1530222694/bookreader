@@ -30,6 +30,10 @@ class TimelineEntry extends StatelessWidget {
   /// 是否为最后一条（最后一条不画向下延伸的竖线）。
   final bool isLast;
 
+  /// 是否强制向下延伸竖线到边框底部（即使 isLast=true）。
+  /// 用于「回忆页时间轴仅有一个月」时，让竖线延伸到底，暗示后面还有内容。
+  final bool extendLine;
+
   const TimelineEntry({
     super.key,
     required this.markerFilled,
@@ -39,6 +43,7 @@ class TimelineEntry extends StatelessWidget {
     required this.subtitle,
     this.detail,
     this.isLast = false,
+    this.extendLine = false,
   });
 
   @override
@@ -68,7 +73,7 @@ class TimelineEntry extends StatelessWidget {
                     shape: BoxShape.circle,
                   ),
                 ),
-                if (!isLast) ...[
+                if (!isLast || extendLine) ...[
                   const SizedBox(height: 6),
                   Expanded(
                     child: Container(width: 2, color: lineColor),
@@ -119,6 +124,7 @@ TimelineEntry timelineEntryFromRecord(
   BuildContext context, {
   required bool isFirst,
   required bool isLast,
+  bool extendLine = false,
 }) {
   final theme = CupertinoTheme.of(context);
   final primary = theme.primaryColor;
@@ -169,5 +175,6 @@ TimelineEntry timelineEntryFromRecord(
     subtitle: summary,
     detail: detail.isNotEmpty ? detail : null,
     isLast: isLast,
+    extendLine: extendLine,
   );
 }

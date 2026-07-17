@@ -41,7 +41,9 @@ class SettingsEngine {
   // 翻页方式（同一行）：0=左右滑动 1=上下滑动 2=左右单击 3=上下单击 4=单击滚动
   static const String readerPageModeKey = 'app.reader.pdf.pageMode';
   static const int readerPageModeDefault = 0;
-  // 翻页动画（独立栏目「翻页动画」）：0=无动画（瞬时跳转） 1=仿真动画（带过渡）
+  // 翻页动画（独立栏目「翻页动画」）：
+  // 0=无动画（瞬时跳转） 1=仿真动画（平滑吸附）
+  // 2=淡入淡出 3=叠加 4=跃动 5=旋转 6=旋转木马 7=模仿圆筒 8=反转
   static const String readerPageAnimationKey = 'app.reader.pdf.pageAnimation';
   static const int readerPageAnimationDefault = 1;
   // 布局模式：0=单页 1=双页 2=单页连续 3=双页连续
@@ -91,6 +93,9 @@ class SettingsEngine {
   static const double pdfReflowLetterSpacingDefault = 0.0;
   static const String pdfReflowParaSpacingKey = 'app.reader.pdf.reflow.paraSpacing';
   static const double pdfReflowParaSpacingDefault = 8.0;
+  // OCR 扫描件重排总开关（默认开启；关闭后扫描件走「无可重排文本」提示）
+  static const String pdfOcrEnabledKey = 'app.reader.pdf.ocrEnabled';
+  static const bool pdfOcrEnabledDefault = true;
 
   // Startup page settings
   static const String startupPageKey = 'app.startupPage';
@@ -336,6 +341,14 @@ class SettingsEngine {
 
   static void setPdfReflowParaSpacing(double value) {
     Config.set(pdfReflowParaSpacingKey, value);
+  }
+
+  static bool get pdfOcrEnabled {
+    return Config.get(pdfOcrEnabledKey) as bool? ?? pdfOcrEnabledDefault;
+  }
+
+  static void setPdfOcrEnabled(bool value) {
+    Config.set(pdfOcrEnabledKey, value);
   }
 
   // Startup page

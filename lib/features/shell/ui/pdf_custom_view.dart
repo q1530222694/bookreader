@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/cupertino.dart';
@@ -14,7 +15,10 @@ import '../service/pdf_render_service.dart';
 ///   0 左右滑动（横向滑动 / 滚动翻页）、1 上下滑动（纵向滑动 / 滚动翻页）、
 ///   2 左右单击（点击屏幕左 / 右区域翻页）、3 上下单击（点击屏幕上 / 下区域翻页）、
 ///   4 单击滚动（点击屏幕任意处翻页，同时滑动 / 滚动也可翻页）；
-/// - 翻页动画（[pageAnimation]）：0 无动画（瞬时跳转）、1 仿真（带过渡动画）；
+/// - 翻页动画（[pageAnimation]）：0 无动画（瞬时跳转）、1 仿真（平滑吸附）、
+///   2 淡入淡出、3 叠加、4 跃动、5 旋转、6 旋转木马、7 模仿圆筒、8 反转；
+///   2~8 在非连续逐页模式（PageView）下由 [AnimatedBuilder] 跟随 [PageController.page]
+///   实时计算相对位移并施加变换，连续滚动模式仍走平滑滚动手势。
 /// - 自动裁切：经 [PdfRenderService] 用 pdfrx 原生子区域渲染实现精确去白边；
 /// - 颜色调整（亮度/对比度/饱和度/去色）与智能去杂色：纯 Flutter GPU/CPU 合成叠加。
 ///
@@ -25,7 +29,7 @@ class PdfCustomView extends StatefulWidget {
   final PdfReaderSettings settings;
   /// 翻页方式：0 左右滑动 / 1 上下滑动 / 2 左右单击 / 3 上下单击 / 4 单击滚动。
   final int pageMode;
-  /// 翻页动画：0 无动画 / 1 仿真动画。
+  /// 翻页动画：0 无动画 / 1 仿真 / 2 淡入淡出 / 3 叠加 / 4 跃动 / 5 旋转 / 6 旋转木马 / 7 模仿圆筒 / 8 反转。
   final int pageAnimation;
   /// 翻页/滚动时回调当前页码（1-based），用于同步阅读进度。
   final ValueChanged<int>? onPageChanged;
@@ -48,6 +52,11 @@ class PdfCustomViewState extends State<PdfCustomView> {
   late List<List<int>> _spreads;
   PageController? _pageController;
   ScrollController? _scrollController;
+  // 连续模式缩放控制器：用单个 InteractiveViewer 包裹整条连续列，
+  // 整列统一缩放，页面天然紧密相连；仅在放大态（_zoomScale>1）启用平移，
+  // 未放大时单指滑动仍交给 ListView 滚动/翻页，避免手势被缩放层拦截。
+  final TransformationController _zoomController = TransformationController();
+  double _zoomScale = 1.0;
   final List<GlobalKey> _spreadKeys = [];
   final GlobalKey _listKey = GlobalKey();
   // 双屏两栏各自的 State 句柄，用于把进度跳转同时作用到左右两栏。
@@ -70,8 +79,17 @@ class PdfCustomViewState extends State<PdfCustomView> {
   @override
   void initState() {
     super.initState();
+    _zoomController.addListener(_onZoomChanged);
     _buildSpreads();
     _initControllers();
+  }
+
+  /// 监听缩放矩阵的缩放比，驱动 [_zoomScale] 状态，用于决定是否启用平移手势。
+  void _onZoomChanged() {
+    final scale = _zoomController.value.getMaxScaleOnAxis();
+    if ((scale - _zoomScale).abs() > 0.001) {
+      setState(() => _zoomScale = scale);
+    }
   }
 
   @override
@@ -165,7 +183,9 @@ class PdfCustomViewState extends State<PdfCustomView> {
 
   void _animateToSpread(int index) {
     final clamped = index.clamp(0, _spreads.length - 1);
-    final animate = widget.pageAnimation == 1;
+    // 仅「无动画(0)」瞬时跳转；其余动画类型（含仿真 1 与自定义 2~8）均走过渡，
+    // 自定义变换由 [_buildAnimatedSpread] 的 AnimatedBuilder 实时跟随播放。
+    final animate = widget.pageAnimation != 0;
     if (_usePageView && _pageController != null) {
       if (animate) {
         _pageController!.animateToPage(
@@ -177,10 +197,12 @@ class PdfCustomViewState extends State<PdfCustomView> {
         _pageController!.jumpToPage(clamped);
       }
     } else if (_scrollController != null) {
-      // 连续模式：按一个视口高度滚动一“页”。
-      final offset =
-          (_scrollController!.offset + (clamped - _currentSpreadIndex()) * 600)
-              .clamp(0.0, _scrollController!.position.maxScrollExtent);
+      // 连续模式：直接定位到目标对开页在视口顶部对应的绝对滚动偏移。
+      // 关键修复：旧实现用 `clamped - _currentSpreadIndex()` 的相对位移，而
+      // [_currentSpreadIndex] 在连续模式下恒为 0，导致从末尾往回拖进度条时
+      // 偏移被 clamp 到最大而页面不跳转。现改为按真实渲染位置计算绝对偏移，
+      // 前向/后向拖拽都能正确落点。
+      final offset = _offsetForSpread(clamped);
       if (animate) {
         _scrollController!.animateTo(
           offset,
@@ -191,6 +213,29 @@ class PdfCustomViewState extends State<PdfCustomView> {
         _scrollController!.jumpTo(offset);
       }
     }
+  }
+
+  /// 计算指定对开页对齐到视口顶部时，[ScrollController] 应处的绝对偏移量。
+  ///
+  /// 通过对比目标对开页与列表视口的全局坐标差，叠加当前滚动偏移得到，
+  /// 因而不依赖「每页固定高度」假设，可正确处理不同页面宽高比混排的连续模式。
+  double _offsetForSpread(int index) {
+    if (_scrollController == null ||
+        !_scrollController!.hasClients ||
+        index < 0 ||
+        index >= _spreadKeys.length) {
+      return 0.0;
+    }
+    final listBox =
+        _listKey.currentContext?.findRenderObject() as RenderBox?;
+    final targetBox =
+        _spreadKeys[index].currentContext?.findRenderObject() as RenderBox?;
+    if (listBox == null || targetBox == null) return 0.0;
+    final listTop = listBox.localToGlobal(Offset.zero).dy;
+    final targetTop = targetBox.localToGlobal(Offset.zero).dy;
+    final delta = targetTop - listTop; // 目标页相对视口顶部的屏幕位移
+    return (_scrollController!.offset + delta)
+        .clamp(0.0, _scrollController!.position.maxScrollExtent);
   }
 
   /// 由 1-based 页码推导对开页索引（双页模式每两页一对开，单页模式一一对应）。
@@ -289,6 +334,8 @@ class PdfCustomViewState extends State<PdfCustomView> {
 
   @override
   void dispose() {
+    _zoomController.removeListener(_onZoomChanged);
+    _zoomController.dispose();
     _disposeControllers();
     super.dispose();
   }
@@ -321,23 +368,38 @@ class PdfCustomViewState extends State<PdfCustomView> {
                 : const NeverScrollableScrollPhysics(),
             itemCount: _spreads.length,
             itemBuilder: (context, i) =>
-                _buildSpread(i, scrollDir, pageW, pageH),
+                _buildAnimatedSpread(i, scrollDir, pageW, pageH),
             onPageChanged: (i) => _reportPage(i),
           );
         } else {
+          // 连续模式：用单个 InteractiveViewer 包裹整条连续列，统一缩放。
+          // - scaleEnabled 允许双指捏合缩放；
+          // - panEnabled 仅在放大态（_zoomScale>1）开启，未放大时单指滑动回落到
+          //   ListView 自身滚动/翻页，不被缩放层拦截（修复此前 InteractiveViewer
+          //   手势冲突而整体移除的问题）；
+          // - constrained 默认 true：ListView 受视口约束可正常滚动；放大后由
+          //   boundaryMargin 提供无限平移余地，整列等比缩放，页面保持紧密相连。
           body = NotificationListener<ScrollNotification>(
             onNotification: (n) {
               if (n is ScrollEndNotification) _reportVisiblePage();
               return false;
             },
-            child: ListView.builder(
-              key: _listKey,
-              controller: _scrollController,
-              scrollDirection: scrollDir,
-              itemCount: _spreads.length,
-              itemBuilder: (context, i) => KeyedSubtree(
-                key: _spreadKeys[i],
-                child: _buildSpread(i, scrollDir, pageW, pageH),
+            child: InteractiveViewer(
+              transformationController: _zoomController,
+              scaleEnabled: true,
+              panEnabled: _zoomScale > 1.0001,
+              minScale: 1.0,
+              maxScale: 4.0,
+              boundaryMargin: const EdgeInsets.all(double.infinity),
+              child: ListView.builder(
+                key: _listKey,
+                controller: _scrollController,
+                scrollDirection: scrollDir,
+                itemCount: _spreads.length,
+                itemBuilder: (context, i) => KeyedSubtree(
+                  key: _spreadKeys[i],
+                  child: _buildSpread(i, scrollDir, pageW, pageH),
+                ),
               ),
             ),
           );
@@ -440,6 +502,81 @@ class PdfCustomViewState extends State<PdfCustomView> {
         targetWidth: pageW,
       ),
     );
+  }
+
+  /// 包裹对开页，按当前翻页动画类型施加「逐帧变换」。
+  ///
+  /// 仅在非连续逐页模式（PageView）下生效：用 [AnimatedBuilder] 监听 [PageController.page]，
+  /// 计算每个对开页相对当前页的偏移量 [position]（0=居中，±1=相邻页），再交给 [_transformSpread]
+  /// 施加透明度/位移/旋转等效果，从而实现淡入淡出、叠加、跃动、旋转、旋转木马、圆筒、反转等动画。
+  /// 无动画(0)/仿真(1) 直接返回原页（交给 PageView 原生吸附与滚动曲线）。
+  Widget _buildAnimatedSpread(int index, Axis scrollDir, double pageW, double pageH) {
+    final child = _buildSpread(index, scrollDir, pageW, pageH);
+    if (widget.pageAnimation <= 1 || _pageController == null) return child;
+    return AnimatedBuilder(
+      animation: _pageController!,
+      builder: (context, c) {
+        final page = _pageController!.page ?? _currentSpreadIndex().toDouble();
+        // 相对偏移限制在 ±1 内：仅相邻页参与过渡，更远的页保持离屏态。
+        final position = (page - index).clamp(-1.0, 1.0);
+        return _transformSpread(c!, position, scrollDir, pageW, pageH);
+      },
+      child: child,
+    );
+  }
+
+  /// 依据动画类型与相对偏移 [position] 返回变换后的页面。
+  ///
+  /// [axis] 为滚动方向（横向/纵向），决定位移与 3D 旋转的轴向，保证横竖翻页一致。
+  Widget _transformSpread(
+    Widget child,
+    double position,
+    Axis axis,
+    double pageW,
+    double pageH,
+  ) {
+    switch (widget.pageAnimation) {
+      case 2: // 淡入淡出：随偏移增大而淡出
+        return Opacity(
+          opacity: (1 - position.abs()).clamp(0.0, 1.0),
+          child: child,
+        );
+      case 3: // 叠加：下一张自一侧滑入，覆盖当前页
+        final dx = axis == Axis.horizontal ? position * pageW : 0.0;
+        final dy = axis == Axis.vertical ? position * pageH : 0.0;
+        return Transform.translate(offset: Offset(dx, dy), child: child);
+      case 4: // 跃动：过渡中途向上弹跳（正弦曲线峰值约 40px）
+        final hop = math.sin(position.abs() * math.pi) * 40.0;
+        return Transform.translate(offset: Offset(0, -hop), child: child);
+      case 5: // 旋转：页面在自身平面内轻微旋转
+        return Transform.rotate(angle: position * 0.25, child: child);
+      case 6: // 旋转木马：3D 旋转 + 边缘缩放
+        final m = Matrix4.identity()
+          ..setEntry(3, 2, 0.0015)
+          ..rotateY(axis == Axis.horizontal ? position * 0.6 : 0.0)
+          ..rotateX(axis == Axis.vertical ? position * 0.6 : 0.0);
+        return Transform(
+          transform: m,
+          child: Transform.scale(
+            scale: 1 - position.abs() * 0.2,
+            child: child,
+          ),
+        );
+      case 7: // 模仿圆筒：强透视旋转，模拟页面绕圆柱翻动
+        final m = Matrix4.identity()
+          ..setEntry(3, 2, 0.0025)
+          ..rotateY(axis == Axis.horizontal ? position * (math.pi / 2) : 0.0)
+          ..rotateX(axis == Axis.vertical ? position * (math.pi / 2) : 0.0);
+        return Transform(transform: m, child: child);
+      case 8: // 反转：整页翻转半圈（绕轴 180°）
+        final m = Matrix4.identity()
+          ..setEntry(3, 2, 0.0018)
+          ..rotateY(axis == Axis.horizontal ? position * math.pi : 0.0)
+          ..rotateX(axis == Axis.vertical ? position * math.pi : 0.0);
+        return Transform(transform: m, child: child);
+      default:
+        return child;
+    }
   }
 
   /// 双页 / 连续模式下的页间间隙（逻辑像素）：极细分隔，页面几乎紧贴。

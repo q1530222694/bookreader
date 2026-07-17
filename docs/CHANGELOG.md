@@ -1307,3 +1307,25 @@
 **【全局状态/鉴权变动 (State & Auth)】**：新增 10 个 Config Key（colorTemp/cropMode/manualCropLTRB/dualScreen）+ 8 个 ValueNotifier。全部通过 SettingsController 统一读写。
 
 **验证**：`flutter analyze lib` → **0 error**（132 条均为既有的 info/warning/deprecation 提示，非本次引入）。沙箱无法 `flutter run`，需用户本机实测。
+
+### [2026-07-16] 新增/修改：翻页动画 7 种 + 连续模式缩放(页面紧密相连) + 进度条回拖修复 + 扫描件 OCR 重排流水线
+
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/engine/settings_engine.dart`（扩展 `readerPageAnimation` 枚举注释 0~8；新增 Config Key `app.reader.pdf.ocrEnabled`）
+  └─ 被注入 ➔ `lib/features/shell/ui/reader_settings_sheet.dart`（`_buildPageTurnSection` 翻页动画 9 项网格芯片；`anims` 映射 0..8）
+  └─ 被注入 ➔ `lib/features/shell/ui/book_viewer_page.dart`（`_buildPdfView()` 传 `pageAnimation: SettingsEngine.readerPageAnimation`；`_reflow()` 按 `pdfOcrEnabled` + `PdfOcrService.isModelAvailable()` 路由 OCR）
+- `lib/features/shell/ui/pdf_custom_view.dart`（Dumb UI）
+  └─ 新增 `_buildAnimatedSpread` / `_transformSpread`：非连续逐页按 `PageController.page` 相对偏移施加 2 淡入淡出/3 叠加/4 跃动/5 旋转/6 旋转木马/7 圆筒/8 反转 变换
+  └─ 新增连续模式 `InteractiveViewer` 整列缩放（`_zoomController`/`_onZoomChanged`，仅放大态启用平移，未放大时滑动回落 ListView 滚动）
+  └─ 新增 `_offsetForSpread`：修复连续模式进度条从末尾回拖页面不跳转（`_currentSpreadIndex()` 连续模式恒 0 致相对位移错乱）
+- `lib/features/shell/service/pdf_ocr_service.dart`（阶段 3 完整 PaddleOCR 流水线：det.onnx DB 检测 + rec.onnx CRNN 识别 + ppocr_dict.txt CTC 解码 + 阅读顺序排序）
+  └─ 被注入 ➔ `lib/features/shell/service/pdf_text_reflow_service.dart`（`extractOcr` 逐页渲染→OCR→复用 `_appendPageText` 聚合）
+  └─ 被注入 ➔ `lib/features/shell/ui/book_viewer_page.dart`（`_reflow()` 扫描件 OCR 重排路径）
+- `lib/engine/localization_engine.dart`（新增 10 个本地化 Key：`reader_page_animation_fade/overlap/jump/rotate/carousel/cylinder/flip`、`pdf_reflow_ocr_loading/ocr_unavailable/ocr_failed`）
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 新增 Config Key：`app.reader.pdf.ocrEnabled`（默认 true，扫描件 OCR 重排总开关，经 SettingsController 读写）
+- 无新增 Permission Key（本次均为 feature 级 UI/引擎，未触碰权限禁区）
+- 未触碰 `packages/`，UI 不硬编码颜色/字号/文案（颜色走主题/CupertinoDynamicColor，文案走 LocalizationEngine），符合架构铁律。
+
+**验证**：`flutter analyze lib`（涉及 7 个文件）→ **0 error**（既有 info/warning 提示非本次引入）。OCR 推理需使用者将 `det.onnx`/`rec.onnx`/`ppocr_dict.txt` 放入 `assets/models/` 后本机实测（沙箱无法 `flutter run` 且缺模型权重）。

@@ -390,6 +390,76 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
     if (mounted) setState(() => _bookmarks = list);
   }
 
+  /// 将毫秒时间戳格式化为『YYYY-MM-DD HH:mm』（本地时区），用于书签添加时间展示。
+  String _formatTime(int millis) {
+    final t = DateTime.fromMillisecondsSinceEpoch(millis);
+    final p = (int v) => v.toString().padLeft(2, '0');
+    return '${t.year}-${p(t.month)}-${p(t.day)} ${p(t.hour)}:${p(t.minute)}';
+  }
+
+  /// 书签重命名弹窗：修改该页书签的自定义名称（label）。
+  Future<void> _showRenameBookmarkDialog(BookmarkItem bookmark) async {
+    final controller = TextEditingController(text: bookmark.label);
+    if (!mounted) return;
+    final String? result = await showCupertinoDialog<String?>(
+      context: context,
+      builder: (ctx) => CupertinoAlertDialog(
+        title: Text(
+          LocalizationEngine.text('reader_bookmark_rename'),
+          style: TextStyle(
+            color: CupertinoColors.label.resolveFrom(context),
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        content: Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: CupertinoTextField(
+            controller: controller,
+            placeholder:
+                LocalizationEngine.text('reader_bookmark_name_placeholder'),
+            placeholderStyle: TextStyle(
+              color: CupertinoColors.systemGrey.resolveFrom(context),
+            ),
+            style: TextStyle(
+              color: CupertinoColors.label.resolveFrom(context),
+              fontSize: 15,
+            ),
+            cursorColor: CupertinoColors.activeBlue.resolveFrom(context),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: CupertinoColors.systemGrey6.resolveFrom(context),
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            child: Text(LocalizationEngine.text('cancel')),
+            onPressed: () => Navigator.of(ctx).pop(null),
+          ),
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            child: Text(LocalizationEngine.text('confirm')),
+            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (result == null || !mounted) return;
+    try {
+      final list = await ReaderDataStore.updateBookmarkLabel(
+        widget.bookId,
+        bookmark.pageNumber,
+        result,
+      );
+      if (mounted) setState(() => _bookmarks = list);
+    } catch (e) {
+      debugPrint('重命名书签失败: $e');
+    }
+  }
+
   /// 进度面板：页码输入 + 拖动条(微调按钮) + 搜索 + 书签。
   Widget _buildProgressPanel(
     BuildContext context,
@@ -527,26 +597,61 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                 Container(height: 1, color: borderColor),
             itemBuilder: (context, i) {
               final b = _bookmarks![i];
-              return GestureDetector(
-                onTap: () => widget.onJumpToPage(b.pageNumber),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
-                  child: Row(
-                    children: [
-                      Icon(CupertinoIcons.bookmark, size: 16, color: primaryColor),
-                      const SizedBox(width: 8),
-                      Text(
-                          '${LocalizationEngine.text('reader_nav_progress')} ${b.pageNumber}',
-                          style: TextStyle(color: labelColor, fontSize: 14)),
-                      const Spacer(),
-                      GestureDetector(
-                        onTap: () => _removeBookmark(b.pageNumber),
-                        child: Icon(CupertinoIcons.delete,
-                            size: 18,
-                            color: CupertinoColors.systemRed.resolveFrom(context)),
+              final name = b.label.isNotEmpty
+                  ? b.label
+                  : '${LocalizationEngine.text('reader_nav_progress')} ${b.pageNumber}';
+              final timeStr = b.createdAt > 0
+                  ? _formatTime(b.createdAt)
+                  : '';
+              return Container(
+                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+                child: Row(
+                  children: [
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      minSize: 0,
+                      onPressed: () => widget.onJumpToPage(b.pageNumber),
+                      child: Icon(CupertinoIcons.bookmark,
+                          size: 16, color: primaryColor),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => _showRenameBookmarkDialog(b),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(name,
+                                style: TextStyle(color: labelColor, fontSize: 14),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis),
+                            if (timeStr.isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                '${LocalizationEngine.text('reader_bookmark_add_time')} $timeStr',
+                                style: TextStyle(
+                                    color: secondaryColor, fontSize: 11),
+                              ),
+                            ],
+                          ],
+                        ),
                       ),
-                    ],
-                  ),
+                    ),
+                    // 重命名按钮：自定义书签名称。
+                    CupertinoButton(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      minSize: 0,
+                      onPressed: () => _showRenameBookmarkDialog(b),
+                      child: Icon(CupertinoIcons.pencil,
+                          size: 16, color: secondaryColor),
+                    ),
+                    GestureDetector(
+                      onTap: () => _removeBookmark(b.pageNumber),
+                      child: Icon(CupertinoIcons.delete,
+                          size: 18,
+                          color: CupertinoColors.systemRed.resolveFrom(context)),
+                    ),
+                  ],
                 ),
               );
             },
@@ -641,6 +746,51 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
     }
   }
 
+  /// 笔记全文弹窗：单击笔记时展示完整内容（内容可能较长，列表仅显示摘要）。
+  Future<void> _showFullNoteDialog(NoteItem note) async {
+    if (!mounted) return;
+    await showCupertinoDialog<void>(
+      context: context,
+      builder: (ctx) => CupertinoAlertDialog(
+        title: Text(
+          '${LocalizationEngine.text('reader_note_view_full')} · ${LocalizationEngine.text('reader_nav_progress')} ${note.pageNumber}',
+          style: TextStyle(
+            color: CupertinoColors.label.resolveFrom(context),
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        content: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Text(
+              note.content,
+              style: TextStyle(
+                color: CupertinoColors.label.resolveFrom(context),
+                fontSize: 15,
+                height: 1.5,
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            child: Text(LocalizationEngine.text('reader_note_jump')),
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              widget.onJumpToPage(note.pageNumber);
+            },
+          ),
+          CupertinoDialogAction(
+            child: Text(LocalizationEngine.text('confirm')),
+            onPressed: () => Navigator.of(ctx).pop(),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// 笔记面板：列出本书全部笔记（按页码），点击跳页；底部添加按钮。
   Widget _buildNotesPanel(
     BuildContext context,
@@ -670,14 +820,15 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
               final time = DateTime.fromMillisecondsSinceEpoch(n.updatedAt);
               final timeStr =
                   '${time.year}-${time.month.toString().padLeft(2, '0')}-${time.day.toString().padLeft(2, '0')}';
-              return GestureDetector(
-                onTap: () => widget.onJumpToPage(n.pageNumber),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
+              return Container(
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 页码块作为跳转入口之一；单击笔记正文区域弹出全文。
+                    GestureDetector(
+                      onTap: () => widget.onJumpToPage(n.pageNumber),
+                      child: Container(
                         width: 44,
                         height: 44,
                         alignment: Alignment.center,
@@ -691,8 +842,12 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                                 fontSize: 15,
                                 fontWeight: FontWeight.w700)),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
+                    ),
+                    const SizedBox(width: 12),
+                    // 笔记正文：单击弹出全文（内容可能较多，列表仅显示摘要）。
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => _showFullNoteDialog(n),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -707,20 +862,29 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                           ],
                         ),
                       ),
-                      CupertinoButton(
-                        padding: EdgeInsets.zero,
-                        minSize: 0,
-                        onPressed: () async {
-                          final list = await ReaderDataStore.deleteNote(
-                              widget.bookId, n.id);
-                          if (mounted) setState(() => _notes = list);
-                        },
-                        child: Icon(CupertinoIcons.delete,
-                            size: 18,
-                            color: CupertinoColors.systemRed.resolveFrom(context)),
-                      ),
-                    ],
-                  ),
+                    ),
+                    // 快速跳转按钮：直达对应页面。
+                    CupertinoButton(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      minSize: 0,
+                      onPressed: () => widget.onJumpToPage(n.pageNumber),
+                      child: Icon(CupertinoIcons.arrow_right_circle,
+                          size: 20, color: primaryColor),
+                    ),
+                    // 删除按钮。
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      minSize: 0,
+                      onPressed: () async {
+                        final list = await ReaderDataStore.deleteNote(
+                            widget.bookId, n.id);
+                        if (mounted) setState(() => _notes = list);
+                      },
+                      child: Icon(CupertinoIcons.delete,
+                          size: 18,
+                          color: CupertinoColors.systemRed.resolveFrom(context)),
+                    ),
+                  ],
                 ),
               );
             },
@@ -1105,6 +1269,13 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
     final anims = <int, String>{
       0: 'reader_page_animation_none',
       1: 'reader_page_animation_simulation',
+      2: 'reader_page_animation_fade',
+      3: 'reader_page_animation_overlap',
+      4: 'reader_page_animation_jump',
+      5: 'reader_page_animation_rotate',
+      6: 'reader_page_animation_carousel',
+      7: 'reader_page_animation_cylinder',
+      8: 'reader_page_animation_flip',
     };
 
     Widget chip(String label, bool selected, VoidCallback onPressed) {
@@ -1137,6 +1308,34 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
       );
     }
 
+    // 翻页动画：选项较多（9 个），用固定宽度的网格芯片（每行列 3 个）避免单行挤压。
+    Widget animChip(String label, bool selected, VoidCallback onPressed) {
+      return GestureDetector(
+        onTap: onPressed,
+        child: Container(
+          height: 36,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected
+                ? primaryColor.withValues(alpha: 0.12)
+                : CupertinoColors.systemGrey6.resolveFrom(context),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: selected ? primaryColor : borderColor),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? primaryColor : labelColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1155,15 +1354,27 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
         const SizedBox(height: 14),
         _sectionTitle(context, 'reader_page_animation'),
         const SizedBox(height: 8),
-        Row(
-          children: [
-            for (final e in anims.entries)
-              chip(
-                LocalizationEngine.text(e.value),
-                widget.selectedPageAnimation == e.key,
-                () => widget.onPageAnimationChanged(e.key),
-              ),
-          ],
+        LayoutBuilder(
+          builder: (context, constraints) {
+            // 每行 3 个；减去列间距后均分宽度，限定最小/最大宽度保证可读。
+            final chipW =
+                ((constraints.maxWidth - 16) / 3).clamp(80.0, 160.0);
+            return Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final e in anims.entries)
+                  SizedBox(
+                    width: chipW,
+                    child: animChip(
+                      LocalizationEngine.text(e.value),
+                      widget.selectedPageAnimation == e.key,
+                      () => widget.onPageAnimationChanged(e.key),
+                    ),
+                  ),
+              ],
+            );
+          },
         ),
       ],
     );

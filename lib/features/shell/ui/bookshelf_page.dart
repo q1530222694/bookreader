@@ -1606,13 +1606,13 @@ class _BookshelfPageState extends State<BookshelfPage> {
                   builder: (context, books, child) {
                     final filteredBooks = _filterBooks(books);
                     return Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildStatsCards(context, books),
-                          const SizedBox(height: 12),
-                          _buildRecentReading(context, books),
-                          const SizedBox(height: 8),
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.only(bottom: 24),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildStatsCards(context, books),
+                            const SizedBox(height: 12),
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
                             child: Row(
@@ -1679,8 +1679,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
                             ),
                           ),
                           const SizedBox(height: 8),
-                          Expanded(
-                            child: books.isEmpty
+                          books.isEmpty
                                 ? Center(
                                     child: CupertinoButton.filled(
                                       padding: const EdgeInsets.symmetric(
@@ -1705,6 +1704,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                         ? _buildDownloadListView(filteredBooks)
                                         : _showCoverMode
                                             ? GridView.builder(
+                                                shrinkWrap: true,
+                                                physics: const NeverScrollableScrollPhysics(),
                                                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                                                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                                                   crossAxisCount: 2,
@@ -1718,14 +1719,16 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                                 },
                                               )
                                             : ListView.builder(
+                                                shrinkWrap: true,
+                                                physics: const NeverScrollableScrollPhysics(),
                                                 padding: const EdgeInsets.symmetric(vertical: 4),
                                                 itemCount: filteredBooks.length,
                                                 itemBuilder: (context, index) {
                                                   return _buildBookListItem(filteredBooks[index]);
                                                 },
                                               ),
-                          ),
                         ],
+                      ),
                       ),
                     );
                   },

@@ -197,12 +197,31 @@ class LocalizationEngine {
     'reader_page_animation': {'zh': '翻页动画', 'en': 'Page Animation'},
     'reader_page_animation_none': {'zh': '无动画', 'en': 'None'},
     'reader_page_animation_simulation': {'zh': '仿真动画', 'en': 'Simulation'},
+    'reader_page_animation_fade': {'zh': '淡入淡出', 'en': 'Fade'},
+    'reader_page_animation_overlap': {'zh': '叠加', 'en': 'Overlap'},
+    'reader_page_animation_jump': {'zh': '跃动', 'en': 'Jump'},
+    'reader_page_animation_rotate': {'zh': '旋转', 'en': 'Rotate'},
+    'reader_page_animation_carousel': {'zh': '旋转木马', 'en': 'Carousel'},
+    'reader_page_animation_cylinder': {'zh': '模仿圆筒', 'en': 'Cylinder'},
+    'reader_page_animation_flip': {'zh': '反转', 'en': 'Flip'},
     'pdf_reflow_exit': {'zh': '退出重排', 'en': 'Exit Reflow'},
     'pdf_reflow_font_size': {'zh': '字体大小', 'en': 'Font Size'},
     'pdf_reflow_line_spacing': {'zh': '行距', 'en': 'Line Spacing'},
     'pdf_reflow_letter_spacing': {'zh': '字距', 'en': 'Letter Spacing'},
     'pdf_reflow_para_spacing': {'zh': '段距', 'en': 'Paragraph Spacing'},
     'pdf_reflow_loading': {'zh': '正在重排…', 'en': 'Reflowing…'},
+    'pdf_reflow_ocr_loading': {
+      'zh': '正在识别扫描件…',
+      'en': 'Recognizing scanned pages…'
+    },
+    'pdf_reflow_ocr_unavailable': {
+      'zh': '未内置 OCR 模型，无法重排扫描件',
+      'en': 'OCR models not bundled; cannot reflow scanned pages'
+    },
+    'pdf_reflow_ocr_failed': {
+      'zh': '扫描件识别失败',
+      'en': 'Scan recognition failed'
+    },
     'pdf_reflow_empty': {
       'zh': '该文档无可重排文本（扫描件需 OCR 模型）',
       'en': 'No reflowable text (scanned pages need OCR models)'
@@ -229,6 +248,16 @@ class LocalizationEngine {
     'reader_searching': {'zh': '搜索中…', 'en': 'Searching…'},
     'reader_go_to_page': {'zh': '跳转', 'en': 'Go'},
     'reader_note_hint': {'zh': '输入笔记内容…', 'en': 'Note content…'},
+    'reader_note_view_full': {'zh': '笔记全文', 'en': 'Note Full Text'},
+    'reader_note_jump': {'zh': '跳转', 'en': 'Jump'},
+    'reader_bookmark_rename': {'zh': '重命名书签', 'en': 'Rename Bookmark'},
+    'reader_bookmark_name_placeholder': {
+      'zh': '输入书签名称（留空则仅显示页码）',
+      'en': 'Bookmark name (empty = page number only)'
+    },
+    'reader_bookmark_add_time': {'zh': '添加时间', 'en': 'Added'},
+    'reader_bookmark_default': {'zh': '书签', 'en': 'Bookmark'},
+    'reader_bookmarks_all': {'zh': '全部书签', 'en': 'All Bookmarks'},
     'reader_previous_page': {'zh': '上一页', 'en': 'Prev'},
     'reader_next_page': {'zh': '下一页', 'en': 'Next'},
     'reader_search_tab': {'zh': '搜索', 'en': 'Search'},

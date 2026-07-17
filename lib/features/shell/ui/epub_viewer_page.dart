@@ -115,18 +115,31 @@ class _EpubViewerPageState extends State<EpubViewerPage>
 
   @override
   Widget build(BuildContext context) {
+    // 主题可读色：随浅/深色主题自动解析，避免文字与背景同色导致“全白”。
+    final Color textColor = CupertinoColors.label.resolveFrom(context);
+    final Color secondaryColor =
+        CupertinoColors.secondaryLabel.resolveFrom(context);
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(middle: Text(widget.title)),
       child: SafeArea(
         child: _error != null
-            ? Center(child: Text(_error!))
+            ? Center(
+                child: Text(
+                  _error!,
+                  style: TextStyle(color: secondaryColor),
+                ),
+              )
             : _content == null
                 ? const Center(child: CupertinoActivityIndicator())
                 : SingleChildScrollView(
                     padding: const EdgeInsets.all(16),
                     child: SelectableText(
                       _content!,
-                      style: const TextStyle(fontSize: 16, height: 1.5),
+                      style: TextStyle(
+                        fontSize: 16,
+                        height: 1.5,
+                        color: textColor,
+                      ),
                     ),
                   ),
       ),

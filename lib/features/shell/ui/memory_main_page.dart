@@ -5,12 +5,14 @@ import '../../../engine/localization_engine.dart';
 import '../controller/bookshelf_controller.dart';
 import '../model/book_model.dart';
 import '../model/reading_stats_model.dart';
+import '../service/reader_data_service.dart';
 import 'book_viewer_page.dart';
 import 'comic_viewer_page.dart';
 import 'epub_viewer_page.dart';
 import 'memory_page.dart';
 import 'forgotten_books_page.dart';
 import 'reading_timeline_page.dart';
+import 'all_bookmarks_page.dart';
 import 'timeline_entry.dart';
 import 'txt_viewer_page.dart';
 
@@ -32,11 +34,38 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
   /// 热力图当前展示的月份（由卡片右上「月份 ▼」按钮切换，默认当前月）
   DateTime _heatmapMonth = DateTime(DateTime.now().year, DateTime.now().month);
 
+  /// 跨书最近书签（最多 3 条，按添加时间倒序），用于「去年的今天」下方的书签卡片。
+  List<BookmarkWithBook> _recentBookmarks = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRecentBookmarks();
+    // 书籍列表异步就绪后，书签标题需要重新解析（避免回退为「未知书籍」）。
+    _controller.books.addListener(_loadRecentBookmarks);
+  }
+
   @override
   void dispose() {
+    _controller.books.removeListener(_loadRecentBookmarks);
     _controller.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  /// 加载跨书最近 3 条书签（书名通过当前书籍列表解析）。
+  void _loadRecentBookmarks() {
+    final books = _controller.books.value;
+    final titleMap = <String, String>{
+      for (final b in books) b.id: b.title,
+    };
+    ReaderDataStore.loadAllBookmarks(
+      books.map((b) => b.id).toList(),
+      (id) => titleMap[id] ?? LocalizationEngine.text('unknown_book'),
+    ).then((list) {
+      if (!mounted) return;
+      setState(() => _recentBookmarks = list.take(3).toList());
+    });
   }
 
   @override
@@ -100,6 +129,10 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
                   children: [
                     // 去年的今天卡片
                     _buildLastYearCard(theme, books),
+                    const SizedBox(height: 12),
+
+                    // 书签卡片：最近 3 条书签（书签名 / 书籍名 / 添加时间）
+                    _buildBookmarkCard(theme),
                     const SizedBox(height: 12),
 
                     // 随机回忆卡片
@@ -343,6 +376,136 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+
+  /// 构建书签卡片：展示跨书最近 3 条书签（书签名 / 书籍名 / 添加时间），
+  /// 右上「查看全部」进入所有书籍书签页，风格与「去年的今天」卡片保持一致。
+  Widget _buildBookmarkCard(CupertinoThemeData theme) {
+    final primary = theme.primaryColor;
+    final lavenderBg =
+        CupertinoColors.secondarySystemBackground.resolveFrom(context);
+    final secondary = CupertinoColors.secondaryLabel.resolveFrom(context);
+
+    String fmt(int millis) {
+      final t = DateTime.fromMillisecondsSinceEpoch(millis);
+      final p = (int v) => v.toString().padLeft(2, '0');
+      return '${t.year}-${p(t.month)}-${p(t.day)} ${p(t.hour)}:${p(t.minute)}';
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: lavenderBg,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: primary.withOpacity(0.06),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _sectionIcon(theme, CupertinoIcons.bookmark),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  LocalizationEngine.text('reader_bookmarks'),
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: CupertinoColors.label.resolveFrom(context),
+                  ),
+                ),
+              ),
+              CupertinoButton(
+                padding: EdgeInsets.zero,
+                minSize: 28,
+                onPressed: () => Navigator.of(context).push(
+                  CupertinoPageRoute(
+                    builder: (_) => const AllBookmarksPage(),
+                  ),
+                ),
+                child: Text(
+                  LocalizationEngine.text('view_all'),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color:
+                        CupertinoColors.tertiaryLabel.resolveFrom(context),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (_recentBookmarks.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                LocalizationEngine.text('reader_bookmarks_empty'),
+                style: TextStyle(fontSize: 13, color: secondary),
+              ),
+            )
+          else
+            Column(
+              children: _recentBookmarks.map((item) {
+                final b = item.bookmark;
+                final name = b.label.isNotEmpty
+                    ? b.label
+                    : '${LocalizationEngine.text('reader_nav_progress')} ${b.pageNumber}';
+                final timeStr = b.createdAt > 0 ? fmt(b.createdAt) : '';
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: GestureDetector(
+                    onTap: () => _openBook(_controller.getBook(item.bookId)),
+                    child: Row(
+                      children: [
+                        Icon(CupertinoIcons.bookmark, size: 16, color: primary),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: CupertinoColors.label
+                                      .resolveFrom(context),
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${item.title} · $timeStr',
+                                style: TextStyle(fontSize: 12, color: secondary),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Icon(
+                          CupertinoIcons.chevron_right,
+                          size: 14,
+                          color: secondary,
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
         ],
       ),
     );
@@ -634,6 +797,8 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
                           context,
                           isFirst: index == 0,
                           isLast: index == visible.length - 1,
+                          // 仅一个月时强制竖线延伸到底，暗示时间轴后面还有内容。
+                          extendLine: visible.length == 1,
                         );
                       }).toList(),
                     ),
@@ -1246,9 +1411,13 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
     final primary = theme.primaryColor;
     final lavenderBg = CupertinoColors.secondarySystemBackground.resolveFrom(context);
 
-    // 筛选未读完的书籍（已看完的不计算），按未打开天数倒序排列
+    // 筛选「遗忘」书籍：未读完 + 曾经打开过 + 距上次打开已超过 7 天。
+    // 刚导入（lastReadAt 为空，从未打开）不计入遗忘，避免新导入即被标记为遗忘。
     final forgotten = books
-        .where((b) => b.progress < 1.0)
+        .where((b) =>
+            b.progress < 1.0 &&
+            b.lastReadAt != null &&
+            _daysSinceOpened(b) >= 7)
         .toList()
       ..sort((a, b) => _daysSinceOpened(b).compareTo(_daysSinceOpened(a)));
 

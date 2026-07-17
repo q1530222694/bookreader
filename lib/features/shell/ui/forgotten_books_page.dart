@@ -41,9 +41,13 @@ class _ForgottenBooksPageState extends State<ForgottenBooksPage> {
     return ValueListenableBuilder<List<BookModel>>(
       valueListenable: _controller.books,
       builder: (context, books, child) {
-        // 筛选未读完的书籍，按未打开天数倒序
+        // 筛选「遗忘」书籍：未读完 + 曾经打开过 + 距上次打开已超过 7 天。
+        // 刚导入（从未打开）不计入遗忘，避免新导入即被标记为遗忘。
         final forgotten = books
-            .where((b) => b.progress < 1.0)
+            .where((b) =>
+                b.progress < 1.0 &&
+                b.lastReadAt != null &&
+                _daysSinceOpened(b) >= 7)
             .toList()
           ..sort(
             (a, b) => _daysSinceOpened(b).compareTo(_daysSinceOpened(a)),
