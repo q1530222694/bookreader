@@ -86,6 +86,14 @@ class SettingsEngine {
   // 双屏模式：左右分屏独立滑动，用于对比阅读
   static const String pdfDualScreenKey = 'app.reader.pdf.dualScreen';
   static const bool pdfDualScreenDefault = false;
+  // 双击放大：开启后双击页面循环放大（1×→2×→3×）并支持双指缩放
+  static const String pdfDoubleTapZoomKey = 'app.reader.pdf.doubleTapZoom';
+  static const bool pdfDoubleTapZoomDefault = false;
+  // 撑满全屏（仅连续滚动模式生效）：开启后上下滚动（单页连续 / 双页连续）时，
+  // 每页按裁切后的真实宽高比自定尺寸，宽度铺满、消除逐页跳动与未对齐；
+  // 左右翻页（PageView）不生效，始终显示完整一页。
+  static const String pdfFillScreenInScrollKey = 'app.reader.pdf.fillScreenInScroll';
+  static const bool pdfFillScreenInScrollDefault = true;
   // 奇偶页分开裁边：0=统一 / 1=仅奇数页 / 2=仅偶数页
   static const String pdfCropOddEvenModeKey = 'app.reader.pdf.crop.oddEvenMode';
   static const int pdfCropOddEvenModeDefault = 0;
@@ -101,6 +109,10 @@ class SettingsEngine {
   // OCR 扫描件重排总开关（默认开启；关闭后扫描件走「无可重排文本」提示）
   static const String pdfOcrEnabledKey = 'app.reader.pdf.ocrEnabled';
   static const bool pdfOcrEnabledDefault = true;
+  // OCR 扫描件重排「预扫页数」：重排时先同步识别前 N 页并立即显示，
+  // 其余页在后台异步续扫（默认 3 页）。
+  static const String pdfOcrEagerPagesKey = 'app.reader.pdf.ocrEagerPages';
+  static const int pdfOcrEagerPagesDefault = 3;
 
   // Startup page settings
   static const String startupPageKey = 'app.startupPage';
@@ -319,6 +331,24 @@ class SettingsEngine {
     Config.set(pdfDualScreenKey, value);
   }
 
+  static bool get pdfDoubleTapZoom {
+    return Config.get(pdfDoubleTapZoomKey) as bool? ??
+        pdfDoubleTapZoomDefault;
+  }
+
+  static void setPdfDoubleTapZoom(bool value) {
+    Config.set(pdfDoubleTapZoomKey, value);
+  }
+
+  static bool get pdfFillScreenInScroll {
+    return Config.get(pdfFillScreenInScrollKey) as bool? ??
+        pdfFillScreenInScrollDefault;
+  }
+
+  static void setPdfFillScreenInScroll(bool value) {
+    Config.set(pdfFillScreenInScrollKey, value);
+  }
+
   static int get pdfCropOddEvenMode {
     return Config.get(pdfCropOddEvenModeKey) as int? ?? pdfCropOddEvenModeDefault;
   }
@@ -370,6 +400,15 @@ class SettingsEngine {
 
   static void setPdfOcrEnabled(bool value) {
     Config.set(pdfOcrEnabledKey, value);
+  }
+
+  /// 设置 OCR 重排「预扫页数」（先同步识别前 N 页，其余后台续扫）。
+  static int get pdfOcrEagerPages {
+    return Config.get(pdfOcrEagerPagesKey) as int? ?? pdfOcrEagerPagesDefault;
+  }
+
+  static void setPdfOcrEagerPages(int value) {
+    Config.set(pdfOcrEagerPagesKey, value);
   }
 
   // Startup page

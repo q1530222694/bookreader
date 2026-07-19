@@ -64,6 +64,17 @@ class PdfReaderSettings {
   /// 基准带的实际数值存放在服务内部缓存，不在此对象上。
   final int cropBandVersion;
 
+  /// 双击放大：开启后双击页面在「1× → 2× → 3×」间循环放大（首次放大铺满屏幕，
+  /// 第二次进一步放大几倍），并支持双指捏合缩放；关闭则与原有手势一致。
+  final bool doubleTapZoom;
+
+  /// 撑满全屏（仅连续滚动模式生效）：开启后，在单页连续 / 双页连续（上下滚动）模式下，
+  /// 每页按「裁切后的真实宽高比」自定尺寸——宽度铺满视口、高度取内容自然高度，
+  /// 从而消除「逐页独立裁切导致的上下跳动 / 未对齐」，且页面横向不留白边（撑满全屏）。
+  /// 该开关不影响像素内容（不触发重渲染），仅改变显示适配方式；左右翻页（PageView）
+  /// 与双页并排滚动以外的逐页吸附模式一律不生效（始终显示完整一页）。
+  final bool fillScreenInScroll;
+
   const PdfReaderSettings({
     this.layoutMode = 0,
     this.cropMode = 0,
@@ -84,6 +95,8 @@ class PdfReaderSettings {
     this.bgOverlay = false,
     this.bgOverlayColor = const Color(0xFFF7F3EC),
     this.cropBandVersion = 0,
+    this.doubleTapZoom = false,
+    this.fillScreenInScroll = true,
   });
 
   /// 派生新实例（不可变更新）。
@@ -107,6 +120,8 @@ class PdfReaderSettings {
     bool? bgOverlay,
     Color? bgOverlayColor,
     int? cropBandVersion,
+    bool? doubleTapZoom,
+    bool? fillScreenInScroll,
   }) {
     return PdfReaderSettings(
       layoutMode: layoutMode ?? this.layoutMode,
@@ -128,6 +143,8 @@ class PdfReaderSettings {
       bgOverlay: bgOverlay ?? this.bgOverlay,
       bgOverlayColor: bgOverlayColor ?? this.bgOverlayColor,
       cropBandVersion: cropBandVersion ?? this.cropBandVersion,
+      doubleTapZoom: doubleTapZoom ?? this.doubleTapZoom,
+      fillScreenInScroll: fillScreenInScroll ?? this.fillScreenInScroll,
     );
   }
 
@@ -164,6 +181,7 @@ class PdfReaderSettings {
       'colorTemp:$colorTemperature, sharpness:$sharpness, removeColor:$removeColor, denoise:$denoise, '
         'dualScreen:$dualScreen, '
         'bgOverlay:$bgOverlay, bgOverlayColor:$bgOverlayColor, '
-        'cropOddEvenMode:$cropOddEvenMode, cropBandVersion:$cropBandVersion)';
+        'cropOddEvenMode:$cropOddEvenMode, cropBandVersion:$cropBandVersion, '
+        'doubleTapZoom:$doubleTapZoom, fillScreenInScroll:$fillScreenInScroll)';
   }
 }

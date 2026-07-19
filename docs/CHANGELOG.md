@@ -1,4 +1,68 @@
-﻿### [2026-07-14] 统一：5 个转换工具页布局统一 + 修复移动端打开/拖拽排序/删除记录
+﻿### [2026-07-18] 修改：OCR 重排图片块检测改为「行带整块裁剪」，解决「一堆碎截图、字没几个、看不清」
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/pdf_ocr_service.dart`
+  └─ 重写 ➔ `detectImageBlocks()` 由「非白非文本像素连通域」改为「行带(row-band)」检测：
+     逐行判定图形行 → 聚成图形带 → 仅保留高度≥页高6%、宽度≥页宽12%的带 → 每带按墨点横向范围整块裁一张图。
+     一幅图=一张截图；纯文字页得 0 图块，全部走 OCR 段落重排（ePub 式）。
+  └─ 被消费 ➔ `lib/features/shell/service/pdf_ocr_document_builder.dart`（`_buildPage` 调用 detectImageBlocks；
+     图块区域内的伪文字检测框经 `_boxesFromScores.overlapsImage` 丢弃，不做 OCR）
+  └─ 数据流入 ➔ `lib/features/shell/ui/pdf_ocr_reader_view.dart`（`_mergeFlow` 按 top 坐标把整块图片内联到其上方文字段落之后 = 图放在对应 OCR 文字下方）
+- `lib/features/shell/service/pdf_ocr_cache_service.dart`
+  └─ 变更 ➔ 缓存文件名 `pdf_ocr_cache_v1.json` → `v2.json`，令旧的「过度碎裂图块」缓存失效，重排时按新算法重跑。
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项（纯算法与缓存版本变更）
+- 说明：用户反馈的「打开书就开始 OCR」此前已由 `BookViewerPage.shouldAutoStartOcrOnOpen()` 返回 false 修复，本次不涉及。
+
+---
+
+### [2026-07-18] 修复：PDF 打开后不再自动进入 OCR 重排，改为仅在设置页主动触发
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/book_viewer_page.dart`
+  └─ 变更 ➔ 新增 `BookViewerPage.shouldAutoStartOcrOnOpen()`，把 PDF 打开时的 OCR 自动启动关闭，改为仅在用户在设置页点击重排/OCR 入口时触发。
+  └─ 依赖/调用 ➔ `lib/features/shell/ui/reader_settings_sheet.dart`（现有重排入口）
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+- 无新增 Config Key
+
+---
+
+### [2026-07-18] 重构：扫描件 OCR 升级为 ePub 式逐页图文混排阅读（可停止 / 可缓存 / 可编辑 / 页码剔除）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/model/pdf_ocr_document.dart`（新增·结构化 OCR 数据骨架）
+  ├─ 新增 ➜ `PdfOcrTextSegment`（行：文本 + 轴对齐包围盒 + 置信度，JSON 可序列化）/ `PdfOcrImageBlock`（图片块 kind='image'，本轮跳过 OCR 内联；预留 'table'/'formula'）/ `PdfOcrPageData`（页：原图 base64 + 文本行 + 图片块）/ `PdfOcrDocument`（整本，sourceKey + 页列表）
+  ├─ 依赖/调用 ➜ 无跨模块依赖（纯数据模型）
+- `lib/features/shell/service/pdf_ocr_cache_service.dart`（新增·按文件落盘缓存）
+  ├─ 新增 ➜ `computeKey(path)`（路径+大小+修改时间派生稳定键，`path_provider` 无需 crypto）/ `load(key)`（内存+JSON 双缓存）/ `save(doc)`（全量）/ `savePage(doc,page)`（增量合并+落盘）
+  ├─ 依赖/调用 ➜ `package:path_provider` / `../model/pdf_ocr_document.dart`
+- `lib/features/shell/service/pdf_ocr_document_builder.dart`（新增·结构化文档组装器）
+  ├─ 新增 ➜ `build(document, sourceKey, {eagerPages, cancelled, onProgress, onPage})`（逐页：渲染 PNG→DB 检测→图片块检测（跳过 OCR）→连通域取文本行→CRNN 识别；`cancelled` 每次重量操作前检查，解决「停不下来」）/ `suppressPageNumbers(doc)`（位置桶算法剔除跨页页眉/页脚/页码，解决「页码混入正文」）
+  ├─ 依赖/调用 ➜ `pdf_ocr_service.dart`（`renderPageToPng`/`detectPage`/`detectImageBlocks`/`cropAxisAlignedPublic`/`recognizeCrop`）/ `pdf_ocr_cache_service.dart` / `package:pdfrx` / `package:flutter/painting.dart`
+  ├─ export ➜ `../model/pdf_ocr_document.dart`
+- `lib/features/shell/ui/pdf_ocr_reader_view.dart`（新增·ePub 式逐页阅读视图）
+  ├─ 新增 ➜ `PdfOcrReaderView`（每页=原扫描图底+该页 OCR 文字层半透明叠加+图片块内联；长按文字弹编辑框；顶栏「退出」+后台时「停止」+轻量「后台识别中」文案）
+  ├─ 依赖/调用 ➜ `../model/pdf_ocr_document.dart` / `lib/engine/localization_engine.dart`（`pdf_ocr_reader_exit`/`pdf_ocr_reader_stop`/`pdf_ocr_reader_background`/`pdf_ocr_edit_title`/`pdf_ocr_no_content`）
+- `lib/features/shell/ui/book_viewer_page.dart`（修改·接入口令）
+  ├─ 变更 ➜ 重排按钮：文本层 PDF 走原生 [PdfReflowView]；扫描件改走 `PdfOcrReaderView`（逐页图文混排）
+  ├─ 新增 ➜ `_startOcr(auto)`（优先命中缓存秒开；否则后台逐页识别+增量落盘；`auto=true` 无感不弹进度条，`auto=false` 极短加载）/ `_maybeAutoOcr()`（打开扫描件且无文本层时自动后台识别；有文本层走原生重排）/ `_cancelOcr()`（令牌自增中止后台）/ `_exitOcrReader()` / `_onOcrEdit(...)`（写回+增量落盘）
+  ├─ 修复 ➜ 「一直识别无法停止」：OCR 后台闭包以 `_ocrRunToken` 令牌判定中止，`dispose` 与退出/停止均自增令牌；移除旧 `extractOcr` fire-and-forget 无取消路径
+  ├─ 移除 ➜ 旧 OCR 进度下拉条（`_reflowOcrCurrent`/`_reflowOcrTotal`/`_isOcrLoading`/`_ocrProgressText`），改由阅读视图自身展示「后台识别中」
+  ├─ 依赖/调用 ➜ `pdf_ocr_document_builder.dart` / `pdf_ocr_cache_service.dart` / `pdf_ocr_reader_view.dart` / `pdf_ocr_document.dart` / `pdf_ocr_service.dart`（`isModelAvailable`）/ `pdf_text_reflow_service.dart`（仅文本层路径）
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置项
+- 无新增 Config Key（复用既有 `pdfOcrEnabled` / `pdfOcrEagerPages`）
+
+**【依赖新增】**
+- 无新增第三方包（缓存/序列化复用 `path_provider` + `dart:convert` + `dart:typed_data`）
+
+**【多语言变更 (i18n)】**
+- 无新增 i18n 键（沿用上一轮已加 `pdf_ocr_reader_exit` / `pdf_ocr_reader_stop` / `pdf_ocr_reader_background` / `pdf_ocr_edit_title` / `pdf_ocr_no_content`）
+
+---
+
+### [2026-07-14] 统一：5 个转换工具页布局统一 + 修复移动端打开/拖拽排序/删除记录
 **【AI 架构依赖树 (Architecture Context)】**
 - `lib/shared/ui/conversion_scaffold.dart`（新增·共享 UI 脚手架）
   └─ 新增 ➔ 转换页统一外壳 `ConversionScaffold`（导航栏 + 转换/记录分段控件 + 宽屏居中）与构件集：`ConversionInfoCard` / `ConversionPrimaryButton` / `ConversionEmptyState` / `ConversionRecordCard` / `ConversionRecordActions` / `ConversionFormat`
@@ -1329,3 +1393,175 @@
 - 未触碰 `packages/`，UI 不硬编码颜色/字号/文案（颜色走主题/CupertinoDynamicColor，文案走 LocalizationEngine），符合架构铁律。
 
 **验证**：`flutter analyze lib`（涉及 7 个文件）→ **0 error**（既有 info/warning 提示非本次引入）。OCR 推理需使用者将 `det.onnx`/`rec.onnx`/`ppocr_dict.txt` 放入 `assets/models/` 后本机实测（沙箱无法 `flutter run` 且缺模型权重）。
+
+### [2026-07-18] 新增/修改：双击放大开关 + 双屏进度条修复 + 自动裁切重写对齐规范 + OCR 模型校验
+
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/engine/settings_engine.dart`
+  └─ 新增 Config Key `app.reader.pdf.doubleTapZoom`(bool, 默认 false) + getter/setter `pdfDoubleTapZoom`/`setPdfDoubleTapZoom`
+  └─ 被注入 ➔ `lib/features/shell/controller/settings_controller.dart`（新增 `pdfDoubleTapZoom` notifier + `setPdfDoubleTapZoom`，纳入 `_defaults`/`_pdfNotifiers`/`bindBook`/`_persistActiveBook` 每本书落盘）
+  └─ 被注入 ➔ `lib/features/shell/ui/book_viewer_page.dart`（状态 `_doubleTapZoom` 由 `SettingsEngine.pdfDoubleTapZoom` 初始化，`_initBookSettings` 由 `SettingsController.pdfDoubleTapZoom` 同步）
+- `lib/features/shell/model/pdf_reader_settings.dart`
+  └─ 新增字段 `doubleTapZoom`(bool) + `copyWith` 参数/赋值
+  └─ 被注入 ➔ `lib/features/shell/ui/pdf_custom_view.dart`（`PdfCustomView.doubleTapZoom` 构造参数，驱动手势）
+- `lib/features/shell/ui/pdf_custom_view.dart`（Dumb UI）
+  └─ 连续/逐页模式均用 `InteractiveViewer` 包裹（双指捏合缩放）；开启 `doubleTapZoom` 时叠加 `GestureDetector.onDoubleTap` 循环 1×/2×/3×（非纯单击翻页模式，避免「双击既翻页又放大」冲突）
+  └─ `_DualScreenPane` 新增独立 `TransformationController` + 双击放大；`jumpToPage` 由 `Scrollable.ensureVisible`(目标未构建时 context 为 null 静默失败) 改为「复位缩放→postFrame 后按全局坐标差算绝对偏移 `jumpTo`」+ `_nearestBuilt` 锚点估算，修复双屏进度条不生效
+  └─ 被注入 ➔ `lib/features/shell/ui/book_viewer_page.dart`（`_buildPdfView` 传 `doubleTapZoom`）
+- `lib/features/shell/ui/reader_settings_sheet.dart`（Dumb UI）
+  └─ 「更多」区新增「双击放大」`_SwitchRow`（`pdf_double_tap_zoom`/`pdf_double_tap_zoom_desc`）+ 构造参数 `doubleTapZoom`/`onDoubleTapZoomChanged`
+  └─ 被注入 ➔ `lib/features/shell/ui/book_viewer_page.dart`（接线 `SettingsController.setPdfDoubleTapZoom`）
+- `lib/features/shell/service/pdf_render_service.dart`
+  └─ `_scanContent` 重写为严格「投影算法」：200px 探针 + R/G/B<245 二值化 + 行/列投影统计 + 动态噪点阈值(宽*1.5%/高*1.5%)四向收缩 + 2% 安全边距 + 空白/铺满兜底 `Rect.fromLTRB(0,0,1,1)`，完全对齐 `docs/裁切原理和方法.md`
+- `lib/features/shell/service/pdf_ocr_service.dart`
+  └─ `isModelAvailable()` 由仅探测字典改为必须 `det.onnx`+`rec.onnx`+`ppocr_dict.txt` 三件齐备（经 `rootBundle.load` 校验），任一缺失即不可用
+- `lib/engine/localization_engine.dart`
+  └─ 新增键 `pdf_double_tap_zoom`(双击放大)/`pdf_double_tap_zoom_desc`(双击在 1×/2×/3× 间循环放大，并支持双指捏合缩放)，均含 zh/en
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 新增 Config Key：`app.reader.pdf.doubleTapZoom`
+- 无新增 Permission Key（本次均为 feature 级 UI/引擎，未触碰权限禁区）
+- 未触碰 `packages/`，UI 不硬编码颜色/字号/文案（颜色走主题，文案走 LocalizationEngine），符合架构铁律。
+
+**验证**：`flutter analyze` 9 个改动文件 → **0 error**（仅既有 deprecation/命名 info/warning，非本次引入）。双屏进度条与双击放大需用户本机实测；自动裁切重写后对齐 `docs/裁切原理和方法.md`；OCR 仍需使用者将 `det.onnx`/`rec.onnx`/`ppocr_dict.txt` 放入 `assets/models/` 后本机实测（当前仅含冒烟模型 `addition_model.onnx`）。
+
+### [2026-07-18] 新增/修改：内置真实 PaddleOCR (PP-OCRv4) 权重 + OCR 流水线校准（开箱可用）
+
+**【AI 架构依赖树 (Architecture Context)】**
+- `assets/models/`（资源）
+  └─ 新增内置权重：`det.onnx`（PP-OCRv4 DB 文本检测, 4.7MB）、`rec.onnx`（PP-OCRv4 CRNN 识别, 10.9MB）、`ppocr_dict.txt`（6624 行 = 6623 常用字 + 末尾空格字符）；来源 HuggingFace `SWHL/RapidOCR` + PaddleOCR `ppocr_keys_v1.txt`。`pubspec.yaml` 已有 `- assets/models/` 通配，无需改配置即打包。
+- `lib/features/shell/service/pdf_ocr_service.dart`（纯逻辑层）
+  └─ `_ensureDict()`：改为不 trim/过滤空行（仅去掉结尾换行的末尾空元素）+ 索引0补 CTC blank。字典长度必须严格 = rec 输出通道数 **6625**（blank + 6623 字 + 空格），否则 CTC 步长错位整段乱码
+  └─ `_preprocessDet()`：检测输入宽高对齐 **32 的整数倍**（`max(32, round(x/32)*32)`）+ 逐轴独立采样比。原因：DB 网络下采样/上采样拼接要求 32 倍数，否则 onnxruntime Add/Concat 维度错位崩溃
+  └─ `_detectBoxes()`：新增常量 `_detUnclipRatio=1.6`，对 DB 连通域包围盒做 unclip 外扩（`dist=w*h*ratio/(2*(w+h))`）再映射回原图，还原收缩的文字核心
+  └─ `_runRec`/`_ctcDecode` 注释更正：真实输出布局 `[1,T,C]`（原注释误写 `[1,C,T]`，解码本就按 `[T,C]`=`logits[t*C+k]` 访问，结果正确）
+  └─ `_runDet`/`_runRec` 输出取值改为 `asFlattenedList()`：原 `asList()` 对多 rank 输出返回嵌套 `List<List<...>>`，导致 `(e as num)` 运行时抛 `List<dynamic> is not a subtype of type num in type cast`；展平列表取值后修复重排失败弹窗
+  └─ `_preprocessRec()` 改为返回 `(Float32List, int)`（实际缩放宽 `recW`），调用方以 `recW` 而非原图宽传入 `_runRec`。原代码传入原图 `crop.width`（如 807）但预处理内部已 clamp 到 320，导致 `OrtValue.fromList` 报 `Shape/data size mismatch: data has 46080 elements, but shape [1,3,48,807] requires 116208 elements`
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增 Config Key / Permission Key（纯资源内置 + 服务层算法校准）
+- 未触碰 `packages/`；UI 层无改动、无硬编码，符合架构铁律
+
+**验证**：`flutter analyze pdf_ocr_service.dart` → 0 error（仅既有 `_cx`/`_cy` 命名 info）。
+**验证**：本机 onnxruntime（Python 参照实现，与 Dart 端预处理/解码逐行对齐）端到端跑通——det 正确出框、rec 对多行中文逐字识别正确（「第一行阅读测试内容」「第二行文字识别效果」「中华人民共和国」等）。`flutter analyze pdf_ocr_service.dart` → 0 error（仅既有 `_cx`/`_cy` 命名 info）。App 内真机 OCR 建议再本机跑一次扫描件重排确认。
+
+### [2026-07-18] 新增/修改：OCR 重排「前 N 页同步＋后台续扫」＋ 预扫页数可设置 ＋ 单页失败弹一次提示
+
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/engine/settings_engine.dart`
+  └─ 新增 Config Key `app.reader.pdf.ocrEagerPages`(int, 默认 3) + getter/setter `pdfOcrEagerPages`/`setPdfOcrEagerPages`
+- `lib/features/shell/controller/settings_controller.dart`
+  └─ 新增 `pdfOcrEagerPages` notifier(int) + `setPdfOcrEagerPages`，纳入 `_defaults`/`_pdfNotifiers`/`bindBook`/`_persistActiveBook`（每本书落盘）
+- `lib/engine/localization_engine.dart`
+  └─ 新增键 `pdf_ocr_eager_pages`(OCR 预扫页数)/`pdf_reflow_ocr_page_failed`(部分页面识别失败，已跳过)，均含 zh/en
+- `lib/features/shell/service/pdf_text_reflow_service.dart`
+  └─ `extractOcr` 改造：先同步识别前 `eagerPages` 页并立即返回 `PdfReflowResult`（UI 立刻可读）；其余页用「立即调用异步闭包」丢到事件循环**后台续扫**，每完成一页经 `onPartial(PdfReflowResult partial)` 回传增量快照（`List.from` 独立副本避免并发读写）；全部完成后经 `onDone(bool anyFailed)` 回传是否有页失败。抽出 `_ocrOnePage(...)` 单页逻辑，对 `PdfOcrService.recognizePage` 包 `try/catch`，**单页异常仅标记失败、继续后续页**（不再整轮抛错中断）
+- `lib/features/shell/ui/reader_settings_sheet.dart`
+  └─ 重排分区新增「OCR 预扫页数」滑块行 `_reflowEagerPagesRow`（1~10，复用 `_FineTuneSliderRow`），接 `SettingsController.pdfOcrEagerPages`
+- `lib/features/shell/ui/book_viewer_page.dart`
+  └─ `_reflow()` 调 `extractOcr` 现传 `eagerPages: SettingsController.pdfOcrEagerPages.value` + `onPartial`（刷新 `_reflowParagraphs`/`_isReflowing`，进入 `PdfReflowView` 且 `_isOcrLoading` 保持 true 表示后台仍在跑）+ `onDone`（关 `_isOcrLoading`；`anyFailed` 时经 `_showOcrToast` **弹一次** Overlay 轻提示 `pdf_reflow_ocr_page_failed`）。新增 `_showOcrToast`（基于 `Overlay.of(context, rootOverlay:true)` 插入 3 秒自消失 `OverlayEntry`）
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 新增 Config Key：`app.reader.pdf.ocrEagerPages`
+- 无新增 Permission Key（纯阅读器功能，未触碰权限禁区）
+- 未触碰 `packages/`；UI 文案走 LocalizationEngine、无硬编码，符合架构铁律
+
+**验证**：`flutter analyze` 6 个改动文件 → **0 error**（仅 `reader_settings_sheet.dart` 既有 deprecation/`unused_local_variable` info/warning，非本次引入）。OCR 重排现为先出前 3 页、后台补扫、单页失败仅跳过重试、结束弹一次轻提示；预扫页数已在「更多 → 重排」中可调（每本书落盘）。
+
+
+### [2026-07-18] 修复：OCR 重排「一个字都不准」根因（NCHW 平面布局 + rec 归一化）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/pdf_ocr_service.dart`（PaddleOCR PP-OCRv4 流水线·内部逻辑修复，依赖树不变）
+  └─ 被调用 ➔ `lib/features/shell/service/pdf_text_reflow_service.dart`（extractOcr）
+  └─ 最终消费 ➔ `lib/features/shell/ui/book_viewer_page.dart`（_reflow）
+
+**【问题根因】**
+- `_preprocessDet` / `_preprocessRec` 按 HWC 交错布局（`(y*W+x)*3+c`）填充输入，但张量声明为 NCHW（`[1,3,H,W]` 平面布局）。onnxruntime 把交错像素误当分离通道读取，输入被彻底打乱 → det 框错位、rec 全乱码，表现为「能跑但一个字都不准」。此前 Python 参考验证做了 `transpose(2,0,1)`（CHW），恰好掩盖了这个 Dart 专属 bug。
+
+**【修复内容】**
+- 两个预处理函数改为 NCHW 平面布局：`resized[c*plane + y*W + x]`，通道顺序 BGR（与 PaddleOCR/cv2 训练一致）。
+- rec 归一化改用 PaddleOCR rec 专用 `(x/255-0.5)/0.5`（新增常量 `_recNormMean/_recNormStd`），det 仍用 ImageNet 均值方差。
+- 已用 Python + onnxruntime 在真实多行中文页复刻全流程（det→连通域→裁剪→rec→CTC），5 行文字 100% 正确识别。
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增/修改 Config Key；无新增 Permission Key；未触碰 `packages/` 与 UI 层。
+
+**验证**：`flutter analyze pdf_ocr_service.dart` → 0 error（仅既有 `_cx/_cy` 命名 info）。
+
+### [2026-07-18] 优化：扫描件 OCR 重排「几何段落重建」（修复布局差）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/pdf_text_reflow_service.dart`（新增 `_appendOcrLines`/`_joinLine`/`_isLatin` 与私有类 `_LineBox`）
+  └─ 依赖 ➔ `lib/features/shell/service/pdf_ocr_service.dart`（消费 `OcrTextLine.polygon` 位置信息）
+  └─ 最终消费 ➔ `lib/features/shell/ui/book_viewer_page.dart`（_reflow 段落展示，接口 List<String> 不变）
+
+**【问题根因】**
+- OCR 识别对了字，但 `_ocrOnePage` 把每行的 bbox（`polygon`）直接 `.join('\n')` 丢弃，再套用文本层 PDF 的标点断段规则 `_appendPageText`，导致：中文合并时被塞空格、段落按句号乱切成碎片、页眉页脚页码混入正文、多行阅读顺序仅靠固定像素阈值。
+
+**【修复内容】**
+- 新增 OCR 专用「几何段落重建」`_appendOcrLines`（仅单栏版式）：把每行的 left/top/right/bottom 带入重排层，用几何规则判定——
+  - 阅读顺序：按行顶 y 升序；
+  - 段落边界：行间距突变（gap>medH*0.7）/ 首行缩进（left>bodyLeft+medH*0.8）/ 上行未排满（right<bodyRight-medH*1.5）/ 字号变大（>medH*1.4→标题独立成段）任一命中即断段；
+  - 中文夹空格：`_joinLine` 中文直接拼接、仅西文单词间补空格，并处理英文连字符续行；
+  - 页眉页脚页码：顶部仅删数字/罗马数字页码、底部删很短或数字类行，且始终排除大字号行（保护标题）。
+- 文本层路径 `_appendPageText` 保持不变。
+- 已用 Python + onnxruntime 复刻全流程验证：8 行输入正确剔除顶/底页码、标题独立、多行段落正确合并、中文无空格。
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增/修改 Config Key；无新增 Permission Key；未触碰 `packages/` 与 UI 层。
+
+**验证**：`flutter analyze` 两文件 → 0 error（仅 pdf_ocr_service 既有 `_cx/_cy` 命名 info）。
+
+### [2026-07-18] 修改：扫描件 OCR 阅读视图改为「真重排」+ 图片内联（解决「跟没 OCR 没区别」）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/pdf_ocr_reader_view.dart`（Stateful：`PdfOcrReaderView` + `_ReflowPageTile` + `_OriginalPageTile` + `_FlowItem`）
+  └─ 消费 ➔ `../model/pdf_ocr_document.dart`（`PdfOcrPageData.segments/images`、`PdfOcrImageBlock` bbox）
+  └─ 消费 ➔ `lib/engine/localization_engine.dart`（新增 `pdf_ocr_view_reflow`/`pdf_ocr_view_original`/`pdf_ocr_image_failed`）
+  └─ 被注入 ➔ `lib/features/shell/ui/book_viewer_page.dart`（`_isOcrReader` 分支，构造参数未变）
+- 依赖/行为变动：`pdf_ocr_document_builder.dart` 已为图片块保留 bbox 且跳过图内伪文本，本层仅消费，无改动。
+
+**【变更说明】**
+- 之前：`_PageTile` 把**整页原扫描图**当底图铺满、文字半透明叠加，图片块只画空边框——看起来「跟没 OCR 一样」。
+- 现在（默认「重排」模式）：文字行按阅读顺序流式排列为纯文本列；检测到的图表 / 图片用 `_crop`（`Canvas.drawImageRect`）从原图裁剪，**内联到对应阅读位置（文字下方）**。顶栏新增「重排 / 原图」切换，原图模式整页渲染原扫描图便于对照。
+- 段落间距按平均行高自适应；底图解码失败退化为纯文本，图片裁剪失败退化为占位框。
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增/修改 Config Key；无新增 Permission Key；未触碰 `packages/` 与权限引擎。
+
+**【i18n 新增键值（请确认已并入翻译文件）】**
+- `'pdf_ocr_view_reflow': {'zh':'重排','en':'Reflow'}`
+- `'pdf_ocr_view_original': {'zh':'原图','en':'Original'}`
+- `'pdf_ocr_image_failed': {'zh':'（图片无法显示）','en':'(image unavailable)'}`
+
+**验证**：`flutter analyze lib/features/shell/ui/pdf_ocr_reader_view.dart` → No issues found（0 error）。
+
+### [2026-07-18] 修改：阅读器「撑满全屏（滚动）」+ 自动裁切对齐修复 + 仿真翻页柔化
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/model/pdf_reader_settings.dart`（数据模型）
+  └─ 新增 └ `fillScreenInScroll`(bool, 默认 true) 字段与 `copyWith` 参数/赋值
+- `lib/engine/settings_engine.dart`（设置 Key）
+  └─ 新增 └ `pdfFillScreenInScrollKey`(`app.reader.pdf.fillScreenInScroll`, 默认 true) + getter/setter
+- `lib/features/shell/controller/settings_controller.dart`（设置控制器）
+  └─ 新增 └ `pdfFillScreenInScroll`(ValueNotifier) + `setPdfFillScreenInScroll`；纳入 `_defaults`/`_pdfNotifiers`/`bindBook` 同步与 `_persistActiveBook` 落盘（每本书独立保留）
+- `lib/features/shell/ui/pdf_custom_view.dart`（PDF 多布局阅读视图）
+  └─ 消费 └ `PdfReaderSettings.fillScreenInScroll`（连续滚动模式按裁切后真实宽高比自定尺寸）
+  └─ 改进 └ `_transformSpread` case 1（仿真翻页）转角缓动 + 透视柔化 + 卷边明暗
+- `lib/features/shell/ui/reader_settings_sheet.dart`（阅读设置抽屉）
+  └─ 外观区布局段后新增「撑满全屏（滚动）」`_SwitchRow`（`pdf_fill_screen_scroll`/`pdf_fill_screen_scroll_desc`）
+- `lib/features/shell/ui/book_viewer_page.dart`（接线）
+  └─ 新增状态 `_fillScreenInScroll`；`_readerSettings` 传入 `PdfReaderSettings`，抽屉回调经 `SettingsController.setPdfFillScreenInScroll` 落盘
+  └─ 被注入 └ `lib/engine/localization_engine.dart`（新增 `pdf_fill_screen_scroll`/`pdf_fill_screen_scroll_desc`）
+
+**【变更说明】**
+- **需求 ①+③（自动裁切对齐 + 撑满全屏 + 滚动专属开关）**：此前连续滚动模式下，`_buildSpread` 用「原始版面宽高比」强制每页容器高度，而自动裁切后的图片宽高比各不相同，导致 `BoxFit.contain` 出现 letterbox、逐页尺寸不一、上下跳动/未对齐。现新增 `fillScreenInScroll`：仅连续滚动模式（单页连续/双页连续）生效，`_PdfPageWidget` 改为按「裁切后真实宽高比」自定尺寸（`SizedBox(width:targetWidth, height:targetWidth*图高/图宽)` + `RawImage(BoxFit.fill)`），容器宽高比与图片一致，精确铺满、无变形、无 letterbox，横向不留白边（撑满全屏），且每页自然堆叠消除跳动。**左右翻页（PageView）一律不生效**，始终走 `BoxFit.contain` 显示完整一页（满足"左右滑动翻页时显示完整的一页、尽量放大到全屏幕"）。双屏对比模式的连续滚动同样支持撑满。设置面板新增「撑满全屏（滚动）」开关，默认开启，可随时关闭回退原观感；该开关只改显示适配、不触发像素重渲染。
+- **需求 ④（仿真翻页像翻书）**：原 `_transformSpread` case 1 用整页 90° 硬旋转 + 单层黑色渐变阴影，页缘在 90° 处骤然消失、观感突兀如"转门"。现改为：转角用 smoothstep 缓动（起止平缓、中段自然加速）、透视由 `0.0022` 降到 `0.0014`（避免页缘骤然消失）、并叠加「卷边」三段渐变（书脊侧深、贴近书脊一道高光、自由边浅），比单层黑阴影更像真实翻书卷曲受光。
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 新增 Config Key：`app.reader.pdf.fillScreenInScroll`（默认 true，连续滚动撑满全屏开关）。
+- 无新增 Permission Key；未触碰 `packages/` 与权限引擎；`fillScreenInScroll` 仅显示适配、不进 `isAdjusted`/`needsRerender`。
+
+**【i18n 新增键值（请确认已并入翻译文件）】**
+- `'pdf_fill_screen_scroll': {'zh':'撑满全屏（滚动）','en':'Fill Screen (Scroll)'}`
+- `'pdf_fill_screen_scroll_desc': {'zh':'仅上下滚动（连续）时生效：每页按裁切后真实宽高比铺满，消除逐页跳动；左右翻页不生效','en':'Only in vertical scroll (continuous): each page fills width by its cropped aspect to stop per-page jitter; disabled for swipe page-turn'}`
+
+**验证**：`flutter analyze` 七个改动文件 → 0 error（仅既有 `deprecated_member_use`/`unused_local_variable` 等 info/warning 提示，不阻断编译；新增动画代码的 `translate` 弃用提示与该文件既有风格一致）。
+

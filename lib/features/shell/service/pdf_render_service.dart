@@ -158,10 +158,10 @@ class PdfRenderService {
   /// 单页最大渲染像素宽度，兼顾清晰度与内存（移动端足够，桌面端也不会爆内存）。
   static const int maxRenderWidth = 2000;
 
-  /// 自动裁切扫描用的探针图宽度。原 1200 对「定位内容边界」过度：配合边缘收紧
-  /// （edge tightening）只需知道内容起止位置，480px 已足够精确，检测像素量约降 6 倍，
-  /// 首开与翻页更顺。
-  static const int cropScanWidth = 480;
+  /// 自动裁切扫描用的探针图宽度。严格按 [docs/裁切原理和方法.md] 取 200px：
+  /// 足以看清「宏观排版」（哪里有内容、哪里是空白），又把内存与 CPU 开销降到极低，
+  /// 后续投影算法只在缩略图上定位内容起止，无需更高分辨率。
+  static const int cropScanWidth = 200;
 
   /// 渲染单页为 [ui.Image]，支持原生精确裁切与智能去杂色。
   ///
@@ -389,15 +389,15 @@ class PdfRenderService {
 
   /// 扫描原始像素（RGBA 或 BGRA）求内容包围盒，返回归一化 [Rect]。
   ///
-  /// 改进版（2026-07-16 优化白边去除效果）：
-  /// - 探针分辨率 cropScanWidth=480：配合边缘收紧只需定位内容起止，480px 已足够精确，
-  ///   检测像素量较原 1200 约降 6 倍，首开与翻页更顺；
-  /// - 近白阈值提高到 242（原 238）：更积极地将近白色背景判定为背景，减少残留白边；
-  /// - 四周保留安全间隙（当前 2%，至少 3px），在检测到的内容包围盒之外再外扩，确保不裁掉内容；
-  /// - 新增「边缘收紧」：在初步包围盒基础上，从四边逐列/行向内扫描，收缩到第一个
-  ///   有内容像素的行列，确保裁切紧贴内容边缘；
-  /// - 若内容像素占比过低（<0.3%，仅有极少量噪点），视为空页不裁切；
-  /// - 裁切结果严格 clamp 到 [0,1]，绝不越界。
+  /// 严格按 [docs/裁切原理和方法.md] 的「投影算法」实现：
+  /// - 探针分辨率 cropScanWidth=200（文档指定，足以看清宏观排版且开销极低）；
+  /// - 二值化判定：任一通道 R<245 或 G<245 或 B<245 即视为内容（非纯白）；
+  /// - 行/列投影统计 rowCounts/colCounts（把二维版面压成一维）；
+  /// - 动态噪点阈值：X 方向 = 宽*1.5%，Y 方向 = 高*1.5%，从四边向中心收缩，
+  ///   跳过计数低于阈值的行/列（抗偶发灰尘 / 极细扫描黑边）；
+  /// - 安全边距 2%：向外扩，避免边缘衬线笔画 / 图片边框被微微切断；
+  /// - 兜底：收缩后无内容包围盒（left>=right 或 top>=bottom）返回整页 RectF(0,0,1,1)，
+  ///   避免把白页裁没；内容几乎铺满整页时亦直接返回整页。
   static Rect _scanContent(
     Uint8List pixels,
     int w,
@@ -407,13 +407,9 @@ class PdfRenderService {
     // pdfrx 的像素格式平台相关：rgba8888 或 bgra8888，需分别取 R/B 通道。
     final isBgra = format == ui.PixelFormat.bgra8888;
 
-    var minX = w;
-    var minY = h;
-    var maxX = -1;
-    var maxY = -1;
-    var contentCount = 0;
-    final total = w * h;
-
+    // 行/列内容像素计数（投影）。
+    final rowCounts = List<int>.filled(h, 0);
+    final colCounts = List<int>.filled(w, 0);
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
         final i = (y * w + x) * 4;
@@ -421,69 +417,40 @@ class PdfRenderService {
         final r = isBgra ? pixels[i + 2] : pixels[i];
         final g = pixels[i + 1];
         final b = isBgra ? pixels[i] : pixels[i + 2];
-        // 近白阈值提高到 242：更积极地把浅灰/近白背景排除，减少白边残留。
-        // 原值 238 对大量扫描件偏保守，导致裁切后仍有明显白边。
-        if (r > 242 && g > 242 && b > 242) continue;
-        contentCount++;
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
+        // 文档口径：只要任一通道「不那么白」（<245）即计入内容，把二维版面压成投影。
+        if (r < 245 || g < 245 || b < 245) {
+          rowCounts[y]++;
+          colCounts[x]++;
+        }
       }
     }
 
-    // 内容占比过低：仅有零星噪点，不裁切（避免把噪点当内容、反而保留大片白边）。
-    if (maxX < 0 || total <= 0 || contentCount * 100 < total * 0.3) {
+    // 动态噪点阈值：忽略偶发灰尘 / 极细扫描黑边的轻微干扰。
+    final noiseX = (w * 0.015).round();
+    final noiseY = (h * 0.015).round();
+
+    // 从四个方向向中心收缩，跳过计数低于阈值的行/列，得到内容包围盒。
+    var left = 0, top = 0, right = w - 1, bottom = h - 1;
+    while (top <= bottom && rowCounts[top] <= noiseY) top++;
+    while (bottom >= top && rowCounts[bottom] <= noiseY) bottom--;
+    while (left <= right && colCounts[left] <= noiseX) left++;
+    while (right >= left && colCounts[right] <= noiseX) right--;
+
+    // 兜底：完全空白（无内容行/列）返回整页，避免把白页裁没。
+    if (left >= right || top >= bottom) {
       return const Rect.fromLTRB(0, 0, 1, 1);
     }
 
-    // 四周保留安全间隙（2%，至少 3px）：在已精准检测到的内容包围盒之外再外扩，
-    // 确保边缘细内容（页眉/页脚/分隔线）绝不被裁掉（用户硬性要求：自动裁边不可裁掉已有内容）。
-    final marginX = math.max(3, (w * 0.02).round());
-    final marginY = math.max(3, (h * 0.02).round());
-    var left = (minX - marginX).clamp(0, w - 1);
-    var top = (minY - marginY).clamp(0, h - 1);
-    var right = (maxX + marginX).clamp(1, w);
-    var bottom = (maxY + marginY).clamp(1, h);
-
-    // ── 边缘收紧（edge tightening）──
-    // 在初步包围盒基础上，从四边逐列/行向内扫描，找到真正有内容像素的最紧凑边界。
-    // 这一步解决「内容周围仍有一圈可观测白边」的核心问题。
-    bool rowHasContent(int y) {
-      for (var x = left; x <= right; x++) {
-        final i = (y * w + x) * 4;
-        if (i + 2 >= pixels.lengthInBytes) break;
-        final r = isBgra ? pixels[i + 2] : pixels[i];
-        final g = pixels[i + 1];
-        final b = isBgra ? pixels[i] : pixels[i + 2];
-        if (!(r > 242 && g > 242 && b > 242)) return true;
-      }
-      return false;
-    }
-
-    bool colHasContent(int x) {
-      for (var y = top; y <= bottom; y++) {
-        final i = (y * w + x) * 4;
-        if (i + 2 >= pixels.lengthInBytes) break;
-        final r = isBgra ? pixels[i + 2] : pixels[i];
-        final g = pixels[i + 1];
-        final b = isBgra ? pixels[i] : pixels[i + 2];
-        if (!(r > 242 && g > 242 && b > 242)) return true;
-      }
-      return false;
-    }
-
-    // 从顶部向下收紧
-    while (top < bottom && !rowHasContent(top)) top++;
-    // 从底部向上收紧
-    while (bottom > top && !rowHasContent(bottom)) bottom--;
-    // 从左向右收紧
-    while (left < right && !colHasContent(left)) left++;
-    // 从右向左收紧
-    while (right > left && !colHasContent(right)) right--;
+    // 安全边距 2%：向外扩，确保边缘细内容（页眉/页脚/分隔线）绝不被裁掉。
+    final padX = (w * 0.02).round();
+    final padY = (h * 0.02).round();
+    left = (left - padX).clamp(0, w - 1);
+    top = (top - padY).clamp(0, h - 1);
+    right = (right + padX).clamp(1, w);
+    bottom = (bottom + padY).clamp(1, h);
 
     // 内容几乎铺满整页时直接返回整页，避免边缘处的无意义微裁切。
-    if (left <= 1 && top <= 1 && right >= w - 1 && bottom >= h - 1) {
+    if (left <= 0 && top <= 0 && right >= w - 1 && bottom >= h - 1) {
       return const Rect.fromLTRB(0, 0, 1, 1);
     }
 

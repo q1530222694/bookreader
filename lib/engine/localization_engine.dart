@@ -222,6 +222,14 @@ class LocalizationEngine {
       'zh': '扫描件识别失败',
       'en': 'Scan recognition failed'
     },
+    'pdf_ocr_eager_pages': {
+      'zh': 'OCR 预扫页数',
+      'en': 'OCR Prefetch Pages'
+    },
+    'pdf_reflow_ocr_page_failed': {
+      'zh': '部分页面识别失败，已跳过',
+      'en': 'Some pages failed to recognize (skipped)'
+    },
     'pdf_reflow_empty': {
       'zh': '该文档无可重排文本（扫描件需 OCR 模型）',
       'en': 'No reflowable text (scanned pages need OCR models)'
@@ -229,6 +237,38 @@ class LocalizationEngine {
     'pdf_reflow_on_desc': {
       'zh': '点击退出重排，恢复原始版式',
       'en': 'Tap to exit reflow and restore original layout'
+    },
+    'pdf_ocr_reader_exit': {
+      'zh': '退出 OCR 阅读',
+      'en': 'Exit OCR Reader'
+    },
+    'pdf_ocr_reader_stop': {
+      'zh': '停止识别',
+      'en': 'Stop Recognizing'
+    },
+    'pdf_ocr_reader_background': {
+      'zh': '后台识别中…（已识别 %d / %d 页）',
+      'en': 'Recognizing in background… (%d / %d pages)'
+    },
+    'pdf_ocr_edit_title': {
+      'zh': '编辑识别文本',
+      'en': 'Edit recognized text'
+    },
+    'pdf_ocr_no_content': {
+      'zh': '未识别到内容（请检查 OCR 模型是否内置）',
+      'en': 'No content recognized (check OCR models are bundled)'
+    },
+    'pdf_ocr_view_reflow': {
+      'zh': '重排',
+      'en': 'Reflow'
+    },
+    'pdf_ocr_view_original': {
+      'zh': '原图',
+      'en': 'Original'
+    },
+    'pdf_ocr_image_failed': {
+      'zh': '（图片无法显示）',
+      'en': '(image unavailable)'
     },
     'reader_nav_catalog': {'zh': '目录', 'en': 'Catalog'},
     'reader_nav_progress': {'zh': '进度', 'en': 'Progress'},
@@ -388,6 +428,17 @@ class LocalizationEngine {
     'pdf_dual_screen_desc': {
       'zh': '左右分屏，独立滑动对比阅读',
       'en': 'Split screen for side-by-side comparison'
+    },
+    // 双击放大
+    'pdf_double_tap_zoom': {'zh': '双击放大', 'en': 'Double-tap Zoom'},
+    'pdf_double_tap_zoom_desc': {
+      'zh': '双击在 1×/2×/3× 间循环放大，并支持双指捏合缩放',
+      'en': 'Double-tap cycles 1×/2×/3×, plus pinch-to-zoom'
+    },
+    'pdf_fill_screen_scroll': {'zh': '撑满全屏（滚动）', 'en': 'Fill Screen (Scroll)'},
+    'pdf_fill_screen_scroll_desc': {
+      'zh': '仅上下滚动（连续）时生效：每页按裁切后真实宽高比铺满，消除逐页跳动；左右翻页不生效',
+      'en': 'Only in vertical scroll (continuous): each page fills width by its cropped aspect to stop per-page jitter; disabled for swipe page-turn'
     },
     'pdf_reflow': {'zh': '重排', 'en': 'Reflow'},
     'pdf_reflow_desc': {

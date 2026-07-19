@@ -15,6 +15,10 @@ import '../model/pdf_reader_settings.dart';
 import '../service/pdf_render_service.dart';
 import '../service/pdf_text_reflow_service.dart';
 import '../service/pdf_ocr_service.dart';
+import '../service/pdf_ocr_document_builder.dart';
+import '../service/pdf_ocr_cache_service.dart';
+import '../model/pdf_ocr_document.dart';
+import 'pdf_ocr_reader_view.dart';
 import '../service/reading_session_service.dart';
 import 'pdf_custom_view.dart';
 import 'pdf_reflow_view.dart';
@@ -33,6 +37,9 @@ class BookViewerPage extends StatefulWidget {
   final BookshelfController? controller;
   /// 打开时直接跳转到的页码（1-based），用于书签/进度快速定位；为空则从持久化进度恢复。
   final int? initialPage;
+
+  /// 约束：PDF 打开时不应自动进入 OCR/重排阅读，必须由用户在设置页主动触发。
+  static bool shouldAutoStartOcrOnOpen() => false;
 
   const BookViewerPage({
     super.key,
@@ -77,16 +84,24 @@ class _BookViewerPageState extends State<BookViewerPage>
   int _selectedPageAnimation = SettingsEngine.readerPageAnimation;
   double _sharpness = SettingsEngine.pdfBgSharpness;
   bool _smartClarityBusy = false;
-  int _reflowOcrCurrent = 0;
-  int _reflowOcrTotal = 0;
-
-  // 重排状态：_isReflowing 表示当前处于重排阅读视图；_reflowParagraphs 为已提取段落；
-  // _reflowLoading 为提取中；_reflowError 为无文本层 / 提取失败提示。
+  // 重排状态：_isReflowing 表示当前处于文本层重排阅读视图；_reflowParagraphs 为已提取段落；
+  // _reflowLoading 为文本层提取中；_reflowError 为无文本层 / 提取失败提示。
   bool _isReflowing = false;
   List<String>? _reflowParagraphs;
   bool _reflowLoading = false;
-  bool _isOcrLoading = false;
   String? _reflowError;
+
+  // ePub 式 OCR 阅读状态（扫描件）：_isOcrReader 进入逐页图文混排视图；
+  // _ocrDoc 为结构化识别结果；_ocrRunning 表示后台仍在识别；_ocrRunToken 为取消令牌
+  // （每次停止/退出自增，运行中的闭包据此判定中止，解决「停不下来」）；
+  // _ocrInitializing 仅手动触发时显示极短加载（自动触发保持无感，不显示进度条）。
+  PdfOcrDocument? _ocrDoc;
+  bool _isOcrReader = false;
+  bool _ocrRunning = false;
+  bool _ocrInitializing = false;
+  int _ocrRunToken = 0;
+  int _ocrDonePages = 0;
+  int _ocrTotalPages = 0;
 
   // PDF 专属视觉设置（初始化自全局持久化，回调中上浮并落库）。
   // 渲染效果由 PdfCustomView 真实实现（2-up / 连续 / 原生裁切 / GPU 滤镜）。
@@ -103,6 +118,11 @@ class _BookViewerPageState extends State<BookViewerPage>
   double _manualCropTop = SettingsEngine.pdfManualCropTop;
   double _manualCropBottom = SettingsEngine.pdfManualCropBottom;
   bool _dualScreen = SettingsEngine.pdfDualScreen;
+  // 双击放大：开启后双击页面在 1×/2×/3× 间循环放大，并支持双指捏合缩放。
+  bool _doubleTapZoom = SettingsEngine.pdfDoubleTapZoom;
+  // 撑满全屏（仅连续滚动模式生效）：上下滚动时每页按裁切后真实宽高比铺满，
+  // 消除逐页跳动 / 未对齐；左右翻页不生效。
+  bool _fillScreenInScroll = SettingsEngine.pdfFillScreenInScroll;
   int _cropOddEvenMode = SettingsEngine.pdfCropOddEvenMode;
   // 垂直基准带版本号：每次基准带校准完成自增，驱动可见页按新基准带重新渲染（消除竖向跳动）。
   int _cropBandVersion = 0;
@@ -158,6 +178,7 @@ class _BookViewerPageState extends State<BookViewerPage>
       _sharpness = SettingsController.pdfBgSharpness.value;
       _layoutMode = SettingsController.readerLayoutMode.value;
       _autoCrop = SettingsController.pdfAutoCrop.value;
+      _fillScreenInScroll = SettingsController.pdfFillScreenInScroll.value;
       _contrast = SettingsController.pdfBgContrast.value;
       _saturation = SettingsController.pdfBgSaturation.value;
       _removeColor = SettingsController.pdfBgRemoveColor.value;
@@ -169,6 +190,7 @@ class _BookViewerPageState extends State<BookViewerPage>
       _manualCropTop = SettingsController.pdfManualCropTop.value;
       _manualCropBottom = SettingsController.pdfManualCropBottom.value;
       _dualScreen = SettingsController.pdfDualScreen.value;
+      _doubleTapZoom = SettingsController.pdfDoubleTapZoom.value;
       _cropOddEvenMode = SettingsController.pdfCropOddEvenMode.value;
       _bgOverlay = SettingsController.pdfBgOverlay.value;
     });
@@ -208,6 +230,10 @@ class _BookViewerPageState extends State<BookViewerPage>
         _errorText = '打开 PDF 失败：$error';
       });
     }
+    // 仅在用户在设置页主动触发重排/OCR 时启动；打开 PDF 不再自动进入 OCR 阅读视图。
+    if (BookViewerPage.shouldAutoStartOcrOnOpen() && SettingsEngine.pdfOcrEnabled) {
+      _maybeAutoOcr();
+    }
   }
 
   /// 触发垂直基准带校准（fire-and-forget）。
@@ -231,6 +257,9 @@ class _BookViewerPageState extends State<BookViewerPage>
     _pauseSessionAndPersist();
     WidgetsBinding.instance.removeObserver(this);
     _settingsController.dispose();
+    // 停止可能的后台 OCR（令牌自增，运行中闭包据此中止）。
+    _ocrRunToken++;
+    _ocrRunning = false;
     if (_pdfDocument != null) {
       // 关闭文档并释放本服务持有的渲染缓存（含已渲染的 ui.Image），避免 GPU 内存泄漏。
       PdfRenderService.disposeDocument(_pdfDocument!);
@@ -451,6 +480,8 @@ class _BookViewerPageState extends State<BookViewerPage>
         removeColor: _removeColor,
         denoise: _denoise,
         dualScreen: _dualScreen,
+        doubleTapZoom: _doubleTapZoom,
+        fillScreenInScroll: _fillScreenInScroll,
         cropOddEvenMode: _cropOddEvenMode,
         cropBandVersion: _cropBandVersion,
         bgOverlay: _bgOverlay,
@@ -463,14 +494,20 @@ class _BookViewerPageState extends State<BookViewerPage>
   /// [PdfDocument] 取出按阅读顺序排列的真实文本段落，再交由 [PdfReflowView] 以可调
   /// 字号 / 行距 / 字距 / 段距重新流式排版。提取过程异步进行，
   /// 期间显示加载提示；纯图片扫描件（无文本层）会提示改用 OCR。
+  /// 重排按钮：文本层 PDF → 真实重排视图；扫描件 → ePub 式 OCR 阅读视图。
+  ///
+  /// 已在 OCR 阅读或文本重排中则视为「退出」，返回原 PDF 版式。
   Future<void> _reflow() async {
-    // 已在重排中 → 退出重排
+    if (_isOcrReader) {
+      _exitOcrReader();
+      return;
+    }
     if (_isReflowing) {
       _exitReflow();
       return;
     }
-    // 未在重排中 → 进入重排
     if (!mounted || _pdfDocument == null) return;
+    // 文本层 PDF：真实重排（本地、无损、流式）。
     setState(() {
       _reflowLoading = true;
       _reflowError = null;
@@ -484,66 +521,192 @@ class _BookViewerPageState extends State<BookViewerPage>
           _isReflowing = true;
           _reflowLoading = false;
           _reflowError = null;
-          _isOcrLoading = false;
         });
         return;
       }
-      // 纯图片扫描件（无文本层）：尝试 OCR 重排（需内置模型且总开关开启）。
-      if (SettingsEngine.pdfOcrEnabled &&
-          await PdfOcrService.isModelAvailable()) {
-        setState(() {
-          _reflowLoading = true;
-          _isOcrLoading = true;
-          _reflowError = null;
-        });
-        final ocrResult = await PdfTextReflowService.extractOcr(
-          _pdfDocument!,
-          onProgress: (current, total) {
-            if (!mounted) return;
-            // 实时上报 OCR 逐页进度，供加载态显示「识别第 X / Y 页」。
-            setState(() {
-              _reflowOcrCurrent = current;
-              _reflowOcrTotal = total;
-            });
-          },
-        );
-        if (!mounted) return;
-        if (ocrResult.paragraphs.isEmpty) {
-          setState(() {
-            _reflowLoading = false;
-            _isOcrLoading = false;
-            _reflowParagraphs = null;
-            _isReflowing = false;
-            _reflowError = LocalizationEngine.text('pdf_reflow_ocr_failed');
-          });
-          return;
-        }
-        setState(() {
-          _reflowParagraphs = ocrResult.paragraphs;
-          _isReflowing = true;
-          _reflowLoading = false;
-          _isOcrLoading = false;
-          _reflowError = null;
-        });
-        return;
-      }
-      // 无文本层且未内置 OCR 模型：提示用户。
-      setState(() {
-        _reflowLoading = false;
-        _isOcrLoading = false;
-        _reflowParagraphs = null;
-        _isReflowing = false;
-        _reflowError =
-            LocalizationEngine.text('pdf_reflow_ocr_unavailable');
-      });
+      // 扫描件：进入 ePub 式 OCR 阅读（手动触发，短暂加载）。
+      setState(() => _reflowLoading = false);
+      await _startOcr(false);
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _reflowLoading = false;
-        _isOcrLoading = false;
         _reflowError = '重排失败：$e';
       });
     }
+  }
+
+  /// 启动 ePub 式 OCR 阅读：优先命中本地缓存（秒开、不重复识别），
+  /// 否则后台逐页识别并增量落盘；[auto]=true 时保持「无感」（不显示加载条，
+  /// 首屏识别完成后才无缝切入阅读视图），[auto]=false 时显示极短加载。
+  ///
+  /// 取消通过 [_ocrRunToken] 实现：本方法自增令牌，运行中的
+  /// [PdfOcrDocumentBuilder.build] 每次重量操作前检查令牌，不一致即中止——
+  /// 彻底解决「停不下来」。
+  Future<void> _startOcr(bool auto) async {
+    if (!mounted || _pdfDocument == null) return;
+    final key = await PdfOcrCacheService.computeKey(widget.filePath);
+    // 缓存命中：直接呈现，零识别开销。
+    final cached = await PdfOcrCacheService.load(key);
+    if (cached != null && cached.pages.isNotEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _ocrDoc = cached;
+        _isOcrReader = true;
+        _ocrRunning = false;
+        _ocrInitializing = false;
+      });
+      return;
+    }
+    // 无 OCR 模型：提示。
+    if (!SettingsEngine.pdfOcrEnabled ||
+        !await PdfOcrService.isModelAvailable()) {
+      if (!mounted) return;
+      setState(() {
+        _reflowError = LocalizationEngine.text('pdf_reflow_ocr_unavailable');
+      });
+      return;
+    }
+    if (!auto) setState(() => _ocrInitializing = true);
+    final myToken = ++_ocrRunToken;
+    _ocrRunning = true;
+    _ocrTotalPages = _pdfDocument!.pages.length;
+    _ocrDonePages = 0;
+    _ocrDoc = PdfOcrDocument(
+      sourceKey: key,
+      createdAt: DateTime.now().millisecondsSinceEpoch,
+      pages: <PdfOcrPageData>[], // 可增长列表：后续逐页 add，禁用 const []（不可修改）
+    );
+    setState(() {});
+    await PdfOcrDocumentBuilder.build(
+      _pdfDocument!,
+      key,
+      eagerPages: SettingsController.pdfOcrEagerPages.value,
+      cancelled: () => _ocrRunToken != myToken,
+      onProgress: (c, t) {
+        if (!mounted) return;
+        setState(() => _ocrDonePages = c);
+      },
+      onPage: (page) {
+        if (!mounted || _ocrDoc == null) return;
+        final idx = _ocrDoc!.pages
+            .indexWhere((p) => p.pageIndex == page.pageIndex);
+        if (idx >= 0) {
+          _ocrDoc!.pages[idx] = page;
+        } else {
+          _ocrDoc!.pages.add(page);
+        }
+        _ocrDoc!.pages
+            .sort((a, b) => a.pageIndex.compareTo(b.pageIndex));
+        setState(() {
+          _ocrDonePages = page.pageIndex;
+          _ocrInitializing = false;
+          if (!_isOcrReader) _isOcrReader = true;
+        });
+        // 增量落盘：已识别的页立即持久化，下次打开秒开。
+        PdfOcrCacheService.savePage(_ocrDoc!, page);
+      },
+    );
+    // 被取消：保留已识别部分，停止后台。
+    if (_ocrRunToken != myToken) {
+      if (!mounted) return;
+      _ocrRunning = false;
+      setState(() {});
+      return;
+    }
+    // 全部完成：剔除跨页页眉/页脚/页码，落盘，切入阅读视图。
+    PdfOcrDocumentBuilder.suppressPageNumbers(_ocrDoc!);
+    await PdfOcrCacheService.save(_ocrDoc!);
+    if (!mounted) return;
+    setState(() {
+      _isOcrReader = true;
+      _ocrRunning = false;
+      _ocrInitializing = false;
+    });
+    if (_ocrDoc!.pages.length < _ocrTotalPages) {
+      _showOcrToast(
+        context,
+        LocalizationEngine.text('pdf_reflow_ocr_page_failed'),
+      );
+    }
+  }
+
+  /// 扫描件自动后台 OCR：仅当首屏无文本层（纯图片扫描件）且已开启 OCR 时触发，
+  /// 命中缓存则秒开，否则无感后台识别（不弹进度条），首屏就绪后无缝切入阅读视图。
+  Future<void> _maybeAutoOcr() async {
+    if (!mounted || _pdfDocument == null) return;
+    if (!SettingsEngine.pdfOcrEnabled ||
+        !await PdfOcrService.isModelAvailable()) {
+      return;
+    }
+    // 含文本层的 PDF 走原生重排，无需 OCR。
+    try {
+      final first = _pdfDocument!.pages[0];
+      final txt = await first.loadText();
+      if (txt.fullText.trim().isNotEmpty) return;
+    } catch (_) {
+      // 读取失败也按扫描件处理，交给后续识别。
+    }
+    final key = await PdfOcrCacheService.computeKey(widget.filePath);
+    final cached = await PdfOcrCacheService.load(key);
+    if (cached != null && cached.pages.isNotEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _ocrDoc = cached;
+        _isOcrReader = true;
+      });
+    } else {
+      _startOcr(true);
+    }
+  }
+
+  /// 停止后台 OCR 识别（取消令牌自增，运行中闭包据此中止）。
+  void _cancelOcr() {
+    if (!_ocrRunning) return;
+    _ocrRunToken++;
+    _ocrRunning = false;
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  /// 退出 OCR 阅读视图，返回原 PDF 版式（同时停止后台识别）。
+  void _exitOcrReader() {
+    if (!mounted) return;
+    _cancelOcr();
+    setState(() => _isOcrReader = false);
+  }
+
+  /// OCR 文本编辑：用户长按某段文字后写回，可批量替换段内多个 segment，并增量落盘。
+  void _onOcrEdit(int pageIndex, Map<int, String> replacements) {
+    if (_ocrDoc == null || !mounted) return;
+    final pIdx =
+        _ocrDoc!.pages.indexWhere((p) => p.pageIndex == pageIndex);
+    if (pIdx < 0) return;
+    final page = _ocrDoc!.pages[pIdx];
+    final newSegs = List<PdfOcrTextSegment>.from(page.segments);
+    for (final entry in replacements.entries) {
+      final segIndex = entry.key;
+      final newText = entry.value;
+      if (segIndex < 0 || segIndex >= newSegs.length) continue;
+      final old = newSegs[segIndex];
+      newSegs[segIndex] = PdfOcrTextSegment(
+        text: newText,
+        left: old.left,
+        top: old.top,
+        right: old.right,
+        bottom: old.bottom,
+        score: old.score,
+      );
+    }
+    final newPage = PdfOcrPageData(
+      pageIndex: page.pageIndex,
+      pageImageBase64: page.pageImageBase64,
+      segments: newSegs,
+      images: page.images,
+    );
+    _ocrDoc!.pages[pIdx] = newPage;
+    setState(() {});
+    PdfOcrCacheService.savePage(_ocrDoc!, newPage);
   }
 
   /// 退出重排：返回原 PDF 版式阅读视图。
@@ -554,12 +717,34 @@ class _BookViewerPageState extends State<BookViewerPage>
     });
   }
 
-  /// OCR 重排进度文案：识别第 current / total 页。
-  String _ocrProgressText() {
-    final t = LocalizationEngine.text('pdf_reflow_ocr_progress');
-    return t
-        .replaceFirst('%d', '$_reflowOcrCurrent')
-        .replaceFirst('%d', '$_reflowOcrTotal');
+  /// OCR 后台有页失败时弹一次的非阻塞轻提示（基于 [Overlay] 自消失）。
+  /// 由 [extractOcr] 的 [onDone] 在全部页处理完后调用，保证整轮重排最多提示一次。
+  void _showOcrToast(BuildContext context, String message) {
+    final overlay = Overlay.of(context, rootOverlay: true);
+    late final OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (ctx) => Positioned(
+        left: 24,
+        right: 24,
+        bottom: 96,
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              color: CupertinoColors.label.resolveFrom(ctx).withOpacity(0.92),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: CupertinoColors.white, fontSize: 13.5),
+            ),
+          ),
+        ),
+      ),
+    );
+    overlay.insert(entry);
+    Future.delayed(const Duration(seconds: 3), () => entry.remove());
   }
 
   /// 智能清晰度：对当前页做像素统计，自动计算并应用亮度 / 对比度 / 清晰度 / 去杂色。
@@ -709,18 +894,13 @@ class _BookViewerPageState extends State<BookViewerPage>
   /// [PdfCustomView]：双栏 2-up / 连续滚动 / 翻页吸附、原生精确裁切、颜色调整与智能去杂色
   /// 等均由该视图内部按 [PdfReaderSettings] 与 [pageAnimation] 真实实现。
   Widget _buildPdfView() {
-    if (_isReflowing && _reflowParagraphs != null) {
-      return PdfReflowView(
-        paragraphs: _reflowParagraphs!,
-        onExit: _exitReflow,
-      );
-    }
     return PdfCustomView(
       key: _pdfViewKey,
       document: _pdfDocument!,
       settings: _readerSettings,
       pageMode: _selectedPageMode,
       pageAnimation: SettingsEngine.readerPageAnimation,
+      doubleTapZoom: _doubleTapZoom,
       onPageChanged: _syncProgress,
     );
   }
@@ -917,60 +1097,60 @@ class _BookViewerPageState extends State<BookViewerPage>
                         Expanded(
                           child: _pdfDocument == null
                               ? const Center(child: CupertinoActivityIndicator())
-                              : _reflowLoading
-                                  ? Center(
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          CupertinoActivityIndicator(),
-                                          SizedBox(height: 12),
-                                          Text(
-                                            LocalizationEngine.text(
-                                              _isOcrLoading
-                                                  ? 'pdf_reflow_ocr_loading'
-                                                  : 'pdf_reflow_loading',
-                                            ),
-                                            style: const TextStyle(
-                                              fontSize: 14,
-                                              color: CupertinoColors.systemGrey,
-                                            ),
-                                          ),
-                                          if (_isOcrLoading &&
-                                              _reflowOcrTotal > 0) ...[
-                                            const SizedBox(height: 6),
-                                            Text(
-                                              _ocrProgressText(),
-                                              style: const TextStyle(
-                                                fontSize: 13,
-                                                color: CupertinoColors.systemGrey,
-                                              ),
-                                            ),
-                                          ],
-                                        ],
-                                      ),
+                              : _isReflowing && _reflowParagraphs != null
+                                  ? PdfReflowView(
+                                      paragraphs: _reflowParagraphs!,
+                                      onExit: _exitReflow,
                                     )
-                                  : _isReflowing && _reflowParagraphs != null
-                                      ? PdfReflowView(
-                                          paragraphs: _reflowParagraphs!,
-                                          onExit: _exitReflow,
+                                  : _isOcrReader && _ocrDoc != null
+                                      ? PdfOcrReaderView(
+                                          document: _ocrDoc!,
+                                          onExit: _exitOcrReader,
+                                          backgroundActive: _ocrRunning,
+                                          onStop: _cancelOcr,
+                                          donePages: _ocrDonePages,
+                                          totalPages: _ocrTotalPages,
+                                          onEdit: _onOcrEdit,
                                         )
-                                      : _reflowError != null
+                                      : _reflowLoading || _ocrInitializing
                                           ? Center(
-                                              child: Padding(
-                                                padding:
-                                                    const EdgeInsets.all(24),
-                                                child: Text(
-                                                  _reflowError!,
-                                                  textAlign: TextAlign.center,
-                                                  style: const TextStyle(
-                                                    fontSize: 15,
-                                                    color: CupertinoColors
-                                                        .systemGrey,
+                                              child: Column(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  CupertinoActivityIndicator(),
+                                                  const SizedBox(height: 12),
+                                                  Text(
+                                                    LocalizationEngine.text(
+                                                      _reflowLoading
+                                                          ? 'pdf_reflow_loading'
+                                                          : 'pdf_reflow_ocr_loading',
+                                                    ),
+                                                    style: const TextStyle(
+                                                      fontSize: 14,
+                                                      color: CupertinoColors
+                                                          .systemGrey,
+                                                    ),
                                                   ),
-                                                ),
+                                                ],
                                               ),
                                             )
-                                          : _buildPdfView(),
+                                          : _reflowError != null
+                                              ? Center(
+                                                  child: Padding(
+                                                    padding:
+                                                        const EdgeInsets.all(24),
+                                                    child: Text(
+                                                      _reflowError!,
+                                                      textAlign: TextAlign.center,
+                                                      style: const TextStyle(
+                                                        fontSize: 15,
+                                                        color: CupertinoColors
+                                                            .systemGrey,
+                                                      ),
+                                                    ),
+                                                  ),
+                                              )
+                                              : _buildPdfView(),
                         ),
                         if (_errorText != null)
                           Padding(
@@ -1339,6 +1519,16 @@ class _BookViewerPageState extends State<BookViewerPage>
                             onDualScreenChanged: (value) => setState(() {
                               _dualScreen = value;
                               SettingsController.setPdfDualScreen(value);
+                            }),
+                            doubleTapZoom: _doubleTapZoom,
+                            onDoubleTapZoomChanged: (value) => setState(() {
+                              _doubleTapZoom = value;
+                              SettingsController.setPdfDoubleTapZoom(value);
+                            }),
+                            fillScreenInScroll: _fillScreenInScroll,
+                            onFillScreenInScrollChanged: (value) => setState(() {
+                              _fillScreenInScroll = value;
+                              SettingsController.setPdfFillScreenInScroll(value);
                             }),
                             cropOddEvenMode: _cropOddEvenMode,
                             onCropOddEvenModeChanged: (value) => setState(() {

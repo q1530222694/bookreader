@@ -67,6 +67,14 @@ class ReaderSettingsSheet extends StatefulWidget {
   // PDF 专属：双屏模式
   final bool dualScreen;
   final ValueChanged<bool> onDualScreenChanged;
+  // 双击放大：开启后双击页面在 1×/2×/3× 间循环放大，并支持双指捏合缩放。
+  final bool doubleTapZoom;
+  final ValueChanged<bool> onDoubleTapZoomChanged;
+  // PDF 专属：撑满全屏（仅连续滚动模式生效）：开启后上下滚动（单页连续 /
+  // 双页连续）时每页按裁切后真实宽高比铺满，消除逐页跳动 / 未对齐；
+  // 左右翻页（PageView）一律不生效，始终显示完整一页。
+  final bool fillScreenInScroll;
+  final ValueChanged<bool> onFillScreenInScrollChanged;
   // PDF 专属：奇偶页分开裁边（0=统一 / 1=仅奇数页 / 2=仅偶数页）
   final int cropOddEvenMode;
   final ValueChanged<int> onCropOddEvenModeChanged;
@@ -148,6 +156,10 @@ class ReaderSettingsSheet extends StatefulWidget {
     this.onResetCrop,
     this.dualScreen = false,
     this.onDualScreenChanged = _noopBool,
+    this.doubleTapZoom = false,
+    this.onDoubleTapZoomChanged = _noopBool,
+    this.fillScreenInScroll = true,
+    this.onFillScreenInScrollChanged = _noopBool,
     this.cropOddEvenMode = 0,
     this.onCropOddEvenModeChanged = _noopInt,
     required this.bookId,
@@ -1173,6 +1185,16 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                       ],
                     ),
                     const SizedBox(height: 12),
+                    // ── 撑满全屏（仅连续滚动生效）──
+                    _SwitchRow(
+                      label: LocalizationEngine.text(
+                          'pdf_fill_screen_scroll'),
+                      description: LocalizationEngine.text(
+                          'pdf_fill_screen_scroll_desc'),
+                      value: widget.fillScreenInScroll,
+                      onChanged: widget.onFillScreenInScrollChanged,
+                    ),
+                    const SizedBox(height: 12),
                   ],
                   if (_selectedNav == 4) ...[
                     const SizedBox(height: 12),
@@ -1203,6 +1225,15 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                           LocalizationEngine.text('pdf_dual_screen_desc'),
                       value: widget.dualScreen,
                       onChanged: widget.onDualScreenChanged,
+                    ),
+                    const SizedBox(height: 12),
+                    // ── 双击放大 ──
+                    _SwitchRow(
+                      label: LocalizationEngine.text('pdf_double_tap_zoom'),
+                      description:
+                          LocalizationEngine.text('pdf_double_tap_zoom_desc'),
+                      value: widget.doubleTapZoom,
+                      onChanged: widget.onDoubleTapZoomChanged,
                     ),
                     const SizedBox(height: 12),
                     // ── 横屏模式 ──
@@ -1468,7 +1499,30 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
           1,
           (v) => v.toStringAsFixed(0),
         ),
+        _reflowEagerPagesRow(context),
       ],
+    );
+  }
+
+  /// OCR 预扫页数行：标签 + 滑块（1~10 页），与重排排版微调一致的 [_FineTuneSliderRow]。
+  /// 控制重排扫描件时先同步识别前 N 页（其余后台续扫），经 [SettingsController] 实时落库。
+  Widget _reflowEagerPagesRow(BuildContext context) {
+    final primaryColor = CupertinoTheme.of(context).primaryColor;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: ValueListenableBuilder<int>(
+        valueListenable: SettingsController.pdfOcrEagerPages,
+        builder: (context, value, _) => _FineTuneSliderRow(
+          label: LocalizationEngine.text('pdf_ocr_eager_pages'),
+          value: value.toDouble(),
+          min: 1,
+          max: 10,
+          step: 1,
+          onChanged: (v) => SettingsController.setPdfOcrEagerPages(v.round()),
+          primaryColor: primaryColor,
+          displayValue: value.toString(),
+        ),
+      ),
     );
   }
 

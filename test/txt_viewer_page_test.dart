@@ -87,6 +87,10 @@ void main() {
     expect(find.text('--/--'), findsNothing);
   });
 
+  test('BookViewerPage disables automatic OCR startup on open', () {
+    expect(BookViewerPage.shouldAutoStartOcrOnOpen(), isFalse);
+  });
+
   testWidgets('ReaderSettingsSheet uses compact layout spacing', (tester) async {
     await tester.pumpWidget(
       const CupertinoApp(

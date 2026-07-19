@@ -58,6 +58,13 @@ class SettingsController {
       ValueNotifier<bool>(SettingsEngine.pdfDualScreen);
   static final ValueNotifier<int> pdfCropOddEvenMode =
       ValueNotifier<int>(SettingsEngine.pdfCropOddEvenMode);
+  // 双击放大开关 notifier（开启后双击页面循环放大并支持双指缩放）。
+  static final ValueNotifier<bool> pdfDoubleTapZoom =
+      ValueNotifier<bool>(SettingsEngine.pdfDoubleTapZoom);
+  // 撑满全屏（仅连续滚动模式生效）notifier：开启后上下滚动时每页按裁切后真实宽高比
+  // 自定尺寸、宽度铺满、消除逐页跳动与未对齐；左右翻页不生效。
+  static final ValueNotifier<bool> pdfFillScreenInScroll =
+      ValueNotifier<bool>(SettingsEngine.pdfFillScreenInScroll);
   // 重排排版参数 notifier（重排后字体大小 / 行距 / 字距 / 段距，本地方案全平台通用）。
   static final ValueNotifier<double> pdfReflowFontSize =
       ValueNotifier<double>(SettingsEngine.pdfReflowFontSize);
@@ -67,6 +74,9 @@ class SettingsController {
       ValueNotifier<double>(SettingsEngine.pdfReflowLetterSpacing);
   static final ValueNotifier<double> pdfReflowParaSpacing =
       ValueNotifier<double>(SettingsEngine.pdfReflowParaSpacing);
+  // OCR 重排「预扫页数」notifier（重排扫描件时先同步识别前 N 页，其余后台续扫）。
+  static final ValueNotifier<int> pdfOcrEagerPages =
+      ValueNotifier<int>(SettingsEngine.pdfOcrEagerPages);
 
   // —— 每本书独立设置（按 bookId 持久化到磁盘）——
   // 全局 [SettingsEngine] 仅作「默认基线」；单本书的覆盖写在 [_activeOverrides]，
@@ -97,10 +107,13 @@ class SettingsController {
     SettingsEngine.pdfManualCropBottomKey: SettingsEngine.pdfManualCropBottom,
     SettingsEngine.pdfDualScreenKey: SettingsEngine.pdfDualScreen,
     SettingsEngine.pdfCropOddEvenModeKey: SettingsEngine.pdfCropOddEvenMode,
+    SettingsEngine.pdfDoubleTapZoomKey: SettingsEngine.pdfDoubleTapZoom,
+    SettingsEngine.pdfFillScreenInScrollKey: SettingsEngine.pdfFillScreenInScroll,
     SettingsEngine.pdfReflowFontSizeKey: SettingsEngine.pdfReflowFontSize,
     SettingsEngine.pdfReflowLineSpacingKey: SettingsEngine.pdfReflowLineSpacing,
     SettingsEngine.pdfReflowLetterSpacingKey: SettingsEngine.pdfReflowLetterSpacing,
     SettingsEngine.pdfReflowParaSpacingKey: SettingsEngine.pdfReflowParaSpacing,
+    SettingsEngine.pdfOcrEagerPagesKey: SettingsEngine.pdfOcrEagerPages,
   };
 
   static final List<ChangeNotifier> _pdfNotifiers = [
@@ -123,10 +136,13 @@ class SettingsController {
     pdfManualCropBottom,
     pdfDualScreen,
     pdfCropOddEvenMode,
+    pdfDoubleTapZoom,
+    pdfFillScreenInScroll,
     pdfReflowFontSize,
     pdfReflowLineSpacing,
     pdfReflowLetterSpacing,
     pdfReflowParaSpacing,
+    pdfOcrEagerPages,
   ];
 
   /// 绑定到某本书：加载其覆盖设置并落到 notifier；无覆盖则回退到全局默认基线。
@@ -156,10 +172,13 @@ class SettingsController {
     pdfManualCropBottom.value = _dbl(SettingsEngine.pdfManualCropBottomKey);
     pdfDualScreen.value = _bol(SettingsEngine.pdfDualScreenKey);
     pdfCropOddEvenMode.value = _int(SettingsEngine.pdfCropOddEvenModeKey);
+    pdfDoubleTapZoom.value = _bol(SettingsEngine.pdfDoubleTapZoomKey);
+    pdfFillScreenInScroll.value = _bol(SettingsEngine.pdfFillScreenInScrollKey);
     pdfReflowFontSize.value = _dbl(SettingsEngine.pdfReflowFontSizeKey);
     pdfReflowLineSpacing.value = _dbl(SettingsEngine.pdfReflowLineSpacingKey);
     pdfReflowLetterSpacing.value = _dbl(SettingsEngine.pdfReflowLetterSpacingKey);
     pdfReflowParaSpacing.value = _dbl(SettingsEngine.pdfReflowParaSpacingKey);
+    pdfOcrEagerPages.value = _int(SettingsEngine.pdfOcrEagerPagesKey);
     _applyingOverrides = false;
   }
 
@@ -195,10 +214,13 @@ class SettingsController {
       SettingsEngine.pdfManualCropBottomKey: pdfManualCropBottom.value,
       SettingsEngine.pdfDualScreenKey: pdfDualScreen.value,
       SettingsEngine.pdfCropOddEvenModeKey: pdfCropOddEvenMode.value,
+      SettingsEngine.pdfDoubleTapZoomKey: pdfDoubleTapZoom.value,
+      SettingsEngine.pdfFillScreenInScrollKey: pdfFillScreenInScroll.value,
       SettingsEngine.pdfReflowFontSizeKey: pdfReflowFontSize.value,
       SettingsEngine.pdfReflowLineSpacingKey: pdfReflowLineSpacing.value,
       SettingsEngine.pdfReflowLetterSpacingKey: pdfReflowLetterSpacing.value,
       SettingsEngine.pdfReflowParaSpacingKey: pdfReflowParaSpacing.value,
+      SettingsEngine.pdfOcrEagerPagesKey: pdfOcrEagerPages.value,
     };
     PdfBookSettingsService.save(_activeBookId!, _activeOverrides);
   }
@@ -459,6 +481,18 @@ class SettingsController {
     pdfCropOddEvenMode.value = value;
   }
 
+  /// 设置 PDF 双击放大开关。
+  static void setPdfDoubleTapZoom(bool value) {
+    SettingsEngine.setPdfDoubleTapZoom(value);
+    pdfDoubleTapZoom.value = value;
+  }
+
+  /// 设置 PDF 撑满全屏（仅连续滚动模式生效）开关。
+  static void setPdfFillScreenInScroll(bool value) {
+    SettingsEngine.setPdfFillScreenInScroll(value);
+    pdfFillScreenInScroll.value = value;
+  }
+
   /// 设置 PDF 翻页动画（0 无 / 1 仿真）。
   static void setReaderPageAnimation(int value) {
     SettingsEngine.setReaderPageAnimation(value);
@@ -487,6 +521,12 @@ class SettingsController {
   static void setPdfReflowParaSpacing(double value) {
     SettingsEngine.setPdfReflowParaSpacing(value);
     pdfReflowParaSpacing.value = value;
+  }
+
+  /// 设置 OCR 重排「预扫页数」（先同步识别前 N 页，其余后台续扫）。
+  static void setPdfOcrEagerPages(int value) {
+    SettingsEngine.setPdfOcrEagerPages(value);
+    pdfOcrEagerPages.value = value;
   }
 
   static void setStartupPage(String value) {
