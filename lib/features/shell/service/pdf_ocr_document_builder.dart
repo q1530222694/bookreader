@@ -46,6 +46,8 @@ class PdfOcrDocumentBuilder {
   }) async {
     final total = document.pages.length;
     final createdAt = DateTime.now().millisecondsSinceEpoch;
+    // 版面模型是否齐备：决定逐页走「模型分类 + 路由分发」还是旧版行带回退。
+    final useLayout = await PdfOcrService.isLayoutModelAvailable();
     final doc = PdfOcrDocument(
       sourceKey: sourceKey,
       createdAt: createdAt,
@@ -56,7 +58,13 @@ class PdfOcrDocumentBuilder {
     // 1) 同步优先识别前 N 页（立即有内容）。
     for (var i = 0; i < syncEnd; i++) {
       if (cancelled?.call() == true) return doc;
-      final page = await _buildPage(document, i, total, onProgress);
+      PdfOcrPageData? page;
+      try {
+        page = await _buildPage(document, i, total, onProgress,
+            useLayout: useLayout);
+      } catch (_) {
+        page = null; // 单页异常不中断整本文档
+      }
       if (page != null) {
         doc.pages.add(page);
         onPage?.call(page);
@@ -66,7 +74,13 @@ class PdfOcrDocumentBuilder {
     //    逐页经 onPage 增量回传，便于上层边识别边刷新 + 增量落盘）。
     for (var i = syncEnd; i < total; i++) {
       if (cancelled?.call() == true) return doc;
-      final page = await _buildPage(document, i, total, onProgress);
+      PdfOcrPageData? page;
+      try {
+        page = await _buildPage(document, i, total, onProgress,
+            useLayout: useLayout);
+      } catch (_) {
+        page = null; // 单页异常不中断整本文档
+      }
       if (page != null) {
         doc.pages.add(page);
         onPage?.call(page);
@@ -75,13 +89,17 @@ class PdfOcrDocumentBuilder {
     return doc;
   }
 
-  /// 组装单页：渲染 → 检测 → 图片块识别（跳过 OCR）→ 文本行识别 → 几何段落。
+  /// 组装单页：渲染原图 → 版面分析路由（模型）或旧版行带回退 → 组装结构化页。
+  ///
+  /// [useLayout] 为 true 时走 Layout 模型分类 + 路由分发（图表整块 / 文本区域 OCR /
+  /// 页眉页脚丢弃）；为 false 或 Layout 本页推理异常时回退旧版「行带整块裁剪」流程。
   static Future<PdfOcrPageData?> _buildPage(
     PdfDocument document,
     int index,
     int total,
-    void Function(int current, int total)? onProgress,
-  ) async {
+    void Function(int current, int total)? onProgress, {
+    bool useLayout = false,
+  }) async {
     final page = document.pages[index];
     final pw = (page.width as num).toDouble();
     final ph = (page.height as num).toDouble();
@@ -109,62 +127,18 @@ class PdfOcrDocumentBuilder {
     final w = uiImg.width;
     final h = uiImg.height;
 
-    // DB 文本检测（概率图）。
-    final (scores, newW, newH) = await PdfOcrService.detectPage(
-      rgba,
-      w,
-      h,
-    );
-    // 图片块：整行无文本的大块（跳过 OCR，阅读层内联原图）。
-    final imgBlocks = PdfOcrService.detectImageBlocks(
-      scores,
-      newW,
-      newH,
-      rgba,
-      w,
-      h,
-    );
-    // 文本行：在检测概率图上做连通域 → 轴对齐框。
-    final polys = _boxesFromScores(scores, newW, newH, w, h, imgBlocks);
-    final segments = <PdfOcrTextSegment>[];
-    for (final poly in polys) {
-      final crop = PdfOcrService.cropAxisAlignedPublic(rgba, w, h, poly);
-      if (crop == null) continue;
-      final decoded = await PdfOcrService.recognizeCrop(
-        crop.bytes,
-        crop.width,
-        crop.height,
-      );
-      final text = decoded.text.trim();
-      if (text.isEmpty) continue;
-      segments.add(
-        PdfOcrTextSegment(
-          text: text,
-          left: poly[0].dx,
-          top: poly[0].dy,
-          right: poly[2].dx,
-          bottom: poly[2].dy,
-          score: decoded.score,
-        ),
-      );
-    }
-    onProgress?.call(index + 1, total);
+    // 模型路由优先；若 Layout 不可用或本页推理异常，回退旧版行带流程。
+    final result = useLayout
+        ? (await _buildByLayout(rgba, w, h)) ??
+            (await _buildByLegacy(rgba, w, h))
+        : (await _buildByLegacy(rgba, w, h));
 
+    onProgress?.call(index + 1, total);
     return PdfOcrPageData(
       pageIndex: index + 1,
       pageImageBase64: base64Encode(png),
-      segments: segments,
-      images: imgBlocks
-          .map(
-            (b) => PdfOcrImageBlock(
-              kind: 'image',
-              left: b.left,
-              top: b.top,
-              right: b.right,
-              bottom: b.bottom,
-            ),
-          )
-          .toList(),
+      segments: result.segments,
+      images: result.images,
     );
   }
 
@@ -259,6 +233,168 @@ class PdfOcrDocumentBuilder {
       visited[p] = 1;
       queue.add(p);
     }
+  }
+
+  /// 混合路由（版面模型分类 + 整页文本检测）：文本覆盖率由整页 DB 检测保证，
+  /// 图表 100% 信任 Layout 模型输出（不再混入旧版 detectImageBlocks 行带算法），
+  /// 页眉/页脚/页码（'Drop'）区文字丢弃，Title 区文字标记标题。
+  /// 模型缺失或推理异常时返回 null，交由 [_buildPage] 回退旧版行带流程。
+  static Future<
+          ({
+            List<PdfOcrTextSegment> segments,
+            List<PdfOcrImageBlock> images
+          })?>
+      _buildByLayout(Uint8List rgba, int w, int h) async {
+    List<LayoutBox> boxes;
+    try {
+      boxes = await PdfOcrService.runLayoutAnalysis(rgba, w, h);
+    } catch (_) {
+      return null; // 模型缺失或异常，回退旧版
+    }
+
+    final figureBoxes = <LayoutBox>[];
+    final suppressBoxes = <LayoutBox>[];
+    final titleBoxes = <LayoutBox>[];
+
+    for (final b in boxes) {
+      switch (b.label) {
+        case 'Figure':
+        case 'Table':
+          figureBoxes.add(b);
+          break;
+        case 'Drop':
+          suppressBoxes.add(b);
+          break;
+        case 'Title':
+          titleBoxes.add(b);
+          break;
+      }
+    }
+
+    // 依然跑全页检测，保证正文文字不漏检
+    final (scores, newW, newH) = await PdfOcrService.detectPage(rgba, w, h);
+
+    // 彻底删除 legacyImg！图表区域全权由 Layout 模型接管
+    final suppressAll = <({double left, double top, double right, double bottom})>[
+      for (final b in figureBoxes)
+        (left: b.left, top: b.top, right: b.right, bottom: b.bottom),
+      for (final b in suppressBoxes)
+        (left: b.left, top: b.top, right: b.right, bottom: b.bottom),
+    ];
+
+    final polys = _boxesFromScores(scores, newW, newH, w, h, suppressAll);
+    final segments = <PdfOcrTextSegment>[];
+
+    for (final poly in polys) {
+      final crop = PdfOcrService.cropAxisAlignedPublic(rgba, w, h, poly);
+      if (crop == null) continue;
+
+      ({String text, double score}) decoded;
+      try {
+        decoded = await PdfOcrService.recognizeCrop(
+          crop.bytes,
+          crop.width,
+          crop.height,
+        );
+      } catch (_) {
+        continue;
+      }
+
+      final text = decoded.text.trim();
+      if (text.isEmpty) continue;
+
+      final cx = (poly[0].dx + poly[2].dx) / 2;
+      final cy = (poly[0].dy + poly[2].dy) / 2;
+
+      // 页眉/页脚区直接丢弃文本
+      if (_pointInAny(cx, cy, suppressBoxes)) continue;
+
+      final isTitle = _pointInAny(cx, cy, titleBoxes);
+      segments.add(PdfOcrTextSegment(
+        text: text,
+        left: poly[0].dx,
+        top: poly[0].dy,
+        right: poly[2].dx,
+        bottom: poly[2].dy,
+        score: decoded.score,
+        layoutType: isTitle ? 'title' : 'text',
+      ));
+    }
+
+    // 仅使用版面模型分析出的图表，告别碎截图
+    final images = <PdfOcrImageBlock>[
+      for (final b in figureBoxes)
+        PdfOcrImageBlock(
+          kind: b.label.toLowerCase(),
+          left: b.left,
+          top: b.top,
+          right: b.right,
+          bottom: b.bottom,
+        ),
+    ];
+
+    return (segments: segments, images: images);
+  }
+
+  /// 旧版行带回退：DB 检测概率图 → 整块图片块（行带法）→ 连通域文本行 OCR。
+  /// 无 Layout 模型时使用，保证功能降级可用。
+  static Future<({List<PdfOcrTextSegment> segments, List<PdfOcrImageBlock> images})>
+      _buildByLegacy(Uint8List rgba, int w, int h) async {
+    final (scores, newW, newH) = await PdfOcrService.detectPage(rgba, w, h);
+    final imgBlocks = PdfOcrService.detectImageBlocks(
+      scores,
+      newW,
+      newH,
+      rgba,
+      w,
+      h,
+    );
+    final polys = _boxesFromScores(scores, newW, newH, w, h, imgBlocks);
+    final segments = <PdfOcrTextSegment>[];
+    for (final poly in polys) {
+      final crop = PdfOcrService.cropAxisAlignedPublic(rgba, w, h, poly);
+      if (crop == null) continue;
+      final decoded = await PdfOcrService.recognizeCrop(
+        crop.bytes,
+        crop.width,
+        crop.height,
+      );
+      final text = decoded.text.trim();
+      if (text.isEmpty) continue;
+      segments.add(
+        PdfOcrTextSegment(
+          text: text,
+          left: poly[0].dx,
+          top: poly[0].dy,
+          right: poly[2].dx,
+          bottom: poly[2].dy,
+          score: decoded.score,
+          layoutType: 'text', // 旧版流程无 Layout 标注，统一按正文
+        ),
+      );
+    }
+    final images = imgBlocks
+        .map(
+          (b) => PdfOcrImageBlock(
+            kind: 'image',
+            left: b.left,
+            top: b.top,
+            right: b.right,
+            bottom: b.bottom,
+          ),
+        )
+        .toList();
+    return (segments: segments, images: images);
+  }
+
+  /// 判断点 (x,y) 是否落在任一 [rects] 框内（用于标题 / 页眉页脚判定）。
+  static bool _pointInAny(double x, double y, List<LayoutBox> rects) {
+    for (final r in rects) {
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// 跨页页眉/页脚/页码剔除：用**位置桶**而非「完全相同文本」判定——

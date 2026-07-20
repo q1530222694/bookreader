@@ -189,6 +189,10 @@ class _ReflowData {
 class _ReflowPageTileState extends State<_ReflowPageTile> {
   late final Future<_ReflowData> _future;
 
+  // 持有当前已解码数据，便于在切换页面 / 销毁时释放原生图片句柄（ui.Image 为
+  // GPU 原生资源，必须显式 dispose，否则造成显存泄漏）。
+  _ReflowData? _data;
+
   @override
   void initState() {
     super.initState();
@@ -198,7 +202,26 @@ class _ReflowPageTileState extends State<_ReflowPageTile> {
   @override
   void didUpdateWidget(covariant _ReflowPageTile old) {
     super.didUpdateWidget(old);
-    if (old.page != widget.page) _future = _load(widget.page);
+    if (old.page != widget.page) {
+      _disposeData();
+      _future = _load(widget.page);
+    }
+  }
+
+  /// 释放已解码的原图与所有裁剪子图（均为原生 GPU 句柄）。
+  void _disposeData() {
+    final d = _data;
+    _data = null;
+    d?.base?.dispose();
+    for (final c in d?.crops ?? const <ui.Image?>[]) {
+      c?.dispose();
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposeData();
+    super.dispose();
   }
 
   /// 解码原图，并把它内部被判定为图片 / 图表 / 公式的区块裁剪出来。
@@ -261,6 +284,7 @@ class _ReflowPageTileState extends State<_ReflowPageTile> {
       future: _future,
       builder: (ctx, snap) {
         final data = snap.data;
+        if (data != null) _data = data; // 持有引用，供 dispose 释放原生句柄
         if (data == null) {
           return _textOnly(ctx, _paragraphsOf(widget.page), bodyStyle);
         }
@@ -319,14 +343,34 @@ class _ReflowPageTileState extends State<_ReflowPageTile> {
             }
           } else {
             final para = item.paragraph!;
+            final isTitle = para.isTitle;
+            // 标题：大字号 + 加粗 + 独立段距，还原真实标题格式
+            //（isTitle 由 Layout 模型标注，layoutType == 'title'）。
+            final baseFontSize = bodyStyle.fontSize ?? 18.0;
+            final paraStyle = isTitle
+                ? bodyStyle.copyWith(
+                    fontSize: baseFontSize * 1.5,
+                    fontWeight: FontWeight.bold,
+                    height: 1.3,
+                  )
+                : bodyStyle;
             children.add(
               GestureDetector(
                 onLongPress: () => _editParagraph(ctx, para),
-                child: Text(
-                  para.text,
-                  style: bodyStyle,
-                  textAlign: TextAlign.justify,
-                  softWrap: true,
+                child: Container(
+                  // 标题上下的额外留白（相对字号派生，避免硬编码数值）。
+                  margin: isTitle
+                      ? EdgeInsets.only(
+                          top: baseFontSize * 0.5,
+                          bottom: baseFontSize * 0.25,
+                        )
+                      : null,
+                  child: Text(
+                    para.text,
+                    style: paraStyle,
+                    textAlign: isTitle ? TextAlign.left : TextAlign.justify,
+                    softWrap: true,
+                  ),
                 ),
               ),
             );
@@ -392,20 +436,43 @@ class _ReflowPageTileState extends State<_ReflowPageTile> {
     return paragraphs;
   }
 
-  /// 把段落与图片块按阅读顺序合并：先按纵坐标，同纵坐标按横坐标。
+  /// 把段落与图片块合并为阅读流。
+  ///
+  /// 关键改进（避免「按绝对 top 插入把一句话切断」）：图片块不再与段落按同一
+  /// 纵坐标混排，而是检测其垂直空间，吸附到「紧邻它上方」的段落之下，作为尾随
+  /// 内联组件。这样图片永远落在两个段落之间，绝不会插进某一行文字中间。
   List<_FlowItem> _mergeFlow(List<_Paragraph> paragraphs, List<PdfOcrImageBlock> images) {
-    final items = <_FlowItem>[];
-    for (final p in paragraphs) {
-      items.add(_FlowItem.paragraph(p));
-    }
+    // 每个图片块锚定到「底部最接近且不超过图片顶部的段落」，记录为「该段落后插入的图」。
+    final trailing = <int, List<_FlowItem>>{};
     for (var i = 0; i < images.length; i++) {
-      items.add(_FlowItem.image(i, images[i]));
+      var anchor = -1; // -1 表示上方无段落（图片置顶）
+      var bestBottom = double.negativeInfinity;
+      for (var p = 0; p < paragraphs.length; p++) {
+        if (paragraphs[p].bottom <= images[i].top &&
+            paragraphs[p].bottom > bestBottom) {
+          bestBottom = paragraphs[p].bottom;
+          anchor = p;
+        }
+      }
+      (trailing[anchor] ??= []).add(_FlowItem.image(i, images[i]));
     }
-    items.sort((a, b) {
-      final dt = a.top.compareTo(b.top);
-      if (dt != 0) return dt;
-      return a.left.compareTo(b.left);
-    });
+
+    final items = <_FlowItem>[];
+    // 无锚定（上方无段落）的图片置顶。
+    final head = trailing.remove(-1);
+    if (head != null) {
+      head.sort((a, b) => a.top.compareTo(b.top));
+      items.addAll(head);
+    }
+    // 按阅读顺序输出段落，并在其后紧跟其尾随图片（同段落下的多张图片按 top 排序）。
+    for (var p = 0; p < paragraphs.length; p++) {
+      items.add(_FlowItem.paragraph(paragraphs[p]));
+      final tg = trailing[p];
+      if (tg != null) {
+        tg.sort((a, b) => a.top.compareTo(b.top));
+        items.addAll(tg);
+      }
+    }
     return items;
   }
 
@@ -496,6 +563,11 @@ class _Paragraph {
   }
 
   List<PdfOcrTextSegment> get segments => _segments;
+
+  /// 是否为标题段落：当且仅当段内所有文本行都被 Layout 模型标注为标题
+  /// （[PdfOcrTextSegment.isTitle]）。供渲染层做差异化样式。
+  bool get isTitle =>
+      _segments.isNotEmpty && _segments.every((s) => s.isTitle);
 
   /// 合并段内文字。中文行之间不加空格；英文 / 数字之间必要时加空格。
   String get text {

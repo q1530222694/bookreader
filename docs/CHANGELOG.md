@@ -1565,3 +1565,76 @@
 
 **验证**：`flutter analyze` 七个改动文件 → 0 error（仅既有 `deprecated_member_use`/`unused_local_variable` 等 info/warning 提示，不阻断编译；新增动画代码的 `translate` 弃用提示与该文件既有风格一致）。
 
+### [2026-07-20] 修改：OCR 重排接入 Layout 版面分析（模型分类 + 路由分发）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/pdf_ocr_service.dart`（OCR 服务 · 纯逻辑层）
+  └─ 新增 ➔ `LayoutBox`（版面框数据类，顶层）/ `runLayoutAnalysis(rgba,w,h)`（加载 `assets/models/layout.onnx`，NCHW(BGR)+ImageNet 预处理，解析 `[1,N,6]` 归一化输出并映射回原图坐标，NMS 去重）/ `recognizeRegion(regionBytes,rw,rh)`（仅对 Layout 划出的 'Text'/'Title' 区域跑 DB 检测 + CRNN 识别，返回区域相对坐标文本行）/ `isLayoutModelAvailable()`
+  └─ 被注入 ➔ `lib/features/shell/service/pdf_ocr_document_builder.dart`（`_buildByLayout` 优先路由；模型缺失/异常时回退 `_buildByLegacy` 旧版行带流程）
+- `lib/features/shell/model/pdf_ocr_document.dart`（数据模型）
+  └─ 修改 ➔ `PdfOcrTextSegment` 新增 `layoutType`('text'/'title'，默认 'text') 与 `bool get isTitle => layoutType == 'title'`；`toJson`/`fromJson` 经键 `'ly'` 序列化，旧缓存（v2 及之前）缺省按正文，向后兼容
+  └─ 被注入 ➔ `pdf_ocr_service.dart`（`recognizeRegion` 标记 layoutType）/ `pdf_ocr_document_builder.dart`（路由标记）/ `pdf_ocr_reader_view.dart`（标题差异化渲染）
+- `lib/features/shell/ui/pdf_ocr_reader_view.dart`（OCR 阅读视图）
+  └─ 消费 ➔ `PdfOcrTextSegment.isTitle`：标题大字号 + 加粗 + 独立段距（字号基于主题字号相对派生）；`_mergeFlow` 改为图片「尾随内联」吸附上方段落之下（不再按绝对 top 切断句子）；`_ReflowPageTileState` 在页面切换 / 销毁时 `dispose` 原生 `ui.Image` 句柄（防显存泄漏）
+
+**【变更说明】**
+- 以「模型分类 + 路由分发」替换旧版硬编码行带规则：`Figure`/`Table` → 整块 `PdfOcrImageBlock`（kind='figure'/'table'，绝不切碎、不做 OCR）；`Text`/`Title` → 抠区域跑 `recognizeRegion` 区域 OCR，相对坐标叠加区域偏移映射回整页绝对坐标并标记 `layoutType`；`Header`/`Footer` → 直接丢弃（从源头解决页码混入正文）。
+- 布局模型（`assets/models/layout.onnx`）缺失时，`build` 经 `isLayoutModelAvailable()` 一次性判定，逐页回退旧版 `detectImageBlocks` 行带流程，保证不挂死；所有 `OrtValue` 与 `ui.Image` 原生句柄均严格 `dispose`。
+- `_Paragraph.isTitle`（段内文本行全为 `layoutType=='title'` 时为真）驱动标题渲染；旧版 `_boxesFromScores`/`detectImageBlocks`/`suppressPageNumbers` 仍保留作回退与兜底。
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增/修改 Config Key；无新增 Permission Key；未触碰 `packages/` 与权限引擎。
+
+**【i18n 新增键值（请确认已并入翻译文件）】**
+- （无新增文案；标题样式由 `CupertinoTheme` 字号相对派生，沿用既有 `pdf_ocr_*` 键。）
+
+**验证**：`flutter analyze` 四个改动文件 → 0 error / 0 warning（仅 `pdf_ocr_document.dart` 顶部既有 `dangling_library_doc_comments` info，非本次引入）。
+
+### [2026-07-20] 修正：Layout 解析契约对齐真实 DocStructBench 模型（下载真实权重 + 改写解析）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/pdf_ocr_service.dart`（OCR 服务 · 纯逻辑层）
+  └─ 修正 ➔ `runLayoutAnalysis` 链条：内置真实 `layout.onnx`（DocLayout-YOLO DocStructBench imgsz1024，71.8MB，落于 `assets/models/`）。`_preprocessLayout` 由「复用 DB 的 NCHW(BGR)+ImageNet」改为 YOLO 标准 letterbox（缩放到 1024 正方形、灰边填充、RGB 且 /255）；`_parseLayout` 由「约定 `[1,N,6]` 归一化 [class,score,xc,yc,w,h]」改为解析真实输出 `[1,N,6]` = `[x1,y1,x2,y2,conf,cls]`（坐标在 1024 输入像素空间），按 letterbox 逆变换映射回原图坐标，再经 `_layoutRouteMap`（模型 10 类 → 6 路由标签，'abandon' 丢弃）路由，最后 NMS。常量新增 `_layoutInputSize=1024` / `_layoutRawLabels`(10) / `_layoutRouteMap`，移除旧的 `_layoutLongSide` / `_layoutLabels`。
+  └─ 被注入 ➔ `pdf_ocr_document_builder.dart`（`_buildByLayout` 仍按 'Figure'/'Table'→图片块、'Text'/'Title'→区域 OCR、'abandon' 经路由层丢弃，无需改动）
+
+**【变更说明】**
+- 上一轮（同日期）的「[1,N,6] 归一化 + 6 类」为占位契约；真实 DocStructBench 模型输出为已含 NMS 的 `[x1,y1,x2,y2,conf,cls]`（输入像素空间），类别为 10 类（title/plain text/abandon/figure/figure_caption/table/table_caption/table_footnote/isolate_formula/formula_caption），与占位契约**不兼容**，故必须改写预处理与解析。
+- 类别顺序与「10 类→6 路由标签」映射经本机 onnxruntime（Python 参照）在真实 PDF 页上端到端验证：标题→'Title'、整宽正文→'Text'、图表→'Figure'、表格→'Table'、页脚/页码(abandon)→丢弃，坐标映射准确（置信度 0.25~0.94）。
+- `pubspec.yaml` 已注册 `assets/models/`，权重落盘即被加载；缺失时仍走旧版行带回退。
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增/修改 Config Key；无新增 Permission Key；未触碰 `packages/` 与权限引擎；无 i18n 新增。
+
+**验证**：`flutter analyze` 四个改动文件 → 0 error（仅 `pdf_ocr_document.dart` 顶部既有 `dangling_library_doc_comments` info，非本次引入）。
+
+### [2026-07-20] 修复：混合路由 + 崩溃兜底（解决「效果差/整页空白」「只排几页就停」）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/pdf_ocr_document_builder.dart`（OCR 文档组装器）
+  └─ 重写 ➔ `_buildByLayout` 由「仅在版面框内做区域 OCR」改为**混合路由**：文本走成熟整页 DB 检测（`detectPage` + `_boxesFromScores`），覆盖率与旧版一致；版面模型仅负责 Figure/Table→干净图片块、'Drop'(abandon)→抑制区、Title→标题标记。新增 `_pointInAny` / `_rectOverlapsAny` 辅助；删除已不用的 `_boxCenterInsideAny`。`build` 两个分页循环对 `_buildPage` 整体 try/catch（catch→null），单页异常不中断整本文档。
+- `lib/features/shell/service/pdf_ocr_service.dart`（OCR 服务 · 纯逻辑层）
+  └─ 修正 ➔ `_layoutRouteMap` 中 `'abandon': null` 改为 `'abandon': 'Drop'`（抑制区语义，供组装器丢弃页眉/页脚/页码文字；否则整页检测会把页码识别成正文）。`recognizeRegion` 降级为可选工具，不再是主路径。
+
+**【变更说明】**
+- **「效果差/整页空白」根因**：原路由只在 DocLayout-YOLO 的 'Text'/'Title' 框内做 OCR，而该模型漏检严重（实测普通书页文本框仅覆盖 ~10% 面积），框外 85%+ 文字被丢弃 → 整页近乎空白。混合路由让文本覆盖率回到整页检测水平，版面模型只做结构增强。
+- **「只排几页就停」根因**：`recognizeRegion` 调用脱离 try 保护，任一页 OCR 抛异常即中断 `build` 整本文档。现逐条 `recognizeCrop` 包 try + `build` 分页循环包 try，单页失败自动跳过、其余页继续。
+- 经本机 onnxruntime（Python 参照）验证路由标签：普通书页出现 `Title:2/Text:4/Drop:1/Figure:1`，'Drop' 抑制区与 Figure 干净框均按预期产生。
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增/修改 Config Key；无新增 Permission Key；未触碰 `packages/` 与权限引擎；无 i18n 新增。
+
+**验证**：`flutter analyze` 改动文件 → 0 error / 0 warning（仅 `pdf_ocr_document.dart` 顶部既有 `dangling_library_doc_comments` info，非本次引入）。
+
+### [2026-07-20] 修正：100% 信任 Layout 图表 + `_parseLayout` 双策略自适应解析
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/pdf_ocr_document_builder.dart`（OCR 文档组装器）
+  └─ 重写 ➔ `_buildByLayout` 彻底移除 `legacyImg`（旧版 `detectImageBlocks` 行带算法）混入：图表区域 100% 由 Layout 模型接管，图片块仅来自 `figureBoxes`（Figure/Table），彻底告别旧算法把图重新切碎。删除已无用的 `_rectOverlapsAny` 辅助。
+- `lib/features/shell/service/pdf_ocr_service.dart`（OCR 服务 · 纯逻辑层）
+  └─ 重写 ➔ `_parseLayout` 改为**双策略自适应解析**：策略1 处理标准 YOLOv8/v11 原始 `[1,14,N]` 输出（`[cx,cy,w,h]`→绝对坐标）；策略2 处理本权重实际的已含 NMS `[1,N,6]` 输出（`[x1,y1,x2,y2,conf,cls]`）；由 `raw.length` 自动分派，两种格式均正确。
+
+**【变更说明】**
+- 用户指令要求「彻底剔除旧算法、100% 信任 Layout 图表输出」并替换两方法。**重要事实核验**：当前 `assets/models/layout.onnx`（DocLayout-YOLO DocStructBench imgsz1024）经本机 onnxruntime 实测输出为 `(1, 300, 6)`（`[x1,y1,x2,y2,conf,cls]`，坐标在 1024 输入像素空间，**非** `[1,14,N]`），即已内置 NMS 的导出版本。故指令所据「张量解析错位/类别当坐标」对当前权重不成立——现有解析本就正确。但双策略 `_parseLayout` 为严格超集：当前权重走策略2（与旧逻辑等价），若日后换成原始 `[1,14,N]` 导出亦能正确解析，故采纳。
+- 移除 `legacyImg` 后，Layout 漏检的图块将不再被旧算法补回（退化为 OCR 文字而非图片块），属预期取舍；文本覆盖率仍由整页 DB 检测保证。
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增/修改 Config Key；无新增 Permission Key；未触碰 `packages/` 与权限引擎；无 i18n 新增。
+
+**验证**：`flutter analyze` 两个改动文件 → 0 error / 0 warning（移除 `_rectOverlapsAny` 后无 unused 警告）。
+

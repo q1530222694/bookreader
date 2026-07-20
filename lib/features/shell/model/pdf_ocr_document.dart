@@ -18,6 +18,11 @@ class PdfOcrTextSegment {
   /// 识别平均置信度（0~1），供 UI 可选标灰低置信文本。
   final double score;
 
+  /// 版面类型：由 Layout 分析模型标注（'text' 正文 / 'title' 标题 等）。
+  /// 阅读层据此对标题做差异化渲染（大字号 + 加粗 + 独立段距），详见
+  /// [pdf_ocr_service.dart] 的 [PdfOcrService.runLayoutAnalysis] 路由逻辑。
+  final String layoutType;
+
   const PdfOcrTextSegment({
     required this.text,
     required this.left,
@@ -25,7 +30,11 @@ class PdfOcrTextSegment {
     required this.right,
     required this.bottom,
     this.score = 0.0,
+    this.layoutType = 'text',
   });
+
+  /// 是否为标题（供 UI 差异化渲染）。由 Layout 模型标注 'title' 时为真。
+  bool get isTitle => layoutType == 'title';
 
   double get width => right - left;
   double get height => bottom - top;
@@ -37,6 +46,7 @@ class PdfOcrTextSegment {
         'r': right,
         'b': bottom,
         's': score,
+        'ly': layoutType, // 新增：版面类型（标题/正文等）
       };
 
   factory PdfOcrTextSegment.fromJson(Map<String, dynamic> j) => PdfOcrTextSegment(
@@ -46,6 +56,8 @@ class PdfOcrTextSegment {
         right: (j['r'] as num).toDouble(),
         bottom: (j['b'] as num).toDouble(),
         score: (j['s'] as num? ?? 0.0).toDouble(),
+        // 旧缓存（v2 及之前）缺省按正文处理，保证向后兼容、不崩溃。
+        layoutType: (j['ly'] as String?) ?? 'text',
       );
 }
 

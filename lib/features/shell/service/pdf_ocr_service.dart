@@ -37,6 +37,41 @@ class OcrTextLine {
 ///
 /// 模型文件需由调用方放入 `assets/models/`：`det.onnx`、`rec.onnx`、`ppocr_dict.txt`
 /// （与 [addition_model.onnx] 同目录）。缺模型时 [recognizePage] 会抛错，由上层提示。
+/// 版面分析输出的单个版面框（已映射回原图坐标）。
+///
+/// 由 [PdfOcrService.runLayoutAnalysis] 产出：模型把整页分成若干区域，每个区域带
+/// 类别标签（'Text'/'Title'/'Figure'/'Table'/'Header'/'Footer'）、置信度与
+/// 原图坐标系下的包围盒。组装器据此做「模型分类 + 路由分发」，替换旧版硬编码规则。
+class LayoutBox {
+  /// 类别标签。
+  final String label;
+
+  /// 置信度（0~1）。
+  final double score;
+
+  /// 原图坐标系下的轴对齐包围盒（单位=原图像素）。
+  final double left;
+  final double top;
+  final double right;
+  final double bottom;
+
+  const LayoutBox({
+    required this.label,
+    required this.score,
+    required this.left,
+    required this.top,
+    required this.right,
+    required this.bottom,
+  });
+
+  double get width => right - left;
+  double get height => bottom - top;
+
+  /// 中心点（用于与图表/表格框做「文本是否落在图内」的重叠判定）。
+  ({double x, double y}) get center =>
+      (x: (left + right) / 2, y: (top + bottom) / 2);
+}
+
 class PdfOcrService {
   PdfOcrService._();
 
@@ -712,5 +747,322 @@ class PdfOcrService {
       blocks.add((left: left, top: top, right: right, bottom: bottom));
     }
     return blocks;
+  }
+
+  // ───────────────────── 版面分析（Layout Analysis） ─────────────────────
+
+  static const String _layoutAsset = 'assets/models/layout.onnx';
+  static OrtSession? _layoutSession;
+
+  /// 版面模型输入尺寸（DocLayout-YOLO 系列固定为正方形 imgsz，本模型为 1024）。
+  /// 必须与原训练 imgsz 一致，否则坐标与置信度都会失真。
+  static const int _layoutInputSize = 1024;
+
+  /// 版面模型原始 10 类（**务必与导出的 layout.onnx 训练类别顺序严格一致**）。
+  /// 来源：DocStructBench 预训练权重（imgsz1024），经验证顺序为：
+  /// 0 title / 1 plain text / 2 abandon / 3 figure / 4 figure_caption /
+  /// 5 table / 6 table_caption / 7 table_footnote / 8 isolate_formula / 9 formula_caption。
+  static const List<String> _layoutRawLabels = [
+    'title',
+    'plain text',
+    'abandon',
+    'figure',
+    'figure_caption',
+    'table',
+    'table_caption',
+    'table_footnote',
+    'isolate_formula',
+    'formula_caption',
+  ];
+
+  /// 原始类别 → 路由标签映射。
+  /// 路由标签沿用旧版语义：'Title'/'Text' 走文本（整页检测），'Figure'/'Table'
+  /// 走图片块；'Drop' 为「抑制区」（页眉/页脚/页码），其内文字在组装阶段丢弃；
+  /// 未登记类别返回 null 直接丢弃。
+  /// 说明：figure_caption/table_caption/table_footnote/formula_caption 均为文字，
+  /// 并入 'Text'；isolate_formula 作为图片保留（'Figure'）以免 OCR 扭曲公式。
+  /// 注意：'abandon' 改为 'Drop' 而非丢弃——组装器需要用它的框来抑制页眉页脚文字，
+  /// 否则整页 DB 检测会把页码也识别成正文。
+  static const Map<String, String?> _layoutRouteMap = {
+    'title': 'Title',
+    'plain text': 'Text',
+    'abandon': 'Drop',
+    'figure': 'Figure',
+    'figure_caption': 'Text',
+    'table': 'Table',
+    'table_caption': 'Text',
+    'table_footnote': 'Text',
+    'isolate_formula': 'Figure',
+    'formula_caption': 'Text',
+  };
+
+  /// 版面框置信度阈值（低于直接丢弃）。DocLayout-YOLO 默认 conf=0.2，
+  /// 这里取 0.25 兼顾召回与精度，避免漏掉真实版面块。
+  static const double _layoutScoreThresh = 0.25;
+
+  /// NMS 的 IoU 阈值（去除同一目标的重复框）。
+  static const double _layoutNmsIou = 0.5;
+
+  /// 版面分析原子能力：输入整页 RGBA，输出 N 个版面框（含 label/score/rect）。
+  ///
+  /// 预处理为 YOLO 标准：letterbox 缩放到 [_layoutInputSize] 正方形、灰边填充、
+  /// RGB 且 /255（与训练一致）；输出为已含 NMS 的 `[1, N, 6]`，每行
+  /// `[x1, y1, x2, y2, conf, cls]`（坐标在输入像素空间），解析后按 letterbox
+  /// 逆变换映射回原图绝对坐标，再经 NMS 去重，并按 [_layoutRouteMap] 路由。
+  /// 模型文件需放入 `assets/models/layout.onnx`；缺失或推理失败会抛错，
+  /// 由上层（[PdfOcrDocumentBuilder]）回退到旧版「行带整块裁剪」流程。
+  static Future<List<LayoutBox>> runLayoutAnalysis(
+    Uint8List rgba,
+    int w,
+    int h,
+  ) async {
+    final session = await _ensureLayoutSession();
+    final pre = _preprocessLayout(rgba, w, h);
+    final raw = await _runLayout(session, pre.input, pre.inSize);
+    final boxes = _parseLayout(raw, w, h, pre.scale, pre.padL, pre.padT);
+    return _layoutNms(boxes);
+  }
+
+  /// 版面模型可用性（供组装器决定走模型路由还是旧版行带回退）。
+  static Future<bool> isLayoutModelAvailable() async {
+    try {
+      await rootBundle.load(_layoutAsset);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<OrtSession> _ensureLayoutSession() async {
+    if (_layoutSession != null) return _layoutSession!;
+    _layoutSession = await OnnxRuntime().createSessionFromAsset(_layoutAsset);
+    return _layoutSession!;
+  }
+
+  /// 版面预处理：YOLO 标准 letterbox —— 保持纵横比缩放到 [_layoutInputSize]
+  /// 正方形，不足部分用灰边 114 填充（YOLO 惯例，灰色与通道无关），输出
+  /// NCHW(RGB) 且 /255（与 DocLayout-YOLO 训练预处理一致）。返回输入张量及
+  /// 逆变换所需的 scale / 左/上填充，供 [_parseLayout] 把框映射回原图坐标。
+  static ({Float32List input, double scale, int padL, int padT, int inSize})
+      _preprocessLayout(Uint8List rgba, int w, int h) {
+    final inSize = _layoutInputSize;
+    final scale = inSize / math.max(w, h);
+    final nw = (w * scale).round();
+    final nh = (h * scale).round();
+    final padL = ((inSize - nw) / 2).floor();
+    final padT = ((inSize - nh) / 2).floor();
+    final plane = inSize * inSize;
+    final input = Float32List(plane * 3);
+    const padVal = 114.0 / 255.0; // 灰边
+    for (var y = 0; y < inSize; y++) {
+      for (var x = 0; x < inSize; x++) {
+        final pi = y * inSize + x;
+        final inBox = x >= padL && x < padL + nw && y >= padT && y < padT + nh;
+        double r, g, b;
+        if (inBox) {
+          final sx = ((x - padL) / scale).floor().clamp(0, w - 1);
+          final sy = ((y - padT) / scale).floor().clamp(0, h - 1);
+          final si = (sy * w + sx) * 4; // 源 RGBA：[R,G,B,A]
+          r = rgba[si] / 255.0; // 通道 0 = R
+          g = rgba[si + 1] / 255.0; // 通道 1 = G
+          b = rgba[si + 2] / 255.0; // 通道 2 = B
+        } else {
+          r = g = b = padVal;
+        }
+        input[pi] = r;
+        input[plane + pi] = g;
+        input[2 * plane + pi] = b;
+      }
+    }
+    return (input: input, scale: scale, padL: padL, padT: padT, inSize: inSize);
+  }
+
+  static Future<Float32List> _runLayout(
+    OrtSession session,
+    Float32List input,
+    int inSize,
+  ) async {
+    final ortInput = await OrtValue.fromList(input, <int>[1, 3, inSize, inSize]);
+    final outputs = await session.run(<String, OrtValue>{
+      session.inputNames.first: ortInput,
+    });
+    // 展平输出（rank>1 用 asFlattenedList 避免嵌套 List cast 失败，见 [_runDet]）。
+    final raw = await outputs[session.outputNames.first]!.asFlattenedList();
+    // ⚠️ FFI 安全：输入与所有输出张量必须显式释放，否则原生内存泄漏。
+    ortInput.dispose();
+    for (final t in outputs.values) {
+      t.dispose();
+    }
+    return Float32List.fromList(raw.map((e) => (e as num).toDouble()).toList());
+  }
+
+  /// 解析版面模型输出：支持标准 YOLOv8 输出 [1, 14, N] 及 NMS 输出 [1, N, 6]。
+  static List<LayoutBox> _parseLayout(
+    Float32List raw,
+    int origW,
+    int origH,
+    double scale,
+    int padL,
+    int padT,
+  ) {
+    final boxes = <LayoutBox>[];
+    final numClasses = _layoutRawLabels.length; // 10
+    final channels = 4 + numClasses; // 14
+
+    // 策略 1：标准 YOLOv8 / YOLOv11 输出（如 DocLayout-YOLO 默认导出）
+    // 形状 [1, 14, 8400] -> 展平后长度通常大于 10000 且能被 channels 整除
+    if (raw.length > 10000 && raw.length % channels == 0) {
+      final numAnchors = raw.length ~/ channels;
+
+      for (var i = 0; i < numAnchors; i++) {
+        // 1. 提取最大类别得分
+        double maxConf = -1.0;
+        int classIdx = -1;
+        for (var c = 0; c < numClasses; c++) {
+          final conf = raw[(4 + c) * numAnchors + i];
+          if (conf > maxConf) {
+            maxConf = conf;
+            classIdx = c;
+          }
+        }
+
+        if (maxConf < _layoutScoreThresh) continue;
+
+        final rawLabel = _layoutRawLabels[classIdx];
+        final route = _layoutRouteMap[rawLabel];
+        if (route == null) continue;
+
+        // 2. 提取并转换 YOLO 坐标：[cx, cy, w, h] -> [left, top, right, bottom]
+        final cx = raw[0 * numAnchors + i];
+        final cy = raw[1 * numAnchors + i];
+        final w = raw[2 * numAnchors + i];
+        final h = raw[3 * numAnchors + i];
+
+        var left = (cx - w / 2 - padL) / scale;
+        var top = (cy - h / 2 - padT) / scale;
+        var right = (cx + w / 2 - padL) / scale;
+        var bottom = (cy + h / 2 - padT) / scale;
+
+        boxes.add(LayoutBox(
+          label: route,
+          score: maxConf,
+          left: left.clamp(0.0, origW.toDouble()),
+          top: top.clamp(0.0, origH.toDouble()),
+          right: right.clamp(0.0, origW.toDouble()),
+          bottom: bottom.clamp(0.0, origH.toDouble()),
+        ));
+      }
+    }
+    // 策略 2：已内置 NMS 的输出（[1, N, 6] 格式）
+    else if (raw.length % 6 == 0) {
+      final n = raw.length ~/ 6;
+      for (var i = 0; i < n; i++) {
+        final base = i * 6;
+        final conf = raw[base + 4];
+        if (conf < _layoutScoreThresh) continue;
+
+        final classIdx = raw[base + 5].round().clamp(0, _layoutRawLabels.length - 1);
+        final rawLabel = _layoutRawLabels[classIdx];
+        final route = _layoutRouteMap[rawLabel];
+        if (route == null) continue;
+
+        var left = (raw[base] - padL) / scale;
+        var top = (raw[base + 1] - padT) / scale;
+        var right = (raw[base + 2] - padL) / scale;
+        var bottom = (raw[base + 3] - padT) / scale;
+
+        if (left > right) {
+          final t = left;
+          left = right;
+          right = t;
+        }
+        if (top > bottom) {
+          final t = top;
+          top = bottom;
+          bottom = t;
+        }
+
+        boxes.add(LayoutBox(
+          label: route,
+          score: conf,
+          left: left.clamp(0.0, origW.toDouble()),
+          top: top.clamp(0.0, origH.toDouble()),
+          right: right.clamp(0.0, origW.toDouble()),
+          bottom: bottom.clamp(0.0, origH.toDouble()),
+        ));
+      }
+    }
+    return boxes;
+  }
+
+  /// 版面框 NMS：按类别分组，IoU 超过 [_layoutNmsIou] 的保留分数最高者，
+  /// 去除同一目标的重复预测（检测模型常见输出）。
+  static List<LayoutBox> _layoutNms(List<LayoutBox> boxes) {
+    final byLabel = <String, List<LayoutBox>>{};
+    for (final b in boxes) {
+      (byLabel[b.label] ??= []).add(b);
+    }
+    final result = <LayoutBox>[];
+    for (final list in byLabel.values) {
+      list.sort((a, b) => b.score.compareTo(a.score));
+      final keep = <LayoutBox>[];
+      for (final cand in list) {
+        var suppressed = false;
+        for (final kept in keep) {
+          if (_iou(cand, kept) > _layoutNmsIou) {
+            suppressed = true;
+            break;
+          }
+        }
+        if (!suppressed) keep.add(cand);
+      }
+      result.addAll(keep);
+    }
+    return result;
+  }
+
+  static double _iou(LayoutBox a, LayoutBox b) {
+    final ix0 = math.max(a.left, b.left);
+    final iy0 = math.max(a.top, b.top);
+    final ix1 = math.min(a.right, b.right);
+    final iy1 = math.min(a.bottom, b.bottom);
+    final iw = (ix1 - ix0).clamp(0.0, double.infinity);
+    final ih = (iy1 - iy0).clamp(0.0, double.infinity);
+    final inter = iw * ih;
+    if (inter <= 0) return 0;
+    final union = a.width * a.height + b.width * b.height - inter;
+    return union <= 0 ? 0 : inter / union;
+  }
+
+  /// 区域 OCR 原子能力：仅对 Layout 划分出的 'Text'/'Title' 区域图像跑
+  /// DB 文本检测 + CRNN 识别（不再整页跑检测，命中率与速度更好）。
+  ///
+  /// [regionBytes] 为从整页原图抠出的区域 RGBA；[rw]/[rh] 为区域宽高。
+  /// 返回该区域**相对坐标**的文本行（[OcrTextLine.polygon] 落在区域坐标系内）；
+  /// 调用方需叠加区域在原图的偏移，映射回整页绝对坐标。
+  static Future<List<OcrTextLine>> recognizeRegion(
+    Uint8List regionBytes,
+    int rw,
+    int rh,
+  ) async {
+    // 复用整页检测原子能力得到区域概率图（缩放后空间）。
+    final (scores, newW, newH) = await detectPage(regionBytes, rw, rh);
+    // 连通域取文本行轴对齐框（origW/origH 传入区域宽高 → 框落在区域坐标系）。
+    final polys = _detectBoxes(scores, newW, newH, rw, rh);
+    final lines = <OcrTextLine>[];
+    for (final poly in polys) {
+      final crop = _cropAxisAligned(regionBytes, rw, rh, poly, _recHeight);
+      if (crop == null) continue;
+      final decoded = await recognizeCrop(crop.bytes, crop.width, crop.height);
+      if (decoded.text.trim().isNotEmpty) {
+        lines.add(OcrTextLine(
+          text: decoded.text,
+          score: decoded.score,
+          polygon: poly,
+        ));
+      }
+    }
+    _sortReadingOrder(lines);
+    return lines;
   }
 }
