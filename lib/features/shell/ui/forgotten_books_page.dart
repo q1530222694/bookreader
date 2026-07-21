@@ -8,6 +8,7 @@ import 'book_viewer_page.dart';
 import 'comic_viewer_page.dart';
 import 'epub_viewer_page.dart';
 import 'txt_viewer_page.dart';
+import 'widgets/book_cover_image.dart';
 
 /// ForgottenBooksPage 展示全部"未读完"的书籍，按未打开天数倒序排列。
 /// 已看完（progress >= 1.0）的书籍不计入。
@@ -105,7 +106,6 @@ class _ForgottenBooksPageState extends State<ForgottenBooksPage> {
                         itemBuilder: (context, index) {
                           final book = forgotten[index];
                           final days = _daysSinceOpened(book);
-                          final cover = book.coverBytes;
                           final daysText = days >= 99999
                               ? LocalizationEngine.text(
                                   'forgotten_never_opened',
@@ -138,20 +138,17 @@ class _ForgottenBooksPageState extends State<ForgottenBooksPage> {
                                         borderRadius: BorderRadius.circular(8),
                                         color: CupertinoColors.systemGrey5,
                                       ),
-                                      child: cover != null
-                                          ? ClipRRect(
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                              child: Image.memory(
-                                                cover,
-                                                fit: BoxFit.cover,
-                                              ),
-                                            )
-                                          : const Icon(
-                                              CupertinoIcons.book,
-                                              size: 36,
-                                              color: CupertinoColors.systemGrey,
-                                            ),
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: BookCoverImage(
+                                          book: book,
+                                          fallback: (_) => const Icon(
+                                            CupertinoIcons.book,
+                                            size: 36,
+                                            color: CupertinoColors.systemGrey,
+                                          ),
+                                        ),
+                                      ),
                                     ),
                                   ),
                                   const SizedBox(height: 8),

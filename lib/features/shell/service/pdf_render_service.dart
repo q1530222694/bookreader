@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'dart:ui' show Rect;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show Colors;
 import 'package:pdfrx/pdfrx.dart';
 import 'package:synchronized/synchronized.dart';
@@ -53,10 +53,10 @@ class PdfAutoEnhanceResult {
 /// 垂直对齐基准带：取全文档采样页内容框 top/bottom 的中位数，作为统一垂直边界。
 /// 让全文档在垂直方向对齐到统一上下边界，消除逐页独立裁切导致的翻页上下跳动。
 /// 独立顶层私有类（不可嵌套于 PdfRenderService，Dart 不允许 static class）。
-class _VerticalBand {
+class VerticalBand {
   final double top;
   final double bottom;
-  const _VerticalBand(this.top, this.bottom);
+  const VerticalBand(this.top, this.bottom);
 }
 
 class PdfRenderService {
@@ -68,17 +68,110 @@ class PdfRenderService {
   /// 单页渲染结果缓存（按 文档sourceName:页码:渲染宽:裁切:去杂色 维度）。命中即直接返回，
   /// 避免对同页反复调用 PDFium 原生渲染（多次原生渲染是 Windows 下崩溃的高危来源）。
   /// 缓存持有 [ui.Image]，文档关闭时统一 dispose，避免重复解码与内存泄漏。
+  ///
+  /// 现为 LRU：以 [_renderCacheOrder] 记录访问顺序，超出 [_maxRenderCache] 上限时
+  /// 淘汰最久未用项并 dispose 其 [ui.Image]，防止长文档 + 预渲染把 GPU 内存撑爆。
+  /// 另有 [_baseRenderCache] 仅缓存「原生渲染」层（不含去杂色/锐化），供预取与后处理复用，
+  /// 使「开启智能清晰度」不再重复 PDFium 原生渲染、且预取不再争抢 isolate 池（详见该字段）。
   static final Map<String, ui.Image> _renderCache = {};
+  /// LRU 访问顺序（队尾为最近使用）。与 [_renderCache] 同步维护。
+  static final List<String> _renderCacheOrder = [];
+  /// 渲染缓存上限（条）。按 ~22MB/页（2000px 宽）估算，48 条约 1GB，桌面端安全；
+  /// 移动端本为按需，预渲染仅暖相邻页，实际驻留远低于此值。
+  static const int _maxRenderCache = 48;
+
+  /// 取缓存：命中则把键移到队尾标记为最近使用。
+  static ui.Image? _cacheGet(String key) {
+    final img = _renderCache[key];
+    if (img != null) {
+      _renderCacheOrder.remove(key);
+      _renderCacheOrder.add(key);
+    }
+    return img;
+  }
+
+  /// 写缓存：放入并标记最近使用；超出上限时从队首淘汰并 dispose，释放 GPU 内存。
+  static void _cachePut(String key, ui.Image img) {
+    _renderCache[key] = img;
+    _renderCacheOrder.remove(key);
+    _renderCacheOrder.add(key);
+    while (_renderCacheOrder.length > _maxRenderCache) {
+      final oldest = _renderCacheOrder.removeAt(0);
+      _renderCache[oldest]?.dispose();
+      _renderCache.remove(oldest);
+    }
+  }
+
+  /// 基础原生渲染缓存（两级缓存之「基础层」）：仅缓存「PDFium 原生渲染 + 裁切」的
+  /// [ui.Image]，键为 [baseKey]（不含去杂色/锐化维度）。
+  ///
+  /// 设计目的：① 预取（[_prefetchAround]）只暖这一层，绝不做去杂色/锐化，因此预取
+  /// 不再争抢 isolate 池与主线程 GPU 上传；② 正式翻页若开启了智能清晰度，可直接复用
+  /// 预取/前次渲染好的基础图，仅在其上做一次后处理（去杂色/锐化），跳过昂贵的原生渲染。
+  /// 独立 LRU，与终缓存互不共享实例，淘汰时各自 dispose，避免双释放。
+  static final Map<String, ui.Image> _baseRenderCache = {};
+  static final List<String> _baseRenderCacheOrder = [];
+  /// 基础缓存上限（条）。基础图不含后处理、命中率高、复用价值大；按 ~22MB/页估算，
+  /// 16 条约 350MB，足够覆盖「当前页 + 预取邻页 + 少量历史」，移动/桌面均安全。
+  static const int _maxBaseCache = 16;
+
+  /// 取基础缓存：命中则把键移到队尾标记为最近使用。
+  static ui.Image? _cacheGetBase(String key) {
+    final img = _baseRenderCache[key];
+    if (img != null) {
+      _baseRenderCacheOrder.remove(key);
+      _baseRenderCacheOrder.add(key);
+    }
+    return img;
+  }
+
+  /// 写基础缓存：放入并标记最近使用；超出上限时从队首淘汰并 dispose。
+  static void _cachePutBase(String key, ui.Image img) {
+    _baseRenderCache[key] = img;
+    _baseRenderCacheOrder.remove(key);
+    _baseRenderCacheOrder.add(key);
+    while (_baseRenderCacheOrder.length > _maxBaseCache) {
+      final oldest = _baseRenderCacheOrder.removeAt(0);
+      _baseRenderCache[oldest]?.dispose();
+      _baseRenderCache.remove(oldest);
+    }
+  }
+
+  /// 估算某页在给定「显示宽度（逻辑像素，targetWidth）」下的目标渲染像素宽。
+  ///
+  /// 与 [_PdfPageWidget._load] 的计算完全一致，供「相邻页预渲染」复用，确保预渲染
+  /// 产出的缓存键与正式渲染命中的是同一份，避免重复渲染。
+  static double estimateRenderWidth(double targetWidth) {
+    final dpr = ui.PlatformDispatcher.instance.views.first.devicePixelRatio;
+    return (targetWidth * dpr)
+        .clamp(200, maxRenderWidth.toDouble())
+        .toDouble();
+  }
 
   /// 垂直对齐基准带缓存（按 文档 sourceName 维度）。value 为 null 表示「校准中」，
   /// 非 null 为已标定的上下基准（top/bottom，归一化 0~1）。基准带让全文档在垂直方向
   /// 对齐到统一边界，消除逐页独立裁切导致的翻页上下跳动。
-  static final Map<String, _VerticalBand?> _bandCache = {};
+  static final Map<String, VerticalBand?> _bandCache = {};
 
   /// 清空某文档的全部渲染与裁切缓存（不释放文档本身），供基准带标定完成后触发重渲。
   static void _clearDocCaches(PdfDocument document) {
     final id = document.sourceName;
-    _renderCache.removeWhere((key, _) => key.startsWith('$id:'));
+    _renderCache.removeWhere((key, img) {
+      if (key.startsWith('$id:')) {
+        img.dispose();
+        return true;
+      }
+      return false;
+    });
+    _renderCacheOrder.removeWhere((key) => key.startsWith('$id:'));
+    _baseRenderCache.removeWhere((key, img) {
+      if (key.startsWith('$id:')) {
+        img.dispose();
+        return true;
+      }
+      return false;
+    });
+    _baseRenderCacheOrder.removeWhere((key) => key.startsWith('$id:'));
     _cropCache.removeWhere((key, _) => key.startsWith('$id:'));
   }
 
@@ -86,7 +179,7 @@ class PdfRenderService {
   /// 的中位数作为统一基准；完成后清空缓存使后续页面按新基准重渲。
   /// 返回标定后的基准带（失败/页数不足返回 null）。同一文档重复调用直接命中缓存。
   static const int _bandSampleCount = 40;
-  static Future<_VerticalBand?> calibrateVerticalBand(PdfDocument document) async {
+  static Future<VerticalBand?> calibrateVerticalBand(PdfDocument document) async {
     final id = document.sourceName;
     if (_bandCache.containsKey(id)) return _bandCache[id]; // 已标定或校准中
     _bandCache[id] = null; // 占位「校准中」，防并发重入
@@ -113,7 +206,7 @@ class PdfRenderService {
         _clearDocCaches(document);
         return null;
       }
-      final band = _VerticalBand(_median(tops), _median(bottoms));
+      final band = VerticalBand(_median(tops), _median(bottoms));
       _bandCache[id] = band;
       _clearDocCaches(document);
       return band;
@@ -170,6 +263,8 @@ class PdfRenderService {
   /// `render(x,y,width,height,fullWidth,fullHeight)` 仅渲染该子区域，得到去白边的
   /// 精确裁剪图（区别于旧方案“整体缩放去白边”的近似做法）。[denoise] 为 true 时在
   /// 渲染出的位图上执行真正的去噪点处理（仅移除孤立杂点，保留文字清晰度）。
+  /// [skipPostProcess] 为 true 时（供相邻页预取）只做原生渲染并写入基础缓存、跳过
+  /// 去杂色/锐化，避免预取批量触发 isolate 计算与主线程 GPU 上传、与正式翻页争抢。
   ///
   /// 返回 null 表示渲染失败（已安全兜底，不会导致阅读器崩溃）。
   static Future<ui.Image?> renderPageImage(
@@ -179,6 +274,7 @@ class PdfRenderService {
     bool autoCrop = false,
     bool denoise = false,
     double sharpness = 1.0,
+    bool skipPostProcess = false,
     double manualCropLeft = 0,
     double manualCropRight = 0,
     double manualCropTop = 0,
@@ -225,84 +321,118 @@ class PdfRenderService {
     final bandSig = band == null
         ? 'nb'
         : '${band.top.toStringAsFixed(4)}_${band.bottom.toStringAsFixed(4)}';
-    final cacheKey =
-        '${document.sourceName}:$pageNumber:${effW.round()}:$autoCrop:$denoise:$sharpness:'
+    // 基础键：仅含「原生渲染」维度（不含去杂色/锐化）。同一页无论是否开启智能清晰度，
+    // 其原生渲染结果都可复用，避免「开了清晰度就重复 PDFium 原生渲染」。
+    final baseKey =
+        '${document.sourceName}:$pageNumber:${effW.round()}:$autoCrop:'
         '$bandSig:'
         '${manualCropLeft.toStringAsFixed(3)}_${manualCropRight.toStringAsFixed(3)}_'
         '${manualCropTop.toStringAsFixed(3)}_${manualCropBottom.toStringAsFixed(3)}';
-    final cached = _renderCache[cacheKey];
+    // 终键：在基础键上叠加去杂色/锐化维度，仅「带后处理的成品」需要区分。
+    final cacheKeyFull = '$baseKey:$denoise:$sharpness';
+
+    // 终键命中（已带后处理的成品）：直接返回，成本最低。
+    final cached = _cacheGet(cacheKeyFull);
     if (cached != null) return cached;
 
-    try {
-      final ui.Image? result = await _lockFor(document).synchronized(() async {
-        final page = document.pages[pageNumber - 1];
-        final pageW = page.width;
-        final pageH = page.height;
-        if (pageW <= 0 || pageH <= 0) return null;
-        final fullH = (effW * pageH / pageW).clamp(1.0, double.infinity);
+    // 预取 / 无后处理：基础渲染命中即返回（基础图即最终图），避免重复原生渲染。
+    if (skipPostProcess || (!denoise && sharpness == 1.0)) {
+      final b = _cacheGetBase(baseKey);
+      if (b != null) return b;
+    }
 
-        PdfImage? image;
-        if (crop == null ||
-            (crop.left <= 0.001 &&
-                crop.top <= 0.001 &&
-                crop.right >= 0.999 &&
-                crop.bottom >= 0.999)) {
-          // 无裁切：整体渲染。
-          image = await page.render(
-            fullWidth: effW,
-            fullHeight: fullH,
-            backgroundColor: Colors.white,
-          );
-        } else {
-          // 有裁切：在有效渲染宽度下只渲染内容子区域（x/y/width/height 为像素子区域，
-          // fullWidth/fullHeight 为整页虚拟尺寸，二者配合即可“抠”出内容包围盒）。
-          final x = (crop.left * effW).round();
-          final y = (crop.top * fullH).round();
-          final w = ((crop.right - crop.left) * effW).round();
-          final h = ((crop.bottom - crop.top) * fullH).round();
-          if (w <= 2 || h <= 2) {
+    // 取基础原生渲染：优先复用基础缓存（预取已暖好的原生图），否则原生渲染并写入基础缓存。
+    ui.Image? base = _cacheGetBase(baseKey);
+    final bool baseFromCache = base != null;
+    if (base == null) {
+      try {
+        base = await _lockFor(document).synchronized(() async {
+          final page = document.pages[pageNumber - 1];
+          final pageW = page.width;
+          final pageH = page.height;
+          if (pageW <= 0 || pageH <= 0) return null;
+          final fullH = (effW * pageH / pageW).clamp(1.0, double.infinity);
+
+          PdfImage? image;
+          if (crop == null ||
+              (crop.left <= 0.001 &&
+                  crop.top <= 0.001 &&
+                  crop.right >= 0.999 &&
+                  crop.bottom >= 0.999)) {
+            // 无裁切：整体渲染。
             image = await page.render(
               fullWidth: effW,
               fullHeight: fullH,
               backgroundColor: Colors.white,
             );
           } else {
-            image = await page.render(
-              x: x,
-              y: y,
-              width: w,
-              height: h,
-              fullWidth: effW,
-              fullHeight: fullH,
-              backgroundColor: Colors.white,
-            );
+            // 有裁切：在有效渲染宽度下只渲染内容子区域（x/y/width/height 为像素子区域，
+            // fullWidth/fullHeight 为整页虚拟尺寸，二者配合即可“抠”出内容包围盒）。
+            final x = (crop.left * effW).round();
+            final y = (crop.top * fullH).round();
+            final w = ((crop.right - crop.left) * effW).round();
+            final h = ((crop.bottom - crop.top) * fullH).round();
+            if (w <= 2 || h <= 2) {
+              image = await page.render(
+                fullWidth: effW,
+                fullHeight: fullH,
+                backgroundColor: Colors.white,
+              );
+            } else {
+              image = await page.render(
+                x: x,
+                y: y,
+                width: w,
+                height: h,
+                fullWidth: effW,
+                fullHeight: fullH,
+                backgroundColor: Colors.white,
+              );
+            }
           }
-        }
-        if (image == null) return null;
-        final uiImg = await image.createImage();
-        image.dispose();
-        return uiImg;
-      });
-
-      if (result == null) return null;
-
-      // 智能去杂色：在原生渲染结果上做真正的去噪点（保留文字笔画），而非模糊。
-      ui.Image out = denoise ? await _denoiseImage(result) : result;
-      if (denoise && out != result) {
-        result.dispose(); // 去杂色产生了新图，释放旧图（缓存持有新图）。
+          if (image == null) return null;
+          final uiImg = await image.createImage();
+          image.dispose();
+          return uiImg;
+        });
+      } catch (_) {
+        // 原生渲染异常不应导致阅读器崩溃，交由上层回退处理。
+        return null;
       }
-      // 清晰度：像素级 unsharp mask 锐化（>1 锐化、<1 柔化），仅在非原始值时重渲染。
-      if (sharpness != 1.0) {
-        final sharpened = await _sharpenImage(out, sharpness);
-        out.dispose(); // out 为原始渲染或去杂色中间图，已被 sharpened 取代。
-        out = sharpened;
-      }
-      _renderCache[cacheKey] = out;
-      return out;
-    } catch (_) {
-      // 渲染异常不应导致阅读器崩溃，交由上层回退处理。
-      return null;
+      if (base == null) return null;
+      _cachePutBase(baseKey, base);
     }
+
+    // 预取模式：仅把原生渲染暖进基础缓存即返回，绝不做事后处理——
+    // 否则预取会批量触发去杂色/锐化的 compute 与主线程 GPU 上传，与正式翻页争抢
+    // isolate 池与 UI 线程，造成「开了智能清晰度后翻几页就一直转圈」。
+    if (skipPostProcess) return base;
+
+    // 无后处理：基础图即最终图，直接返回（不写入终缓存，避免与基础缓存共享同一实例）。
+    if (!denoise && sharpness == 1.0) return base;
+
+    // 有后处理：在基础图上做去杂色/锐化，产出全新 ui.Image 并仅写入终缓存
+    //（与基础缓存持有的实例绝不共享，淘汰时互不干扰）。
+    ui.Image out = base;
+    if (denoise) {
+      final denoised = await _denoiseImage(base);
+      if (denoised != base) out = denoised;
+    }
+    if (sharpness != 1.0) {
+      out = await _sharpenImage(out, sharpness);
+    }
+    // 仅当后处理真正改变了图像时才写入终缓存（否则基础缓存已可复用，无需双份）。
+    if (out != base) {
+      // 自有（本次新渲染）的基础图派生成品后从基础缓存移除并释放，避免与终缓存双份驻留显存；
+      // 来自基础缓存（被预取/其它调用共享）的基础图则保留，不释放。
+      if (!baseFromCache) {
+        _baseRenderCache.remove(baseKey);
+        _baseRenderCacheOrder.remove(baseKey);
+        base.dispose();
+      }
+      _cachePut(cacheKeyFull, out);
+    }
+    return out;
   }
 
   /// 在文档锁内安全关闭文档，释放缓存的 [ui.Image] 与包围盒，并移除串行锁。
@@ -324,6 +454,15 @@ class PdfRenderService {
         }
         return false;
       });
+      _renderCacheOrder.removeWhere((key) => key.startsWith('$id:'));
+      _baseRenderCache.removeWhere((key, img) {
+        if (key.startsWith('$id:')) {
+          img.dispose();
+          return true;
+        }
+        return false;
+      });
+      _baseRenderCacheOrder.removeWhere((key) => key.startsWith('$id:'));
       _cropCache.removeWhere((key, _) => key.startsWith('$id:'));
       _bandCache.remove(id); // 基准带仅按文档缓存，关闭时一并释放
       await document.dispose();
@@ -465,64 +604,20 @@ class PdfRenderService {
   /// 真正的智能去杂色：对渲染出的位图做 3x3 邻域判定，仅移除「孤立」的黑点/杂色，
   /// 保留文字笔画（笔画像素拥有较多相邻墨点，不会被误删），从而既不降低清晰度、
   /// 又能去除扫描件上的小黑点/杂点。返回处理后的新 [ui.Image]。
+  ///
+  /// 像素级 9 邻域循环为 CPU 密集操作，放在独立 isolate（[compute]）执行，
+  /// 避免开启「智能清晰度」时每页冻结主线程几百毫秒、造成翻页卡顿。
   static Future<ui.Image> _denoiseImage(ui.Image src) async {
     try {
       final bytes = await src.toByteData(format: ui.ImageByteFormat.rawRgba);
       if (bytes == null) return src;
       final rgba = bytes.buffer.asUint8List();
-      final w = src.width;
-      final h = src.height;
-      final out = Uint8List.fromList(rgba); // 先整体拷贝，仅修改被判定为杂点的像素。
-
-      // 亮度阈值：低于该值视为“墨点/内容”，高于视为背景。
-      const int inkThreshold = 140;
-      bool isInk(int i) =>
-          (0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2]) <
-          inkThreshold;
-
-      for (var y = 0; y < h; y++) {
-        for (var x = 0; x < w; x++) {
-          final i = (y * w + x) * 4;
-          if (!isInk(i)) continue;
-          // 统计 8 邻域内的墨点数量。
-          int inkNeighbors = 0;
-          int sr = 0, sg = 0, sb = 0, sn = 0;
-          for (var ny = y - 1; ny <= y + 1; ny++) {
-            for (var nx = x - 1; nx <= x + 1; nx++) {
-              if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
-              if (nx == x && ny == y) continue;
-              final j = (ny * w + nx) * 4;
-              if (isInk(j)) {
-                inkNeighbors++;
-              } else {
-                sr += rgba[j];
-                sg += rgba[j + 1];
-                sb += rgba[j + 2];
-                sn++;
-              }
-            }
-          }
-          // 孤立墨点（邻域墨点 < 2）：判定为杂点，用邻域背景平均色温替换，无缝消除。
-          if (inkNeighbors < 2 && sn > 0) {
-            out[i] = (sr ~/ sn).clamp(0, 255);
-            out[i + 1] = (sg ~/ sn).clamp(0, 255);
-            out[i + 2] = (sb ~/ sn).clamp(0, 255);
-            out[i + 3] = rgba[i + 3];
-          }
-        }
-      }
-
-      // decodeImageFromPixels 为回调式（void，结果经 ImageDecoderCallback 返回）。
-      final completer = Completer<ui.Image>();
-      ui.decodeImageFromPixels(
-        out,
-        w,
-        h,
-        ui.PixelFormat.rgba8888,
-        (image) => completer.complete(image),
+      // 像素级去杂色是 CPU 密集循环，放到独立 isolate 执行，避免阻塞阅读翻页主线程。
+      final out = await compute(
+        _denoisePixels,
+        _PixelMsg(rgba, src.width, src.height),
       );
-      final newImage = await completer.future;
-      return newImage;
+      return _bytesToImage(out, src.width, src.height);
     } catch (_) {
       // 去杂色失败不应影响阅读，退回原图。
       return src;
@@ -534,54 +629,17 @@ class PdfRenderService {
   ///
   /// [amount] 为锐化强度：>1 锐化、<1 轻微柔化（1.0 调用方已跳过，不会进入本方法）。
   /// 模糊层用 3×3 均值近似（轻量），与 [PdfReaderSettings.sharpness] 配合。
+  /// 像素级循环同样放在独立 isolate 执行，避免主线程卡顿。
   static Future<ui.Image> _sharpenImage(ui.Image src, double amount) async {
     try {
       final bytes = await src.toByteData(format: ui.ImageByteFormat.rawRgba);
       if (bytes == null) return src;
       final rgba = bytes.buffer.asUint8List();
-      final w = src.width;
-      final h = src.height;
-      final out = Uint8List.fromList(rgba);
-
-      for (var y = 0; y < h; y++) {
-        for (var x = 0; x < w; x++) {
-          final i = (y * w + x) * 4;
-          // 3×3 邻域均值作为低频（模糊）层。
-          int sr = 0, sg = 0, sb = 0, sn = 0;
-          for (var ny = y - 1; ny <= y + 1; ny++) {
-            for (var nx = x - 1; nx <= x + 1; nx++) {
-              if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
-              final j = (ny * w + nx) * 4;
-              sr += rgba[j];
-              sg += rgba[j + 1];
-              sb += rgba[j + 2];
-              sn++;
-            }
-          }
-          final br = sr ~/ sn, bg = sg ~/ sn, bb = sb ~/ sn;
-          // unsharp：out = original + amount × (original − blurred)
-          out[i] = (rgba[i] + amount * (rgba[i] - br))
-              .clamp(0, 255)
-              .toInt();
-          out[i + 1] = (rgba[i + 1] + amount * (rgba[i + 1] - bg))
-              .clamp(0, 255)
-              .toInt();
-          out[i + 2] = (rgba[i + 2] + amount * (rgba[i + 2] - bb))
-              .clamp(0, 255)
-              .toInt();
-          out[i + 3] = rgba[i + 3];
-        }
-      }
-
-      final completer = Completer<ui.Image>();
-      ui.decodeImageFromPixels(
-        out,
-        w,
-        h,
-        ui.PixelFormat.rgba8888,
-        (image) => completer.complete(image),
+      final out = await compute(
+        _sharpenPixels,
+        _SharpenMsg(rgba, src.width, src.height, amount),
       );
-      return await completer.future;
+      return _bytesToImage(out, src.width, src.height);
     } catch (_) {
       // 锐化失败不应影响阅读，退回原图。
       return src;
@@ -788,6 +846,121 @@ class PdfRenderService {
       const [0, 0, 0, 0],
     );
   }
+}
+
+/// 跨 isolate 传递的像素消息（[Uint8List] 可直接转移，int 为尺寸）。
+class _PixelMsg {
+  final Uint8List rgba;
+  final int w;
+  final int h;
+
+  const _PixelMsg(this.rgba, this.w, this.h);
+}
+
+/// 跨 isolate 传递的锐化消息（含锐化强度 amount）。
+class _SharpenMsg {
+  final Uint8List rgba;
+  final int w;
+  final int h;
+  final double amount;
+
+  const _SharpenMsg(this.rgba, this.w, this.h, this.amount);
+}
+
+/// 把 RGBA 字节解码回 [ui.Image]（GPU 上传，主线程但开销低）。
+Future<ui.Image> _bytesToImage(Uint8List rgba, int w, int h) {
+  final completer = Completer<ui.Image>();
+  ui.decodeImageFromPixels(
+    rgba,
+    w,
+    h,
+    ui.PixelFormat.rgba8888,
+    (image) => completer.complete(image),
+  );
+  return completer.future;
+}
+
+/// 去杂色像素处理（在独立 isolate 执行，避免阻塞 UI 主线程）。
+///
+/// 仅移除「孤立」黑点/杂色，保留文字笔画（与 [PdfRenderService._denoiseImage] 同算法）。
+Uint8List _denoisePixels(_PixelMsg msg) {
+  final rgba = msg.rgba;
+  final w = msg.w;
+  final h = msg.h;
+  final out = Uint8List.fromList(rgba); // 先整体拷贝，仅修改被判定为杂点的像素。
+
+  // 亮度阈值：低于该值视为“墨点/内容”，高于视为背景。
+  const int inkThreshold = 140;
+  bool isInk(int i) =>
+      (0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2]) <
+      inkThreshold;
+
+  for (var y = 0; y < h; y++) {
+    for (var x = 0; x < w; x++) {
+      final i = (y * w + x) * 4;
+      if (!isInk(i)) continue;
+      // 统计 8 邻域内的墨点数量。
+      int inkNeighbors = 0;
+      int sr = 0, sg = 0, sb = 0, sn = 0;
+      for (var ny = y - 1; ny <= y + 1; ny++) {
+        for (var nx = x - 1; nx <= x + 1; nx++) {
+          if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+          if (nx == x && ny == y) continue;
+          final j = (ny * w + nx) * 4;
+          if (isInk(j)) {
+            inkNeighbors++;
+          } else {
+            sr += rgba[j];
+            sg += rgba[j + 1];
+            sb += rgba[j + 2];
+            sn++;
+          }
+        }
+      }
+      // 孤立墨点（邻域墨点 < 2）：判定为杂点，用邻域背景平均色温替换，无缝消除。
+      if (inkNeighbors < 2 && sn > 0) {
+        out[i] = (sr ~/ sn).clamp(0, 255);
+        out[i + 1] = (sg ~/ sn).clamp(0, 255);
+        out[i + 2] = (sb ~/ sn).clamp(0, 255);
+        out[i + 3] = rgba[i + 3];
+      }
+    }
+  }
+  return out;
+}
+
+/// 清晰度增强像素处理（在独立 isolate 执行）。unsharp mask：原图 + amount×(原图−模糊)。
+Uint8List _sharpenPixels(_SharpenMsg msg) {
+  final rgba = msg.rgba;
+  final w = msg.w;
+  final h = msg.h;
+  final amount = msg.amount;
+  final out = Uint8List.fromList(rgba);
+
+  for (var y = 0; y < h; y++) {
+    for (var x = 0; x < w; x++) {
+      final i = (y * w + x) * 4;
+      // 3×3 邻域均值作为低频（模糊）层。
+      int sr = 0, sg = 0, sb = 0, sn = 0;
+      for (var ny = y - 1; ny <= y + 1; ny++) {
+        for (var nx = x - 1; nx <= x + 1; nx++) {
+          if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+          final j = (ny * w + nx) * 4;
+          sr += rgba[j];
+          sg += rgba[j + 1];
+          sb += rgba[j + 2];
+          sn++;
+        }
+      }
+      final br = sr ~/ sn, bg = sg ~/ sn, bb = sb ~/ sn;
+      // unsharp：out = original + amount × (original − blurred)
+      out[i] = (rgba[i] + amount * (rgba[i] - br)).clamp(0, 255).toInt();
+      out[i + 1] = (rgba[i + 1] + amount * (rgba[i + 1] - bg)).clamp(0, 255).toInt();
+      out[i + 2] = (rgba[i + 2] + amount * (rgba[i + 2] - bb)).clamp(0, 255).toInt();
+      out[i + 3] = rgba[i + 3];
+    }
+  }
+  return out;
 }
 
 /// 4x4 颜色矩阵 + 4 维平移向量的轻量实现，用于合成 [ColorFilter] 参数。

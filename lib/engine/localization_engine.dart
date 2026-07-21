@@ -305,8 +305,96 @@ class LocalizationEngine {
     'reader_bookmark_tab': {'zh': '书签', 'en': 'Bookmark'},
     'just_now': {'zh': '刚刚', 'en': 'Just now'},
     'account_settings': {'zh': '账号与设置', 'en': 'Account & Settings'},
-    'quick_access': {'zh': '快捷入口', 'en': 'Quick Access'},
     'premium': {'zh': '开通高级会员', 'en': 'Activate Premium'},
+    // ───────── 数据管理（导出/导入阅读数据 + 云盘同步）─────────
+    'data_manager': {'zh': '数据管理', 'en': 'Data Manager'},
+    'data_manager_working': {'zh': '处理中…', 'en': 'Working…'},
+    'data_manager_export': {'zh': '导出阅读数据', 'en': 'Export Reading Data'},
+    'data_manager_export_desc': {
+      'zh': '将书籍、笔记、书签与阅读记录导出为备份文件',
+      'en': 'Export books, notes, bookmarks and reading history to a backup file'
+    },
+    'data_manager_import': {'zh': '导入阅读数据', 'en': 'Import Reading Data'},
+    'data_manager_import_desc': {
+      'zh': '从备份文件恢复阅读数据（合并到现有数据）',
+      'en': 'Restore reading data from a backup file (merged into existing data)'
+    },
+    'data_manager_import_confirm': {
+      'zh': '导入将合并到现有数据，确定继续？',
+      'en': 'Import will merge into existing data. Continue?'
+    },
+    'data_manager_export_success': {'zh': '导出成功', 'en': 'Export succeeded'},
+    'data_manager_export_fail': {'zh': '导出失败', 'en': 'Export failed'},
+    'data_manager_import_success': {'zh': '导入成功', 'en': 'Import succeeded'},
+    'data_manager_import_fail': {'zh': '导入失败', 'en': 'Import failed'},
+    'data_manager_books_count': {'zh': '本书', 'en': 'books'},
+    'data_manager_sessions_count': {'zh': '次阅读会话', 'en': 'reading sessions'},
+    'data_manager_cloud_sync': {'zh': '云盘同步', 'en': 'Cloud Sync'},
+    'data_manager_cloud_sync_desc': {
+      'zh': '配置网盘或 NAS 后，可一键同步阅读数据备份',
+      'en': 'After configuring a cloud drive or NAS, sync your reading backup with one tap'
+    },
+    'data_manager_no_drive': {
+      'zh': '尚未配置任何网盘，无法同步',
+      'en': 'No cloud drive configured yet, sync disabled'
+    },
+    'data_manager_no_drive_hint': {
+      'zh': '尚未配置网盘，添加后可在此同步',
+      'en': 'No cloud drive added yet'
+    },
+    'data_manager_sync_gate_hint': {
+      'zh': '需先配置至少一个网盘/NAS 才能同步',
+      'en': 'Configure at least one cloud drive or NAS to enable sync'
+    },
+    'data_manager_sync_now': {'zh': '立即同步', 'en': 'Sync Now'},
+    'data_manager_sync_success': {'zh': '同步成功', 'en': 'Sync succeeded'},
+    'data_manager_sync_fail': {'zh': '同步失败', 'en': 'Sync failed'},
+    'data_manager_sync_in_progress': {
+      'zh': '正在同步到云盘…',
+      'en': 'Syncing to cloud drive…'
+    },
+    'data_manager_drive_ok': {'zh': '成功', 'en': 'Success'},
+    'data_manager_drive_fail': {'zh': '失败', 'en': 'Failed'},
+    'data_manager_sync_not_supported': {
+      'zh': '当前未配置支持同步的网盘（WebDAV），请添加 WebDAV 网盘或 NAS',
+      'en':
+          'No WebDAV-capable drive configured; add a WebDAV drive or NAS to sync'
+    },
+    'data_manager_add_drive': {'zh': '添加网盘', 'en': 'Add Cloud Drive'},
+    'data_manager_edit_drive': {'zh': '编辑网盘', 'en': 'Edit Cloud Drive'},
+    'data_manager_drive_name': {'zh': '名称', 'en': 'Name'},
+    'data_manager_drive_name_ph': {'zh': '如：我的 NAS', 'en': 'e.g. My NAS'},
+    'data_manager_drive_name_required': {
+      'zh': '请填写网盘名称',
+      'en': 'Please enter a name'
+    },
+    'data_manager_drive_type': {'zh': '类型', 'en': 'Type'},
+    'data_manager_drive_type_webdav': {'zh': 'WebDAV', 'en': 'WebDAV'},
+    'data_manager_drive_type_other': {'zh': '其他', 'en': 'Other'},
+    'data_manager_drive_url': {'zh': '服务器地址', 'en': 'Server URL'},
+    'data_manager_drive_url_ph': {
+      'zh': 'https://nas.example.com/remote.php/webdav',
+      'en': 'https://nas.example.com/remote.php/webdav'
+    },
+    'data_manager_drive_user': {'zh': '账号', 'en': 'Account'},
+    'data_manager_drive_user_ph': {
+      'zh': 'WebDAV 用户名',
+      'en': 'WebDAV username'
+    },
+    'data_manager_drive_pass': {'zh': '密码', 'en': 'Password'},
+    'data_manager_drive_pass_ph': {
+      'zh': 'WebDAV 密码',
+      'en': 'WebDAV password'
+    },
+    'data_manager_drive_path': {'zh': '远程目录', 'en': 'Remote Path'},
+    'data_manager_drive_path_ph': {
+      'zh': '如：/bookreader（可留空）',
+      'en': 'e.g. /bookreader (optional)'
+    },
+    'data_manager_save': {'zh': '保存', 'en': 'Save'},
+    'data_manager_delete': {'zh': '删除', 'en': 'Delete'},
+    'data_manager_tip': {'zh': '提示', 'en': 'Tip'},
+    'ok': {'zh': '确定', 'en': 'OK'},
     'membership_center': {'zh': '会员中心', 'en': 'Membership Center'},
     'membership_intro': {
       'zh': '高级会员为阅读、记录与AI能力提供更完整的体验。',
@@ -566,9 +654,45 @@ class LocalizationEngine {
       'en': 'Find great books to enrich your knowledge',
     },
     'bookshelf_import_button': {'zh': '导入书籍', 'en': 'Import Book'},
+    'bookshelf_scan_folder': {'zh': '扫描文件夹', 'en': 'Scan Folder'},
+    'bookshelf_scan_folder_pick': {
+      'zh': '选择一个文件夹以扫描其中的书籍，点按文件夹即可导入其下全部书籍',
+      'en': 'Pick a folder to scan its books, tap a folder to import all books inside',
+    },
+    'bookshelf_scan_folder_empty': {
+      'zh': '该文件夹下没有可导入的书籍',
+      'en': 'No importable books were found in this folder',
+    },
+    'bookshelf_folder_title': {'zh': '选择要扫描的文件夹', 'en': 'Select a folder to scan'},
+    'bookshelf_import_progress_title': {'zh': '正在导入书籍…', 'en': 'Importing books…'},
+    'bookshelf_import_progress_current': {
+      'zh': '正在导入：%s（第 %cur% / %tot% 本）',
+      'en': 'Importing: %s (%cur%/%tot%)',
+    },
+    'bookshelf_import_progress_percent': {'zh': '%d%', 'en': '%d%'},
+    'bookshelf_import_progress_eta': {'zh': '预计剩余 %d 秒', 'en': 'About %d sec left'},
+    'bookshelf_import_done': {'zh': '已成功导入 %d 本书', 'en': 'Successfully imported %d books'},
+    'bookshelf_permission_folder_title': {'zh': '需要文件夹访问权限', 'en': 'Folder access required'},
+    'bookshelf_permission_folder_message': {
+      'zh': '为了扫描并导入文件夹内的书籍，需要您授权访问该文件夹。是否前往系统设置开启权限？',
+      'en': 'To scan and import books inside a folder, please grant folder access. Open system settings?',
+    },
+    'bookshelf_permission_open_settings': {'zh': '前往设置', 'en': 'Open Settings'},
+    'bookshelf_scan_import_dialog_title': {'zh': '导入书籍', 'en': 'Import Books'},
+    'bookshelf_selected_count': {'zh': '已选择 %d 本', 'en': 'Selected %d'},
+    'bookshelf_confirm_import': {'zh': '确认导入 (%d)', 'en': 'Confirm Import (%d)'},
     'bookshelf_no_match_books': {
       'zh': '没有找到匹配的书籍',
       'en': 'No matching books found',
+    },
+    'bookshelf_scan_add_dir': {'zh': '添加扫描目录', 'en': 'Add Scan Directory'},
+    'bookshelf_scanning_title': {'zh': '正在扫描书籍…', 'en': 'Scanning books…'},
+    'bookshelf_scanning_count': {'zh': '已扫描 %d 个文件', 'en': 'Scanned %d files'},
+    'bookshelf_scan_found_count': {'zh': '已找到 %d 本', 'en': 'Found %d books'},
+    'bookshelf_scan_root_added': {'zh': '已添加扫描目录', 'en': 'Scan directory added'},
+    'bookshelf_scan_search_placeholder': {
+      'zh': '搜索扫描到的书籍',
+      'en': 'Search scanned books'
     },
     'bookshelf_delete': {'zh': '删除', 'en': 'Delete'},
     'bookshelf_add_favorite': {'zh': '收藏', 'en': 'Favorite'},

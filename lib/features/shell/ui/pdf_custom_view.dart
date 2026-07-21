@@ -64,6 +64,11 @@ class PdfCustomViewState extends State<PdfCustomView> {
   double _zoomScale = 1.0;
   // 双击放大档位索引：0=原尺寸、1=2×、2=3×（循环）。
   int _dtZoomIndex = 0;
+  // 视口尺寸（由外层 LayoutBuilder 写入），供「相邻页预渲染」推导每页渲染宽度。
+  double _pageW = 0.0;
+  double _pageH = 0.0;
+  // 已预渲染的对开页索引（去重，避免每次 onPageChanged 重复预热）。
+  int _lastPrefetchedSpread = -1;
   final List<GlobalKey> _spreadKeys = [];
   final GlobalKey _listKey = GlobalKey();
   // 双屏两栏各自的 State 句柄，用于把进度跳转同时作用到左右两栏。
@@ -89,6 +94,10 @@ class PdfCustomViewState extends State<PdfCustomView> {
     _zoomController.addListener(_onZoomChanged);
     _buildSpreads();
     _initControllers();
+    // 首帧后视口尺寸已知，预热起始页相邻页，避免「第一次翻页才渲染」的卡顿。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _prefetchAround(0);
+    });
   }
 
   /// 监听缩放矩阵的缩放比，驱动 [_zoomScale] 状态，用于决定是否启用平移手势。
@@ -170,6 +179,59 @@ class PdfCustomViewState extends State<PdfCustomView> {
     if (spreadIndex < 0 || spreadIndex >= _spreads.length) return;
     final firstPage = _spreads[spreadIndex].first + 1;
     widget.onPageChanged?.call(firstPage);
+    _prefetchAround(spreadIndex);
+  }
+
+  /// 相邻页预渲染：预热 [spreadIndex] 及其左右各一「对开页」的渲染缓存，
+  /// 使翻到新页时直接命中 [PdfRenderService._renderCache]，消除「每次翻页都重新渲染」
+  /// 的卡顿（自研视图不像 pdfrx 的 PdfViewer 默认预取，必须显式预热）。
+  ///
+  /// 与 [_PdfPageWidget._load] 使用完全一致的渲染参数与缓存键（经
+  /// [PdfRenderService.estimateRenderWidth]），预热出的缓存即正式渲染要命中的同一份。
+  void _prefetchAround(int spreadIndex) {
+    if (!mounted || _pageW <= 0) return;
+    if (spreadIndex == _lastPrefetchedSpread) return;
+    _lastPrefetchedSpread = spreadIndex;
+
+    final start = (spreadIndex - 1).clamp(0, _spreads.length - 1);
+    final end = (spreadIndex + 1).clamp(0, _spreads.length - 1);
+    final settings = widget.settings;
+    final isTwoPage = settings.layoutMode == 1 || settings.layoutMode == 3;
+    final perPageWidth = isTwoPage ? ((_pageW - _pageGap) / 2) : _pageW;
+
+    for (var s = start; s <= end; s++) {
+      for (final pageIndex in _spreads[s]) {
+        final pageNum = pageIndex + 1;
+        final isOddPage = pageNum % 2 != 0;
+        final effectiveAutoCrop = switch (settings.cropOddEvenMode) {
+          0 => settings.autoCrop,
+          1 => settings.autoCrop && isOddPage,
+          2 => settings.autoCrop && !isOddPage,
+          _ => settings.autoCrop,
+        };
+        final useManual = settings.cropMode == 2 &&
+            (settings.manualCropLeft > 0 ||
+                settings.manualCropRight > 0 ||
+                settings.manualCropTop > 0 ||
+                settings.manualCropBottom > 0);
+        // 预热（命中缓存即瞬时返回，成本极低）；统一预热，保证任意翻页方向都即时。
+        // 关键：预取只暖「原生渲染」层（skipPostProcess），不触发去杂色/锐化的 compute
+        // 与主线程 GPU 上传，避免预取与正式翻页争抢 isolate 池、导致开了智能清晰度后转圈。
+        PdfRenderService.renderPageImage(
+          widget.document,
+          pageNum,
+          renderWidth: PdfRenderService.estimateRenderWidth(perPageWidth),
+          autoCrop: useManual ? false : effectiveAutoCrop,
+          denoise: settings.denoise,
+          sharpness: settings.sharpness,
+          skipPostProcess: true,
+          manualCropLeft: settings.manualCropLeft,
+          manualCropRight: settings.manualCropRight,
+          manualCropTop: settings.manualCropTop,
+          manualCropBottom: settings.manualCropBottom,
+        );
+      }
+    }
   }
 
   /// 连续滚动模式下，滚动结束后找到视口顶部最近的对开页并上报。
@@ -411,6 +473,11 @@ class PdfCustomViewState extends State<PdfCustomView> {
       builder: (context, constraints) {
         final double pageW = constraints.maxWidth;
         final double pageH = constraints.maxHeight;
+        // 记录视口尺寸供相邻页预渲染推导渲染宽度（仅在尺寸变化时更新）。
+        if ((_pageW - pageW).abs() > 0.5 || (_pageH - pageH).abs() > 0.5) {
+          _pageW = pageW;
+          _pageH = pageH;
+        }
 
         Widget body;
         if (_usePageView) {

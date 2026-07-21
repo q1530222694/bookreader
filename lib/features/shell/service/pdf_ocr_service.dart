@@ -800,6 +800,12 @@ class PdfOcrService {
   /// 这里取 0.25 兼顾召回与精度，避免漏掉真实版面块。
   static const double _layoutScoreThresh = 0.25;
 
+  /// 图表/公式类（Figure/Table，含 isolate_formula）专用阈值：比通用阈值更低，
+  /// 以召回被版面模型低分但确为图表的区域。实测部分图表/公式置信度落在
+  /// 0.12~0.25 区间，统一用 0.25 会把它们丢掉导致「整本无图」。正文/标题/抑制区
+  /// 仍用 [_layoutScoreThresh]（高阈值避免误伤正文或错标标题）。可按书况调。
+  static const double _layoutFigureThresh = 0.12;
+
   /// NMS 的 IoU 阈值（去除同一目标的重复框）。
   static const double _layoutNmsIou = 0.5;
 
@@ -896,7 +902,16 @@ class PdfOcrService {
     return Float32List.fromList(raw.map((e) => (e as num).toDouble()).toList());
   }
 
-  /// 解析版面模型输出：支持标准 YOLOv8 输出 [1, 14, N] 及 NMS 输出 [1, N, 6]。
+  /// 解析版面模型输出：智能自适应解析，兼容多种导出的张量排布。
+  ///
+  /// 实际部署的 DocStructBench 权重（`assets/models/layout.onnx`）导出为
+  /// 已内置 NMS 的 [1, N, 6] = [x1, y1, x2, y2, conf, cls]（坐标位于 1024 方图内）。
+  /// 本方法同时兼容以下变体，做到「一份代码适配多份权重」：
+  ///  - NMS 输出 [1, N, 6]，字段排布 [x1,y1,y2,conf,cls]（默认）
+  ///  - NMS 输出 [1, N, 6]，字段排布 [cls,conf,x1,y1,x2,y2]（个别导出，自动探测）
+  ///  - 原始 YOLO 输出（未 NMS）：
+  ///      * Channels-First [1, 14, N]（YOLOv8/v11 默认导出）
+  ///      * Channels-Last  [1, N, 14]（部分框架导出，自动探测）
   static List<LayoutBox> _parseLayout(
     Float32List raw,
     int origW,
@@ -909,67 +924,48 @@ class PdfOcrService {
     final numClasses = _layoutRawLabels.length; // 10
     final channels = 4 + numClasses; // 14
 
-    // 策略 1：标准 YOLOv8 / YOLOv11 输出（如 DocLayout-YOLO 默认导出）
-    // 形状 [1, 14, 8400] -> 展平后长度通常大于 10000 且能被 channels 整除
-    if (raw.length > 10000 && raw.length % channels == 0) {
-      final numAnchors = raw.length ~/ channels;
-
-      for (var i = 0; i < numAnchors; i++) {
-        // 1. 提取最大类别得分
-        double maxConf = -1.0;
-        int classIdx = -1;
-        for (var c = 0; c < numClasses; c++) {
-          final conf = raw[(4 + c) * numAnchors + i];
-          if (conf > maxConf) {
-            maxConf = conf;
-            classIdx = c;
-          }
-        }
-
-        if (maxConf < _layoutScoreThresh) continue;
-
-        final rawLabel = _layoutRawLabels[classIdx];
-        final route = _layoutRouteMap[rawLabel];
-        if (route == null) continue;
-
-        // 2. 提取并转换 YOLO 坐标：[cx, cy, w, h] -> [left, top, right, bottom]
-        final cx = raw[0 * numAnchors + i];
-        final cy = raw[1 * numAnchors + i];
-        final w = raw[2 * numAnchors + i];
-        final h = raw[3 * numAnchors + i];
-
-        var left = (cx - w / 2 - padL) / scale;
-        var top = (cy - h / 2 - padT) / scale;
-        var right = (cx + w / 2 - padL) / scale;
-        var bottom = (cy + h / 2 - padT) / scale;
-
-        boxes.add(LayoutBox(
-          label: route,
-          score: maxConf,
-          left: left.clamp(0.0, origW.toDouble()),
-          top: top.clamp(0.0, origH.toDouble()),
-          right: right.clamp(0.0, origW.toDouble()),
-          bottom: bottom.clamp(0.0, origH.toDouble()),
-        ));
-      }
-    }
-    // 策略 2：已内置 NMS 的输出（[1, N, 6] 格式）
-    else if (raw.length % 6 == 0) {
+    // ---- 策略 A：已内置 NMS 的导出（长度为 6 的整数倍） ----
+    if (raw.length % 6 == 0) {
       final n = raw.length ~/ 6;
+      // 探测字段排布：多数导出为 [x1,y1,x2,y2,conf,cls]；个别为 [cls,conf,x1,y1,x2,y2]。
+      // 用「第 0 列是否普遍落在合法类别区间且接近整数、且第 1 列落在概率区间」
+      // 判定 cls-first 排布（默认按 [x1,y1,x2,y2,conf,cls] 解析）。
+      final clsFirst = _nmsLooksClsFirst(raw, n);
       for (var i = 0; i < n; i++) {
         final base = i * 6;
-        final conf = raw[base + 4];
-        if (conf < _layoutScoreThresh) continue;
-
-        final classIdx = raw[base + 5].round().clamp(0, _layoutRawLabels.length - 1);
+        final int x1I, y1I, x2I, y2I, confI, clsI;
+        if (clsFirst) {
+          // [cls, conf, x1, y1, x2, y2]
+          clsI = base + 0;
+          confI = base + 1;
+          x1I = base + 2;
+          y1I = base + 3;
+          x2I = base + 4;
+          y2I = base + 5;
+        } else {
+          // [x1, y1, x2, y2, conf, cls]
+          x1I = base + 0;
+          y1I = base + 1;
+          x2I = base + 2;
+          y2I = base + 3;
+          confI = base + 4;
+          clsI = base + 5;
+        }
+        final classIdx = raw[clsI].round().clamp(0, numClasses - 1);
         final rawLabel = _layoutRawLabels[classIdx];
         final route = _layoutRouteMap[rawLabel];
         if (route == null) continue;
+        // 图表/公式类放宽阈值以召回更多真实图块；抑制区/标题仍用较高阈值。
+        final th = (route == 'Figure' || route == 'Table')
+            ? _layoutFigureThresh
+            : _layoutScoreThresh;
+        final conf = raw[confI];
+        if (conf < th) continue;
 
-        var left = (raw[base] - padL) / scale;
-        var top = (raw[base + 1] - padT) / scale;
-        var right = (raw[base + 2] - padL) / scale;
-        var bottom = (raw[base + 3] - padT) / scale;
+        var left = (raw[x1I] - padL) / scale;
+        var top = (raw[y1I] - padT) / scale;
+        var right = (raw[x2I] - padL) / scale;
+        var bottom = (raw[y2I] - padT) / scale;
 
         if (left > right) {
           final t = left;
@@ -991,8 +987,110 @@ class PdfOcrService {
           bottom: bottom.clamp(0.0, origH.toDouble()),
         ));
       }
+      return boxes;
     }
+
+    // ---- 策略 B：原始 YOLO 输出（未 NMS），长度能被 channels(14) 整除 ----
+    if (raw.length % channels == 0) {
+      final numAnchors = raw.length ~/ channels;
+      // 探测 Channels-First [1,14,N] 还是 Channels-Last [1,N,14]（两者总长度相同，
+      // 需按内容判定）：扫描开头若干元素，若出现大量 [0,1] 区间的分数值，说明是按
+      // anchor 连续排列（channels-last）；否则按通道连续排列（channels-first）。
+      final channelsFirst = !_rawLooksChannelsLast(raw, numAnchors, channels);
+
+      for (var i = 0; i < numAnchors; i++) {
+        double cx, cy, w, h;
+        double maxConf = -1.0;
+        int classIdx = -1;
+        if (channelsFirst) {
+          // [1, 14, N]：坐标与分数按通道连续，第 i 个 anchor 跨 14 个 stride。
+          cx = raw[0 * numAnchors + i];
+          cy = raw[1 * numAnchors + i];
+          w = raw[2 * numAnchors + i];
+          h = raw[3 * numAnchors + i];
+          for (var c = 0; c < numClasses; c++) {
+            final conf = raw[(4 + c) * numAnchors + i];
+            if (conf > maxConf) {
+              maxConf = conf;
+              classIdx = c;
+            }
+          }
+        } else {
+          // [1, N, 14]：第 i 个 anchor 的 14 个字段连续排列。
+          final base = i * channels;
+          cx = raw[base + 0];
+          cy = raw[base + 1];
+          w = raw[base + 2];
+          h = raw[base + 3];
+          for (var c = 0; c < numClasses; c++) {
+            final conf = raw[base + 4 + c];
+            if (conf > maxConf) {
+              maxConf = conf;
+              classIdx = c;
+            }
+          }
+        }
+
+        final rawLabel = _layoutRawLabels[classIdx];
+        final route = _layoutRouteMap[rawLabel];
+        if (route == null) continue;
+        // 图表/公式类放宽阈值以召回更多真实图块；抑制区/标题仍用较高阈值。
+        final th = (route == 'Figure' || route == 'Table')
+            ? _layoutFigureThresh
+            : _layoutScoreThresh;
+        if (maxConf < th) continue;
+
+        var left = (cx - w / 2 - padL) / scale;
+        var top = (cy - h / 2 - padT) / scale;
+        var right = (cx + w / 2 - padL) / scale;
+        var bottom = (cy + h / 2 - padT) / scale;
+
+        boxes.add(LayoutBox(
+          label: route,
+          score: maxConf,
+          left: left.clamp(0.0, origW.toDouble()),
+          top: top.clamp(0.0, origH.toDouble()),
+          right: right.clamp(0.0, origW.toDouble()),
+          bottom: bottom.clamp(0.0, origH.toDouble()),
+        ));
+      }
+      // 原始输出未做 NMS，需自行去重。
+      return _layoutNms(boxes);
+    }
+
     return boxes;
+  }
+
+  /// 探测 NMS 输出是否为 [cls, conf, x1, y1, x2, y2] 排布：
+  /// 采样前若干框，若第 0 列普遍落在合法类别区间且接近整数、且第 1 列落在
+  /// 概率区间 [0,1]，判定为 cls-first（默认按 [x1,y1,x2,y2,conf,cls] 解析）。
+  static bool _nmsLooksClsFirst(Float32List raw, int n) {
+    final samples = math.min(n, 50);
+    if (samples == 0) return false;
+    var hits = 0;
+    for (var i = 0; i < samples; i++) {
+      final v0 = raw[i * 6]; // cls（cls-first）或 x1（默认）
+      final v1 = raw[i * 6 + 1]; // conf（cls-first）或 y1（默认）
+      final isClass =
+          v0 >= 0 && v0 < _layoutRawLabels.length && (v0 - v0.round()).abs() < 1e-3;
+      final isProb = v1 >= 0 && v1 <= 1.0;
+      if (isClass && isProb) hits++;
+    }
+    return hits >= samples * 0.8;
+  }
+
+  /// 探测原始 YOLO 输出是否为 Channels-Last [1, N, 14] 排布：
+  /// 扫描开头若干元素，若出现大量 [0,1] 区间的分数值（每个 anchor 连续 10 个
+  /// 类别分数），说明是按 anchor 连续排列；否则为 Channels-First。
+  static bool _rawLooksChannelsLast(Float32List raw, int numAnchors, int channels) {
+    final scan = math.min(2 * channels, raw.length);
+    if (scan == 0) return false;
+    var scoreLike = 0;
+    for (var i = 0; i < scan; i++) {
+      final v = raw[i];
+      if (v >= 0 && v <= 1.0) scoreLike++;
+    }
+    return scoreLike > scan * 0.5;
   }
 
   /// 版面框 NMS：按类别分组，IoU 超过 [_layoutNmsIou] 的保留分数最高者，

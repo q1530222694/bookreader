@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import 'engine/permission_engine.dart';
+import 'core/scan_roots_store.dart';
 import 'features/shell/register.dart';
 import 'features/shell/service/app_stats_service.dart';
+import 'features/shell/service/cover_store.dart';
 import 'features/shell/service/custom_theme_color_service.dart';
 import 'features/shell/service/reading_session_service.dart';
 import 'features/shell/ui/shell_page.dart';
@@ -10,13 +12,17 @@ import 'features/shell/ui/shell_page.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 初始化应用统计服务并增加打开次数计数
-  await AppStatsService.initialize();
-  await AppStatsService.incrementAppLaunchCount();
-  // 初始化阅读会话日志服务（记录每次阅读的开始时间/时长/是否读完）
-  await ReadingSessionService.initialize();
-  // 初始化自定义主题色服务（加载用户本地保存的自定义配色列表）
-  await CustomThemeColorService.initialize();
+  // 并行初始化互不依赖的启动服务，缩短冷启动耗时（原串行等待约 4 倍时间）。
+  // AppStats 需先 initialize 再累加打开次数，故用 then 串成一条独立 future。
+  await Future.wait([
+    AppStatsService.initialize().then((_) => AppStatsService.incrementAppLaunchCount()),
+    ReadingSessionService.initialize(),
+    CustomThemeColorService.initialize(),
+    // 封面磁盘根目录预解析（CoverStore 全局单例，供 UI 同步懒加载封面文件）。
+    CoverStore.init(),
+    // 加载扫描导入的用户追加根目录（跨启动持久化，避免重启后丢失、需重复添加）
+    ScanRootsStore.load(),
+  ]);
 
   // 本地默认权限种子：后续接入会员系统时改由服务端下发即可关闭非会员入口。
   // theme.customColor 控制「自定义配色」是否可用（当前默认开放）。

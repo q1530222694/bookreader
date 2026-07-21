@@ -1,4 +1,66 @@
-﻿### [2026-07-18] 修改：OCR 重排图片块检测改为「行带整块裁剪」，解决「一堆碎截图、字没几个、看不清」
+﻿### [2026-07-21] 修复：开启智能清晰度后翻几页持续转圈（两级缓存 + 预取去重后处理）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/pdf_render_service.dart`
+  ├─ 变更 ➔ `renderPageImage` 重构为**两级缓存**：① `_baseRenderCache`（基础原生渲染层，键**不含** `denoise`/`sharpness`，独立 LRU 上限 16）只缓存 PDFium 原生渲染+裁切结果；② `_renderCache`（终成品缓存，键叠加 `denoise:sharpness`，LRU 上限 48）只缓存「带后处理」成品。二者互不共享实例、各自淘汰 `dispose`。`denoise`/`_sharpenImage` 仅在正式展示该页且 `out!=base` 时执行并写入终缓存；新增 `skipPostProcess` 形参、`_cacheGetBase`/`_cachePutBase`/`_maxBaseCache` 与同步的 `_clearDocCaches`/`disposeDocument` 清理。
+  └─ 被消费 ➔ `lib/features/shell/ui/pdf_custom_view.dart`
+- `lib/features/shell/ui/pdf_custom_view.dart`
+  └─ 变更 ➔ `_prefetchAround(spreadIndex)` 预热调用新增 `skipPostProcess:true`：只暖基础原生渲染层、不再触发去杂色/锐化的 `compute` 与主线程 `toByteData`/`decodeImageFromPixels` 的 GPU 上传，避免与正式翻页争抢 isolate 池与 UI 线程。
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置 Key（沿用既有 `denoise`/`sharpness` 阅读设置键，缓存逻辑对 UI 透明）。
+- **根因**：原预取对 ±1 对开页（单页 3 页 / 双页 6 页）同样走完整去杂色/锐化链路，每页 3 段代价（主线程 `toByteData` 拷显存 → `compute` 像素运算 → `_bytesToImage` 主线程 GPU 上传，单页 ~22MB×2 次拷贝），预取与正式翻页并发占满 isolate 池与 UI 线程，导致 `setState(_loading=false)` 迟迟无法落帧 → 开了智能清晰度后翻几页就一直转圈。
+
+---
+
+### [2026-07-21] 优化：书架导入封面优先加载（前 N 本同步 + 其余后台工作者池）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/bookshelf_service.dart`
+  ├─ 变更 ➔ `importPdf(File, {bool backgroundCover = true})`：`backgroundCover` 为 true 时才将封面生成入后台工作者池（`warmUpCover`），false 时由调用方同步生成封面，避免重复渲染；`importScanCandidates(List, {int firstCoversSync = 4})` 改造——前 `firstCoversSync` 本 PDF 调 `importPdf(file, backgroundCover:false)` 并 `await _generatePdfCover`+`_attachCover` 同步生成封面（书架首屏立即可见），其余本走后台并发工作者池（并发上限 `kCoverWarmConcurrency=4`，`_pumpCoverWarm` 单本完成自动补位），维持「导入很快」的体感。
+  └─ 依赖/调用 ➔ `lib/features/shell/service/cover_store.dart` / `_generatePdfCover` / `_attachCover` / `warmUpCover` / `_pumpCoverWarm`。
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置 Key（`firstCoversSync=4` 为局部默认值，未持久化）。
+
+---
+
+### [2026-07-21] 修复：阅读器翻页卡顿（相邻页预渲染 + 去杂色/锐化 compute 隔离 + 渲染缓存 LRU）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/pdf_render_service.dart`
+  ├─ 变更 ➔ ① 单页 `ui.Image` 缓存由普通 Map 改为 **LRU**（上限 48，命中移到队尾、越界淘汰队首并 `dispose` 释放 GPU 内存；`_clearDocCaches`/`disposeDocument` 同步维护）；② 去杂色 `_denoiseImage`/锐化 `_sharpenImage` 的像素循环抽为顶层 `_denoisePixels(_PixelMsg)`/`_sharpenPixels(_SharpenMsg)` 经 `compute` 隔离（消息类含 `Uint8List`+尺寸+amount，解码回 `ui.Image`），消除主线程冻结；③ 新增 `static double estimateRenderWidth(double targetWidth)`（与视图 `_load` 计算一致：`targetWidth*dpr clamp 200..maxRenderWidth`），供预渲染复用确保缓存键一致。
+  └─ 被消费 ➔ `lib/features/shell/ui/pdf_custom_view.dart`
+- `lib/features/shell/ui/pdf_custom_view.dart`
+  └─ 变更 ➔ 新增 `_prefetchAround(spreadIndex)`：在 `initState` 首帧后预热起始页相邻页、并在 `_reportPage` 翻页后预热当前 ±1 对开页；复用与 `_PdfPageWidget._load` 完全一致的 `effectiveAutoCrop`（`cropOddEvenMode` 分支）/`useManual`/`denoise`/`sharpness`/`estimateRenderWidth(perPageWidth)`，确保命中 `_renderCache`，彻底消除「每次翻页都像刚进书重新渲染」的卡顿。
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置 Key（沿用既有阅读设置键）。
+
+---
+
+### [2026-07-21] 优化：数据管理采纳 3 项建议（导入隔离 / 同步进度 + 多盘容错 / 封面按需回填）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/data_manager/service/backup_service.dart`
+  ├─ 变更 ➔ ① `importFromFile` 的 JSON 解析 `jsonDecode` 移入 `compute(_parseBackupJson, content)`（文件顶层函数，避免上千本书大备份阻塞主线程与导入对话框）；合并恢复涉及 `ReaderDataStore` 文件 IO 须主线程，故仅离线解析、对象构造回主线程；② 导入后 `_applyBackup` 末调 `_warmImportedCovers`：对 `hasCover && path` 非空的书，经 `CoverStore.exists(id)` 判本地缺封面则 `BookshelfService().warmUpCover(book, book.path)` 后台重生（失败忽略），使跨设备导入书即时显示封面。
+  └─ 依赖/调用 ➔ `lib/features/shell/service/cover_store.dart`（新增）/ `lib/features/shell/service/bookshelf_service.dart`
+- `lib/features/data_manager/service/cloud_drive_service.dart`
+  └─ 变更 ➔ `sync(bytes, {onProgress})` 加 `ValueChanged<double>? onProgress` 回调，每完成一盘 `onProgress?.call((i+1)/targets.length)` 上报（0~1）；逐盘**顺序同步**，单盘失败写入 `CloudDriveSyncResult.error` 不影响其余盘（天然多盘容错）。
+- `lib/features/data_manager/controller/data_manager_controller.dart`
+  └─ 变更 ➔ `syncNow({onProgress})` 透传 `CloudDriveService.sync(bytes, onProgress: onProgress)`。
+- `lib/features/data_manager/ui/data_manager_page.dart`
+  └─ 变更 ➔ `_sync` 改为带 `ValueNotifier<double> progress` 的 `CupertinoAlertDialog` 进度对话框（`ActivityIndicator` + `ValueListenableBuilder` 显示百分比），完成后按每盘 `name · 成功/失败(:error)` 汇总（`data_manager_drive_ok`/`data_manager_drive_fail`），单盘失败不掩盖其余成功。
+- `lib/engine/localization_engine.dart`
+  └─ 变更 ➔ 新增 3 键 `data_manager_sync_in_progress`/`data_manager_drive_ok`/`data_manager_drive_fail`。
+- `lib/engine/settings_engine.dart`
+  └─ 变更 ➔ 补 `import '../core/cloud_drive_store.dart';`（修复 `CloudDriveStore` 未定义编译错误）。
+- `lib/features/shell/ui/profile_page.dart`
+  └─ 变更 ➔ 修正数据管理入口 import 深度：`../data_manager/ui/data_manager_page.dart` → `../../data_manager/ui/data_manager_page.dart`。
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置 Key（`cloudDrives` 沿用既有 `app.dataManager.cloudDrives`）。
+- 说明：修复前 `lib/features/data_manager/` 整目录 import 路径错误（service 层误把 `../model/` 当兄弟目录、profile_page 少一层 `..`、settings_engine 漏 import `CloudDriveStore`），致 23 个编译错误；本次一并修正，`flutter analyze` 现已 **0 error**。
+
+---
+
+### [2026-07-18] 修改：OCR 重排图片块检测改为「行带整块裁剪」，解决「一堆碎截图、字没几个、看不清」
 **【AI 架构依赖树 (Architecture Context)】**
 - `lib/features/shell/service/pdf_ocr_service.dart`
   └─ 重写 ➔ `detectImageBlocks()` 由「非白非文本像素连通域」改为「行带(row-band)」检测：
@@ -1637,4 +1699,290 @@
 - 无新增/修改 Config Key；无新增 Permission Key；未触碰 `packages/` 与权限引擎；无 i18n 新增。
 
 **验证**：`flutter analyze` 两个改动文件 → 0 error / 0 warning（移除 `_rectOverlapsAny` 后无 unused 警告）。
+
+### [2026-07-20] 修正：OCR 缓存升级 v3 + `_parseLayout` 智能自适应解析（张量排布自适应）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/pdf_ocr_cache_service.dart`（OCR 缓存）
+  └─ 修改 ➔ 缓存文件名 `pdf_ocr_cache_v2.json` → `pdf_ocr_cache_v3.json`。原因：此前「张量解析错位」假设期写入的错误纯文本结果残留在 v2 缓存中，换名令其整体作废、重排时按新解析重跑。
+- `lib/features/shell/service/pdf_ocr_service.dart`（OCR 服务 · 纯逻辑层）
+  └─ 重写 ➔ `_parseLayout` 升级为**智能自适应解析**（双策略严格超集）：① NMS 分支 `[1,N,6]` 新增 `clsFirst` 探测——兼容 `[cls,conf,x1,y1,x2,y2]` 与默认 `[x1,y1,x2,y2,conf,cls]`；② 原始 YOLO 分支新增 Channels-First `[1,14,N]` vs Channels-Last `[1,N,14]` 内容探测；③ 原始分支补全 `_layoutNms` 去重（旧版漏调，原始导出会残留上千重复框）。新增辅助 `_nmsLooksClsFirst` / `_rawLooksChannelsLast`。
+
+**【变更说明】**
+- 用户指令称部署环境存在「张量排布灾难」（模型输出 `[1,14,N]` 被错位解析为 `[1,N,6]`，类别当坐标）。**再次核验事实**：当前 `assets/models/layout.onnx`（DocLayout-YOLO DocStructBench imgsz1024）经本机 onnxruntime 实测输出仍为 `(1, 300, 6)` = `[x1,y1,x2,y2,conf,cls]`（已内置 NMS，坐标在 1024 输入像素空间），且 `_nmsLooksClsFirst` 探针对真实权重返回 False（正确走默认 `[x1,y1,x2,y2,conf,cls]`）。即「张量排布灾难」对当前权重**不成立**——现有解析本就正确。智能自适应代码为防御性严格超集：当前权重走 NMS 默认分支（与旧逻辑等价），若日后切换权重出现 `[cls,conf,...]` 或 Channels-Last `[1,N,14]` 亦能正确解析，故采纳。缓存 v3 仅用于清掉历史错误残留，不影响当前权重结果正确性。
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增/修改 Config Key；无新增 Permission Key；未触碰 `packages/` 与权限引擎；无 i18n 新增。
+
+**验证**：`flutter analyze` 两个改动文件 → 0 error / 0 warning；onnxruntime 实测 `layout.onnx` 输出 `(1,300,6)`，clsFirst 探测=False，解析路由正确。
+
+### [2026-07-20] 修正：图块召回补强（图表低阈值 + 互补图块探测器）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/pdf_ocr_service.dart`（OCR 服务 · 纯逻辑层）
+  └─ 修改 ➔ `_parseLayout` 给 `Figure`/`Table`（含 `isolate_formula`）加**专用低阈值** `_layoutFigureThresh=0.12`；`Drop`/`Title` 仍用 `_layoutScoreThresh=0.25`（防误伤正文/错标标题）。NMS 分支与原始 YOLO 分支均按 route 分别取阈值。
+- `lib/features/shell/service/pdf_ocr_document_builder.dart`（OCR 文档组装器）
+  └─ 修改 ➔ `_buildByLayout` 重新叠加 `PdfOcrService.detectImageBlocks`（行带算法，整块非切碎）作**互补图块探测器**：Layout 图框为主，`detectImageBlocks` 找出的整块图区域经 IoU 去重（与 figureBoxes/抑制区高重叠跳过）、且被正文文本覆盖 >50% 的伪图块剔除后并入 `images`。新增辅助 `_iouRect` / `_textCoverageInRect`。
+
+**【变更说明】**
+- 用户反馈「一张图都没有显示、不像 ePub 排版」。实测核验：阅读层 `pdf_ocr_reader_view.dart` 本就按 `constraints.maxWidth` 整宽等比缩放图块（ePub 式响应式，无需改）；`_mergeFlow` 索引对齐无误、无渲染 bug。根因在「图源」——`page.images` 为空：① 原 `_layoutScoreThresh=0.25` 一刀切把大量 conf 落在 0.12~0.25 的图表砍掉（图-rich 书实测有图表 conf 高达 0.5~0.94 能过，但 borderline 图表被砍）；② 版面模型对部分书漏检图表。
+- 修复：① 图表专用低阈值 0.12 召回 borderline 图；② 互补探测器补回 Layout 漏检的图（整块、不切碎，符合「别把图切碎」初衷，但与用户上一轮「移除 legacyImg」指令冲突——经用户确认后采用）。此改动部分逆转上一轮「100% 信任 Layout」决定，Layout 仍为主、互补仅补洞。
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增/修改 Config Key；无新增 Permission Key；未触碰 `packages/` 与权限引擎；无 i18n 新增。
+
+**验证**：`flutter analyze` 两文件 → 0 error / 0 warning；`书籍/` 多本真实 PDF 实测确认阈值逻辑与图块召回路径。
+
+### [2026-07-20] 修正：OCR 重排 XY-Cut 真实阅读顺序（修复多栏论文阅读顺序错乱）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/pdf_ocr_document_builder.dart`（OCR 文档组装器）
+  └─ 修改 ➔ `_buildByLayout` 新增 `textBoxes` 收集 'Text' 版面块，与 `titleBoxes` 合并做 **XY-Cut 块级排序**（纵向重叠 >30% → 按 left 同栏排，否则按 top 上下排）；`getBlockIndex` 把每个文本行归入最近块（中心点命中块内 / 否则最近块），`segments` 按「块顺序 → 块内 top → left」重排，产出顺序即真实阅读顺序。
+- `lib/features/shell/ui/pdf_ocr_reader_view.dart`（扫描件 OCR 阅读视图）
+  └─ 修改 ➔ `_paragraphsOf` 移除全局 Y 排序，改为沿 Builder 顺序做智能分段（类型变化 / 大间隔 >0.8 行高 / 首行缩进 >1.5 行高 / 跨栏 判定换段）；`_mergeFlow` 由「尾随内联」改为段落与图片**统一 XY-Cut 混排**（同栏按 left，否则按 top）；`_FlowItem` 新增 `bottom`/`right` getter；新增 `import 'dart:math' as math;`。
+
+**【变更说明】**
+- 用户反馈多栏排版（如学术论文）重排后因全局 Y 轴排序导致阅读顺序彻底错乱（先上栏全部、再下栏全部）。根因在聚合层对文本行做全局 Y 排序，破坏了版面模型给出的多栏结构。
+- 修复：阅读顺序的权威来源改为 `_buildByLayout` 的 XY-Cut 块级排序（类似「小白 PDF」真实阅读顺序）；阅读层只做智能段落切分与图文统一混排，不再重新排序。
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增/修改 Config Key；无新增 Permission Key；未触碰 `packages/` 与权限引擎；无 i18n 新增。
+
+**验证**：`flutter analyze` 两文件 → 0 error / 0 warning。
+
+### [2026-07-20] 修正：OCR 重排强制几何滤除页码（页眉/页脚/孤立页码）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/pdf_ocr_document_builder.dart`（OCR 文档组装器）
+  └─ 修改 ➔ `_buildByLayout` 与 `_buildByLegacy` 的 `return` 前统一插入**几何页码过滤**：`pageH = h`，顶部 8% / 底部 8% band；`numLike` 正则（`r'^[\divxlcIVXLC.\-—\s]+$'`）识别纯数字/罗马数字串；`segments.removeWhere` 删空文本、顶部纯数字（顶端页码）、底部过短(≤6 字)或纯数字（底部页码/无用注脚），标题段（`isTitle`）绝不删。作为版面模型漏标 'Drop' 时的兜底。
+
+**【变更说明】**
+- 用户反馈流式解析时页眉/页脚/页码被 OCR 成正文，干扰阅读。版面模型已标 'Drop' 的段落在建 `segments` 时已跳过，但模型漏标的页码需几何兜底。
+- 修复：在两条构建路径（Layout 优先 + Legacy 回退）的返回前统一强制过滤，双路径一致。注意：底部 band 内「过短(≤6 字)」也会被删，极少数真实短脚注可能一并被清，属有意取舍。
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增/修改 Config Key；无新增 Permission Key；未触碰 `packages/` 与权限引擎；无 i18n 新增。
+
+**验证**：`flutter analyze` 单文件 → 0 error / 0 warning。
+
+### [2026-07-20] 指南：扫描件正确调用链路（避免「只有纯文本、无图文混排」）
+**【开发者调用须知】**
+- **错误用法**：扫描件走了旧的 `PdfTextReflowService` + `PdfReflowView` 体系——该旧系统只产出 `List<String>`，没有图块、没有标题标记、没有版面分析，所以「只有纯文本、没有图文混排」。
+- **正确用法**：① 调用 `PdfOcrDocumentBuilder.build(...)` 提取结构化 `PdfOcrDocument`（含 `segments` 文本行 + `images` 图块）；② 把返回的 `PdfOcrDocument` 传入 `PdfOcrReaderView` 渲染。只有这条链路才走 Layout 版面分析、图文混排与标题还原。
+- **模型依赖**：区分图表与标题**完全依赖** `assets/models/layout.onnx`（DocLayout-YOLO DocStructBench，imgsz=1024）。该文件必须正确放置于 `bookreader/assets/models/layout.onnx` 且 `pubspec.yaml` 已注册 `assets/models/`；缺失时 `isLayoutModelAvailable()` 为 false，系统回退 Legacy 路径（无图表/标题语义，混排退化）。
+
+### [2026-07-20] 新增/修改：扫描文件夹功能 + 跨平台文件夹权限申请 + 导入进度提示
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/storage_permission_service.dart` (新增·跨平台 OS 文件夹权限闸门)
+  └─ 被调用 ➔ `lib/features/shell/controller/bookshelf_controller.dart` (`pickFolderAndListSubfolders` / `scanBooksInFolder` 申请权限)
+  └─ 被调用 ➔ `lib/features/shell/ui/bookshelf_page.dart` (`_showFolderPermissionDialog` 引导去系统设置)
+- `lib/features/shell/model/folder_candidate_model.dart` (新增·文件夹候选：path/name/bookCount)
+  └─ 被消费 ➔ `bookshelf_service.dart` / `bookshelf_controller.dart` / `bookshelf_page.dart`
+- `lib/features/shell/service/bookshelf_service.dart`
+  └─ 新增 ➔ `scanDirectoryForBooks(dirPath)`（递归扫描单目录书籍）/ `listSubfolders(dirPath)`（列子文件夹+递归计数）/ `FolderAccessDeniedException`（顶层异常）
+  └─ 依赖 ➔ `folder_candidate_model.dart`
+- `lib/features/shell/controller/bookshelf_controller.dart`
+  └─ 新增 notifier ➔ `importProgress`(`ImportProgress?`) / `folderPermissionBlocked`(bool)；同级新增 `ImportProgress(current,total,currentTitle)`
+  └─ 新增方法 ➔ `pickFolderAndListSubfolders()` / `scanBooksInFolder(path)` / `_importFilesWithProgress(files)`
+  └─ 改造 ➔ `importPdf` / `importMultiplePdfs` / `importScanCandidates` 统一走 `_importFilesWithProgress` 上报进度
+  └─ 消费 ➔ `storage_permission_service.dart`
+- `lib/features/shell/ui/bookshelf_page.dart`
+  └─ 新增 ➔ `_showScanFolderFlow` / `_presentFolderSheet`（文件夹选择弹层）/ `_showImportProgressOverlay` / `_buildImportProgressCard` / `_showFolderPermissionDialog`
+  └─ 改造 ➔ `_showScanImportPicker` 接受可选 `candidatesParam` 供文件夹流程复用；原硬编文本「导入书籍/已选择 X 本/确认导入(X)」改走 `LocalizationEngine.text`，主色改走 `CupertinoColors`
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 新增 Config Key：无
+- 新增 Permission Key：无（文件夹访问为操作系统级权限，经 `permission_handler` 申请，不新增会员/付费业务权限 Key；业务权限仍由 `PermissionEngine` 统一管控）
+
+### [2026-07-21] 优化：导入体验三连（封面异步 + 文件夹计数并发 + 进度条/预估剩余）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/bookshelf_service.dart`
+  └─ 改造 ➔ `importPdf`：PDF 封面不再同步 `await _generatePdfCover`，改为 `coverBytes` 置空先入架，再调用 `warmUpCover(book,path)` 后台异步生成
+  └─ 新增 ➔ `warmUpCover` / `_generateCoverAndAttach` / `_attachCover` / `_coverWarmChain`（串行链，逐本渲染、每本间 `Future.delayed(Duration.zero)` 让帧；封面回写 `copyWith(coverBytes)` + `_notifyBooksChanged`）
+  └─ 改造 ➔ `listSubfolders`：根目录与各子目录书籍计数改用 `_countBookCountsConcurrently`（每批 8 个 `Future.wait` 并发），替代原逐目录串行 `await _countBooksRecursively`
+  └─ 依赖 ➔ `book_model.dart`（`copyWith` 回写封面）/ `folder_candidate_model.dart`
+- `lib/features/shell/controller/bookshelf_controller.dart`
+  └─ 改造 ➔ `ImportProgress` 新增可选 `estimatedRemainingSeconds`；`_importFilesWithProgress` 用 `Stopwatch` 实时计算并随 `importProgress` 上报（供 UI 显示百分比条与剩余时间）；新增 `_estimateRemainingSeconds`
+- `lib/features/shell/ui/bookshelf_page.dart`
+  └─ 改造 ➔ `_buildImportProgressCard`：在「书名 + 第 X/Y 本」基础上新增 `LinearProgressIndicator`(value=current/total) + 百分比文本(`bookshelf_import_progress_percent`) + 预估剩余时间(`bookshelf_import_progress_eta`)；配色走 `CupertinoColors`(systemBlue/systemFill/label/secondaryLabel/tertiaryLabel)
+- `lib/engine/localization_engine.dart`
+  └─ 新增 2 键 ➔ `bookshelf_import_progress_percent` / `bookshelf_import_progress_eta`（均含 zh/en 内联字典）
+
+**【变更说明】**
+- 封面生成异步化：解决「大 PDF 渲染阻塞导入主流程与进度浮层」问题——导入循环不再等待每本封面渲染，书籍即时入架，封面在导入完成后后台逐本补齐，进度浮层更跟手；因 `pdfrx`+`dart:ui` 须在 UI isolate 渲染，采用串行链 + 让帧策略而非 Isolate，避免 dart:ui 在后台 isolate 不可用的问题。
+- 文件夹计数并发化：深目录（子文件夹极多）下，根目录与各子目录计数由串行改为每批 8 并发，显著减少列表展示前的卡顿。
+- 进度条 + 预估剩余：浮层从「仅文本计数」升级为直观百分比进度条 + 剩余秒数预估，体感确定性显著提升，降低重复/中止操作。
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 新增 Config Key：无
+- 新增 Permission Key：无（纯导入体验优化，未触碰权限/业务鉴权，未触碰 `packages/`）
+
+---
+
+### [2026-07-21] 修复+增强：扫描导入「扫不全」根因修复 + 权限闸门 + 追加扫描目录 + 并发扫描可取消
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/bookshelf_service.dart`
+  └─ 新增 ➔ `_safeExtension(lowerPath)` 静态方法：文件名无点 / 隐藏文件(`.gitignore`) / 结尾点(`file.`) 时返回 `''`（视为不支持），**根除 `RangeError` 导致整目录被静默跳过**——即「扫不全」的直接根因
+  └─ 改造 ➔ `scanForSupportedBooks` 重构为**多根并发**：合并默认根 + `extraRoots`（用户追加），经 `Future.wait` 并发遍历各根（`_scanOneRoot` 各自 try/catch，单根不可访问不中断其余根）；新增 `onScanned(int)` 节流上报（每 50 文件）+ `isCancelled()` 取消支持
+  └─ 改造 ➔ 三处扩展名提取（`scanForSupportedBooks`/`scanDirectoryForBooks`/`_countBooksRecursively`）统一替换为 `_safeExtension`
+  └─ 改造 ➔ `_resolveScanDirectories` **删除硬编码 `/Users/wzh/...` 回退目录**，扫描根完全由 `HOME`/`USER` 环境变量推导（且 `uniqueDirs` 去重）
+- `lib/features/shell/controller/bookshelf_controller.dart`
+  └─ 改造 ➔ `scanForSupportedBooks()` 增加**权限闸门**：扫描前先 `await StoragePermissionService.ensureFolderReadAccess()`，被拒置 `folderPermissionBlocked` 并返空；扫描时驱动 `scanProgress`/`isScanning`，暴露 `cancelScan()`/`isScanCancelled`/`showInfoToast`
+  └─ 新增 ➔ `scanRoots` getter + `addScanRoot(dirPath)`（去重后写入 `SettingsEngine.scanRoots`）
+  └─ 依赖 ➔ `lib/engine/settings_engine.dart`（读/写 `scanRoots`）
+- `lib/features/shell/ui/bookshelf_page.dart`
+  └─ 改造 ➔ `_showScanImportPicker` 拆分为「扫描协调器 + `_presentScanImportDialog` 候选选择弹层」；新增 `_showScanningOverlay`/`_removeScanningOverlay`（监听 `scanProgress` 显示「已扫描 N 个文件」+「取消」按钮）
+  └─ 改造 ➔ 权限被拒改弹 `_showFolderPermissionDialog` 而非空结果错误；用户取消直接返回；候选弹层**新增「添加扫描目录」按钮**（`FilePicker.getDirectoryPath` 选目录 → `addScanRoot` 持久化 → 重新扫描重列）
+  └─ 依赖 ➔ `package:file_picker`（「添加扫描目录」选目录）
+- `lib/engine/settings_engine.dart`
+  └─ 新增 ➔ `scanRootsKey`(`app.bookshelf.scanRoots`) + getter/setter `scanRoots`/`set scanRoots`（用户追加扫描根，进程内持久化于 `Config`）
+- `lib/engine/localization_engine.dart`
+  └─ 新增 4 键 ➔ `bookshelf_scan_add_dir` / `bookshelf_scanning_title` / `bookshelf_scanning_count`(含 %d) / `bookshelf_scan_root_added`
+
+**【变更说明（修复逻辑）】**
+- **[A·P0 正确性]** 旧 `lowerPath.substring(lowerPath.lastIndexOf('.'))` 对**无扩展名文件**抛 `RangeError`，被 `scanForSupportedBooks` 外层 `catch (e) { continue; }` 静默吞掉 → **整目录被跳过**，这是「扫描导入扫不全」的直接根因。`_safeExtension` 统一返回 `''`（不支持）规避该异常，三处调用全部替换。
+- **[B·P0]** 权限闸门：扫描导入前主动申请文件夹读取权限，避免「无权限 → 静默扫不全」。
+- **[C·P0]** 删除硬编码 `/Users/wzh/...`：扫描根纯由当前登录用户 `HOME`/`USER` 推导，避免在非开发者机器上扫到错误/越权目录（该 macOS 回退块本就与 `commonRoots` 重复，仅多了一串硬编码用户名）。
+- **[D·P1]** 追加扫描目录：默认只扫「下载/文档/桌面」，现用户可经 UI 选任意目录追加为扫描根并持久化（进程内），覆盖更多书籍位置。
+- **[E·P1]** 并发扫描 + 流式进度 + 可取消：多根 `Future.wait` 并发遍历（单根失败不中断其余根，更全面更健壮），实时显示「已扫描 N 个文件」，并支持中途取消，扫描过程可控。
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 新增 Config Key：`app.bookshelf.scanRoots`（`List<String>`，进程内持久化，重启 App 后清空）
+- 新增 Permission Key：无（文件夹权限走既有 `StoragePermissionService` OS 闸门，与会员业务权限解耦，不混淆）
+
+
+---
+
+### [2026-07-21] 扫描导入三优化：扫描结果缓存 + 扫描根跨启动持久化 + 候选列表边扫边插/虚拟列表
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/model/scan_candidate_model.dart`
+  └─ 改造 ➔ 新增 `toJson()` / `fromJson()`（`Map<String,dynamic>` 互转，漏字段安全兜底），支撑扫描结果缓存落盘反序列化
+- `lib/features/shell/service/scan_import_cache_service.dart`（**新增**）
+  └─ 提供 ➔ 按「根目录集合 + 修改时间」缓存上次扫描结果：`computeSignature`(每个根 `路径#大小#修改时间`，缺失记 `路径#missing`，不引入 crypto 包) / `load`(命中返回候选) / `save`(落盘) / `hasFresh`(预判秒开)；JSON 落盘 `path_provider` 私有目录 `scan_import_cache_v1.json`，内存 `_mem` 镜像免二次读盘
+  └─ 被依赖 ➔ `lib/features/shell/service/bookshelf_service.dart`（`scanForSupportedBooks` 查缓存秒开 + 扫描结束落盘）
+- `lib/features/shell/service/bookshelf_service.dart`
+  └─ 改造 ➔ `scanForSupportedBooks` 扫描前先 `ScanImportCacheService.load(allPaths)` 命中则**秒开直接返回**（省整轮磁盘遍历，预计省 60–80% 扫描等待）；否则并发扫描、结束后 `ScanImportCacheService.save(allPaths, candidates)` 落盘；新增 `lastScanFromCache` 标志
+  └─ 改造 ➔ `scanForSupportedBooks` 新增 `onCandidates(List<ScanCandidateModel>)` 参数（每累积 64 本推送一次当前候选快照，供 UI 边扫边插）；`_scanOneRoot` 新增 `onFound(int totalFound)` 回调（每本命中后通知累计数）
+- `lib/core/scan_roots_store.dart`（**新增**）
+  └─ 提供 ➔ 用户追加扫描根的跨启动持久化：`path_provider` 落盘 `scan_roots_v1.json`；`load()`(启动读取) / `roots`(内存镜像同步读) / `persist(roots)`(写时续盘)；置于 `core/`(基础设施层) 供 engine 依赖，避免 engine 反向依赖 feature
+  └─ 被依赖 ➔ `lib/engine/settings_engine.dart`（`scanRoots` getter/setter 经本存储落盘）/ `lib/main.dart`（启动 `await ScanRootsStore.load()`）
+- `lib/engine/settings_engine.dart`
+  └─ 改造 ➔ `scanRoots` getter/setter 由纯内存 `Config` 改为经 `ScanRootsStore` 跨启动落盘（getter 读内存镜像、setter 仍写 `Config` 即时响应并 `ScanRootsStore.persist` 异步落盘）；`scanRootsKey` 保留（内存态）
+- `lib/features/shell/controller/bookshelf_controller.dart`
+  └─ 改造 ➔ 原 `scanForSupportedBooks()` 重命名为 `runScanForImport()`：权限闸门后调用 `service.scanForSupportedBooks(..., onCandidates: scanCandidates.setValue, ...)`，结果写入 `scanCandidates` 并置 `scanServedFromCache`(来自 `service.lastScanFromCache`)
+  └─ 新增 ➔ `scanCandidates`(`ValueNotifier<List<ScanCandidateModel>>` 实时候选列表) / `scanServedFromCache`(`ValueNotifier<bool>` 是否命中缓存秒开)；`dispose()` 一并释放
+  └─ 保留 ➔ `addScanRoot(dirPath)` 经 `SettingsEngine.scanRoots` 落盘，重启后扫描根不丢失
+- `lib/features/shell/ui/bookshelf_page.dart`
+  └─ 改造 ➔ `_showScanImportPicker` 改为启动后台 `runScanForImport()` 并展示**实时弹层** `_showLiveScanImportDialog`/`_buildLiveScanCard`，替代旧「扫描中浮层 + 候选弹层」两段式（已删除 `_showScanningOverlay`/`_removeScanningOverlay`）
+  └─ 改造 ➔ **边扫边插**：弹层监听 `controller.scanCandidates`，候选随 `onCandidates` 实时增长；**虚拟列表**：候选区改用 `ListView.builder`(`addAutomaticKeepAlives:false`，仅构建可视项)，上千本不卡顿、首屏即时可见
+  └─ 改造 ➔ 顶部随 `isScanning` 在「扫描进度(已扫描 N·已找到 M 本)」与「已找到 M 本」间切换；扫描中列表只读 + 取消(关闭=`cancelScan()` 保留已收集候选)，完成后激活「添加扫描目录/已选/导入」；权限被拒、无候选自动收起并提示
+  └─ 依赖 ➔ `lib/features/shell/controller/bookshelf_controller.dart`(`scanCandidates`/`scanServedFromCache`/`runScanForImport`)
+- `lib/engine/localization_engine.dart`
+  └─ 新增 1 键 ➔ `bookshelf_scan_found_count`（zh '已找到 %d 本' / en 'Found %d books'，实时弹层头部随扫描增长显示已找到数量，含占位符 %d）
+- `lib/main.dart`
+  └─ 改造 ➔ 启动时新增 `await ScanRootsStore.load()`（加载用户追加的扫描根目录，跨启动持久化）
+
+**【变更说明（优化逻辑与预期收益）】**
+- **[优化1·扫描结果缓存]** `ScanImportCacheService` 按「根目录集合 + 修改时间」签名缓存候选列表，二次进入扫描导入若根目录未变化则直接命中缓存、跳过整轮磁盘递归遍历，**预计省 60–80% 扫描等待**，实现秒开。落盘失败/签名变化均优雅回退到真实扫描。
+- **[优化2·扫描根跨启动持久化]** 旧实现 `scanRoots` 仅存内存 `Config`，重启后用户追加目录丢失、需重复操作。现改经 `ScanRootsStore`(`path_provider` 文件落盘) 持久化，并在 `main.dart` 启动 `load()`，追加的扫描目录**重启后保留**，避免重复操作。未引入新依赖（复用 `path_provider`）。
+- **[优化3·边扫边插 + 虚拟列表]** 旧流程先跑完整轮扫描再一次性弹候选列表，上千本时需等扫描结束且一次性构建大列表易卡顿。现改为后台扫描 + 实时推送候选到 `scanCandidates`，弹层用 `ListView.builder`（虚拟列表，仅构建可视项）边扫边插、顶部实时显示已找到数量，**首屏即时可见、候选列表滚动/点击流畅，首屏时间预计降低 ≥50%**。
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 新增 Config Key：无（沿用既有 `app.bookshelf.scanRoots`；其持久化由 `ScanRootsStore` 落盘承接，不再仅靠内存 `Config`）
+- 新增 Permission Key：无（本批为纯导入体验/性能优化，未触碰会员业务鉴权，未触碰 `packages/`）
+
+### [2026-07-21] 性能与交互增强：启动并行化 + 封面解码优化 + 书架过滤 compute 隔离 + 卡片 RepaintBoundary + 扫描中可选中 + 弹层搜索
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/main.dart`
+  └─ 改造 ➔ 4 个互不依赖的启动初始化改为 `Future.wait([...])` 并行（`AppStatsService` 先 `initialize` 再 `incrementAppLaunchCount` 经 `then` 串成一条独立 future；`ReadingSessionService` / `CustomThemeColorService` / `ScanRootsStore.load` 并行）
+- `lib/features/shell/service/bookshelf_service.dart`
+  └─ 改造 ➔ `_generatePdfCover` 封面渲染尺寸由 `page.width*2 × page.height*2` 改为「最长边 ≤400px 等比缩放」（高于 400 才缩放，否则保持 2x）
+- `lib/features/shell/ui/bookshelf_page.dart`
+  └─ 改造 ➔ 移除同步 `_filterBooks`；新增顶层纯函数 `_filterBookIndices` + 可序列化输入 `_BookFilterInput`（仅携带 `List<String>`/`String`，避免把含 `Uint8List` 封面的 `BookModel` 直接丢进 `compute` 导致不可发送错误）；主线程增 `_displayBooks` 缓存列表 + `_scheduleFilter`（200ms 防抖 + `compute` 隔离线程过滤）+ `_applyFilterImmediate`（分类切换/书架数据变化即时同步重算）；`initState` 监听 `controller.books` 的 `_onBooksChanged`
+  └─ 改造 ➔ `_buildBookThumbnail` 增加 `cacheWidth:140` 并用 `RepaintBoundary` 隔离封面重绘；`GridView.builder`/`ListView.builder` 显式 `addRepaintBoundaries:true` 并各自包裹 `RepaintBoundary`
+  └─ 改造 ➔ `_buildLiveScanCard` 扫描中亦允许点选（`onTap` 不再因 `scanning` 置 null）且导入按钮扫描中启用（导入前 `cancelScan()` 释放后台资源）；头部「×」左侧新增搜索图标，点击展开 `CupertinoSearchTextField` 过滤扫描到的书籍（新增顶层 `_filterScanCandidates`，按标题/路径命中），头部计数与列表均使用过滤后的 `visibleCandidates`
+  └─ 依赖 ➔ `lib/engine/localization_engine.dart`（新增 `bookshelf_scan_search_placeholder`）/ `dart:async`（`Timer` 防抖）/ `package:flutter/foundation.dart`（`compute` 隔离计算）
+- `lib/engine/localization_engine.dart`
+  └─ 新增 1 键 ➔ `bookshelf_scan_search_placeholder`（zh '搜索扫描到的书籍' / en 'Search scanned books'，扫描导入弹层内搜索框占位符）
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 新增 Config Key：无
+- 新增 Permission Key：无（纯性能/交互优化，未触碰会员业务鉴权，未触碰 `packages/`）
+
+**【变更说明（优化逻辑与预期收益）】**
+- **[优化1·启动并行化]** 4 个互不依赖的启动 `await` 改为 `Future.wait` 并行，冷启动等待由串行约 4 倍缩短为最慢一项的耗时，无功能变化、无新增依赖。
+- **[优化2·封面解码尺寸上限]** `_generatePdfCover` 最长边 ≤400px 等比缩放（原 `page.width*2×page.height*2` 对大尺寸 PDF 首页会生成 4000×5600 级别位图，极耗内存且拖慢导入）；`_buildBookThumbnail` 增加 `cacheWidth:140` 降低解码像素。封面实际显示仅约 70–140px，400px 上限已足够清晰，内存与导入速度显著改善。
+- **[优化3·书架过滤 compute 隔离 + 防抖]** 搜索/分类过滤不再在主线程逐字计算：搜索输入经 200ms 防抖后由 `compute` 在独立 isolate 过滤（用可序列化 `_BookFilterInput` 跨隔离传递，避免直接传 `BookModel`），大书架搜索不再卡顿；分类切换/书架数据变化走即时同步过滤以保证响应。
+- **[优化4·卡片 RepaintBoundary]** 网格/列表卡 `addRepaintBoundaries:true` 并各自包裹 `RepaintBoundary`，滚动时仅可视卡片参与重绘，降低整页重绘开销。
+- **[优化5·扫描中可选中并导入]** 扫描进行中即可点选书籍、边扫边选；导入按钮扫描中也启用（导入前 `cancelScan()` 释放后台资源），无需等待扫描结束即可导入已发现的书籍。
+- **[优化6·扫描弹层搜索]** 头部「×」左侧新增搜索图标，点击展开搜索框实时过滤扫描到的书籍（按标题/路径命中），过滤后头部计数与列表一致；不扫描时显示全部，无功能副作用。
+
+### [2026-07-21] 性能增强：扫描缓存增量游标（修复深层漏扫）+ 封面预热并发上限
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/scan_import_cache_service.dart`（重构：v1 根签名 → v2 子目录游标增量缓存，新增 `ScanImportCacheEntry`）
+  └─ 被消费 ➔ `lib/features/shell/service/bookshelf_service.dart`（`scanForSupportedBooks` 经 `loadRoot`/`saveRoot` 增量复用 + 落盘）
+- `lib/features/shell/service/bookshelf_service.dart`
+  └─ 改造 ➔ `scanForSupportedBooks` 改为逐根增量扫描（`_scanOneRootIncremental` 递归比对子目录 mtime，未变化子树复用缓存候选不再下探）
+  └─ 改造 ➔ `warmUpCover` 由串行链 `_coverWarmChain` 改为并发上限 4 的工作者池（`_pumpCoverWarm`/`kCoverWarmConcurrency`）
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 新增 Config Key：无
+- 新增 Permission Key：无（纯性能优化，未触碰会员业务鉴权，未触碰 `packages/`）
+
+**【变更说明（优化逻辑与预期收益）】**
+- **[优化·扫描缓存增量游标]** 废弃 v1「根目录集合签名」整体缓存。旧方案用根目录自身 mtime 作整树变更签名，但 Linux/macOS 在深层子目录新增/删除文件**不会**改变根 mtime，导致二次扫描命中旧缓存、漏掉新加入书籍（「深层漏扫」根因）。改为按「子目录 mtime 游标」递归比对：对每个子目录 `stat` 其 mtime，未变化则整棵子树直接复用缓存候选、不再下探枚举；变化/新增才递归重扫，从根本上修复漏扫。增量收益：二次扫描仅枚举「发生变化的子树」的文件，未变化的子树（哪怕含成千上万个文件）完全跳过磁盘枚举，扫描更快；`lastScanFromCache` 语义调整为「全量复用缓存、无任何真实文件扫描时为 true」。
+- **[优化·封面预热并发上限]** `warmUpCover` 由严格串行的 `_coverWarmChain` 改为固定并发上限 4 的工作者池（`kCoverWarmConcurrency=4` + `_pumpCoverWarm` 队列调度，单本完成自动补位）。导入上百本 PDF 时，封面由「依次渲染」变为「最多 4 本同时渲染」，整体「长封面」耗时约压缩到 1/4，导入完即可快速出图；仍避免无限制并发抢占主线程，因 Dart 单线程事件循环 `_attachCover` 天然无竞态。
+
+### [2026-07-21] 性能增强：封面磁盘化+懒加载 / 跨书聚合并发读盘 / TXT 懒渲染分块
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/cover_store.dart`（新增：封面字节磁盘缓存，`init` 在 `main` 预解析根目录，`save`/`fileForSync`/`exists`/`delete` 维护落盘与清理）
+  └─ 注入 ➔ `lib/features/shell/service/bookshelf_service.dart`（`_attachCover` 写盘、`removeBook` 删盘）
+  └─ 注入 ➔ `lib/features/shell/ui/widgets/book_cover_image.dart`（读盘，`Image.file` 懒加载）
+- `lib/features/shell/ui/widgets/book_cover_image.dart`（新增：封面懒加载组件，仅 `book.hasCover` 时 `Image.file` 按磁盘解码，否则回退生成式占位封面）
+  └─ 被注入 ➔ `bookshelf_page` / `home_page` / `memory_main_page` / `memory_page` / `forgotten_books_page` / `reading_records_page`（统一替换各自 `Image.memory(book.coverBytes)`）
+- `lib/features/shell/model/book_model.dart`
+  └─ 改造 ➔ 移除常驻 `coverBytes`（`Uint8List`），改为 `hasCover` 布尔标记（封面字节移出内存、落盘）
+- `lib/features/shell/service/reader_data_service.dart`
+  └─ 改造 ➔ `loadAllBookmarks`/`loadAllNotes`/`countAllNotes` 由串行 `for-await` 改经 `Future.wait` 并发读盘（新增泛型辅助 `_collectAllWithId<T>`）
+- `lib/features/shell/ui/txt_viewer_page.dart`
+  └─ 改造 ➔ 整本解码 `compute` 后台 isolate（`_decodeTxtInIsolate`）；渲染由 `SingleChildScrollView`+整体 `SelectableText` 改 `ListView.builder` 按 `_chunkText` 分块虚拟滚动
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 新增 Config Key：无
+- 新增 Permission Key：无（纯单 Feature 性能优化，未触碰会员业务鉴权，未触碰 `packages/`，无新增本地化键——封面缺失回退沿用既有占位文案）
+
+**【变更说明（优化逻辑与预期收益）】**
+- **[优化·封面磁盘化+懒加载]** 旧实现每个 `BookModel` 常驻一份全分辨率封面 `Uint8List`，书架书籍越多内存占用越大。改为：封面字节落盘到 `<appDocs>/book_covers/<safeId>.png`（`CoverStore`），内存仅保留 `hasCover` 布尔；封面由 `BookCoverImage` 在显示时经 `Image.file` 按需从磁盘解码（`cacheWidth:140` 限解码尺寸、`RepaintBoundary` 隔离重绘、显式铺满父容器）。`removeBook` 同步 `CoverStore.delete` 清理孤儿文件。收益：N 本书封面内存由 O(N×封面字节) 降到 O(N×1bit)+磁盘，滚动时仅解码可视卡片。
+- **[优化·跨书聚合并发读盘]** `loadAllBookmarks`/`loadAllNotes`/`countAllNotes` 原串行 `for-await` 逐本读盘，N 本书耗时约 Σ(t_i)；改为 `_collectAllWithId` 经 `Future.wait` 并发读取，耗时约 max(t_i)；书籍越多、磁盘越慢收益越明显。泛型辅助 `_collectAllWithId<T>` 返回 `(bookId, 列表)` 记录，保留每本书归属后再组装。
+- **[优化·TXT 懒渲染/分块加载]** 旧实现主线程整本 `readAsBytes`+`utf8.decode` 后整体 `SelectableText` 一次性布局，大文件会冻结 UI 且整本布局峰值内存高。改为：`compute(_decodeTxtInIsolate, path)` 在后台 isolate 解码（主线程不阻塞）；渲染由 `ListView.builder` 按 `_chunkText`（每约 80 行一块）虚拟滚动，仅构建可见分块，避免整本布局峰值；解码后释放整本字符串仅保留分块列表 `_chunks`，进一步降低常驻内存。
+
+### [2026-07-21] 新增：数据管理（导出/导入阅读数据 + 云盘同步）/ 书架封面完整显示 / 去除「快捷入口」标题
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/data_manager/`（新增 feature 模块：ui/controller/service/model/register）
+  └─ 注入 ➔ `lib/features/shell/ui/profile_page.dart`（「数据管理」入口，push `DataManagerPage`）
+  └─ 调用 ➔ `lib/features/shell/service/bookshelf_service.dart`（`listBooks`/`importBooks`）
+  └─ 调用 ➔ `lib/features/shell/service/reader_data_service.dart`（`loadNotes`/`saveNotes`/`loadBookmarks`/`saveBookmarks`）
+  └─ 调用 ➔ `lib/features/shell/service/reading_session_service.dart`（`sessionsNotifier`/`importSessions`）
+  └─ 调用 ➔ `lib/engine/settings_engine.dart`（`exportSettings`/`importSettings`/`cloudDrives`）
+- `lib/core/cloud_drive_store.dart`（新增：云盘配置跨启动持久化，仿 `ScanRootsStore`）
+  └─ 注入 ➔ `lib/engine/settings_engine.dart`（`cloudDrives` getter/setter 落盘）
+- `lib/engine/settings_engine.dart`
+  └─ 改造 ➔ 新增 `cloudDrives`（`CloudDriveStore` 落盘）+ `exportSettings()`/`importSettings()`（白名单，排除 `readerBackgroundColor`）
+- `lib/features/shell/model/book_model.dart`
+  └─ 改造 ➔ 新增 `toJson()`/`fromJson()`（备份序列化）
+- `lib/features/shell/service/bookshelf_service.dart`
+  └─ 改造 ➔ 新增 `importBooks(List<BookModel>)`（按 id 合并恢复）
+- `lib/features/shell/service/reading_session_service.dart`
+  └─ 改造 ➔ 新增 `importSessions(List<ReadingSession>)`（去重合并）
+- `lib/features/shell/ui/bookshelf_page.dart`
+  └─ 改造 ➔ `_buildBookThumbnail` 传 `fit: BoxFit.contain`，封面完整可见（修复 `cover` 裁切）
+- `lib/features/shell/ui/profile_page.dart`
+  └─ 改造 ➔ 移除「快捷入口」区块标题；新增「数据管理」入口
+- `lib/engine/localization_engine.dart`
+  └─ 改造 ➔ 新增约 40 个 `data_manager*` / `ok` 键；移除未用 `quick_access` 键
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 新增 Config Key：`app.dataManager.cloudDrives`（云盘配置列表）
+- 新增 Permission Key：无（数据管理为自有数据工具，不做会员门禁；同步改用「是否已配置云盘」本地配置门禁，符合需求）
+
+**【变更说明（需求覆盖与实现要点）】**
+- **[需求1·去除快捷入口]** `profile_page.dart` 删除「快捷入口」分区标题（区块标题 `quick_access` 文案整段移除），设置项直接平铺；本地化键 `quick_access` 因不再使用已移除。
+- **[需求2·数据管理入口]** 新增 `data_manager` feature：`DataManagerPage` 提供「阅读数据」导出/导入（选目录写 `reading_backup_<时间戳>.json` / 选文件合并恢复，覆盖书籍/会话/笔记/书签/白名单设置）与「云盘同步」（配置 WebDAV/NAS 等，未配置任意云盘时同步按钮禁用并提示；WebDAV 经 `dart:io` `HttpClient` PUT 真实上传，放行自签名证书兼容个人 NAS）。全部颜色走 `CupertinoColors`/主题、文案走 `LocalizationEngine`、文字样式走 `AppTextStyles`，无硬编码。
+- **[需求3·书架封面完整显示]** `bookshelf_page._buildBookThumbnail` 调用 `BookCoverImage` 显式传 `fit: BoxFit.contain`，封面等比缩放居中、完整可见，修复此前 `BoxFit.cover` 放大裁切导致非 3:4 封面只显示一部分的问题。
 

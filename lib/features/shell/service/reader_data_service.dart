@@ -239,6 +239,21 @@ class ReaderDataStore {
     return list;
   }
 
+  /// 跨书并发聚合：对 [ids] 并发调用 [loader]，保留每条结果对应的 bookId。
+  ///
+  /// 旧实现为串行 `for-await`，N 本书的读盘耗时约为 Σ(t_i)；改为 [Future.wait]
+  /// 后降到约 max(t_i)，书架书籍越多、磁盘越慢时收益越明显。返回 `(bookId, 列表)` 记录。
+  static Future<List<(String, List<T>)>> _collectAllWithId<T>(
+    List<String> ids,
+    Future<List<T>> Function(String) loader,
+  ) async {
+    if (ids.isEmpty) return <(String, List<T>)>[];
+    final entries = await Future.wait(
+      ids.map((id) async => (id, await loader(id))),
+    );
+    return entries;
+  }
+
   /// 跨书汇总：读取所有书籍的书签（按添加时间倒序），每条携带 bookId 与书名。
   ///
   /// [bookTitleResolver] 用于把 bookId 解析为书名；无法解析时回退为『未知书籍』。
@@ -247,9 +262,9 @@ class ReaderDataStore {
     List<String> bookIds,
     String Function(String bookId) bookTitleResolver,
   ) async {
+    final entries = await _collectAllWithId(bookIds, loadBookmarks);
     final result = <BookmarkWithBook>[];
-    for (final id in bookIds) {
-      final list = await loadBookmarks(id);
+    for (final (id, list) in entries) {
       for (final b in list) {
         result.add(BookmarkWithBook(
           bookId: id,
@@ -270,9 +285,9 @@ class ReaderDataStore {
     List<String> bookIds,
     String Function(String bookId) bookTitleResolver,
   ) async {
+    final entries = await _collectAllWithId(bookIds, loadNotes);
     final result = <NoteWithBook>[];
-    for (final id in bookIds) {
-      final list = await loadNotes(id);
+    for (final (id, list) in entries) {
       for (final n in list) {
         result.add(NoteWithBook(
           bookId: id,
@@ -286,10 +301,17 @@ class ReaderDataStore {
   }
 
   /// 跨书笔记总数（用于统计卡片的「收藏笔记」计数，替代占位常量）。
+  ///
+  /// 并发统计各本书笔记数后求和，替代串行累加。
   static Future<int> countAllNotes(List<String> bookIds) async {
+    if (bookIds.isEmpty) return 0;
+    final counts = await Future.wait(
+      bookIds.map((id) => loadNotes(id).then((list) => list.length)),
+    );
+    // 显式累加，避免 fold 在 Future.wait 泛型推导下把元素误判为 FutureOr<int>。
     var total = 0;
-    for (final id in bookIds) {
-      total += (await loadNotes(id)).length;
+    for (final c in counts) {
+      total += c;
     }
     return total;
   }

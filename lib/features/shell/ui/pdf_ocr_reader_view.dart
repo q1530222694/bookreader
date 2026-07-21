@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/cupertino.dart';
@@ -400,79 +401,89 @@ class _ReflowPageTileState extends State<_ReflowPageTile> {
 
   /// 把 OCR 文本行按阅读顺序聚成段落。
   ///
-  /// 规则：按 top 排序后，若下一行与上一行纵坐标相邻（< 0.75 平均行高）且横向对齐偏差
-  /// 不大，则合并为同一段；否则开启新段。这样可以避免把每行都单独成段。
+  /// **关键点**：完全信任 [PdfOcrTextSegment] 列表的既有顺序（该顺序由 Builder 的
+  /// XY-Cut 块级算法给出，已是真实阅读顺序）。这里**不再做全局 Y 轴排序**——否则多栏
+  /// 论文会被切成「先上栏全部、再下栏全部」的错误顺序。
+  ///
+  /// 仅在「相邻两行之间」判断是否需要换段，启发式（按优先级）：
+  /// 1. 版面类型变化（标题↔正文）→ 必换段；
+  /// 2. 纵向大间隔（>0.8 行高）→ 段落间空行，换段；
+  /// 3. 首行缩进 / 明显左移（>1.5 行高且同行）→ 新段起始，换段；
+  /// 4. 同行且横向未跨栏（<3 行高偏移）→ 合并为同一段；否则换段。
   List<_Paragraph> _paragraphsOf(PdfOcrPageData page) {
     final segs = page.segments;
     if (segs.isEmpty) return const [];
-    final idxs = List<int>.generate(segs.length, (i) => i);
-    idxs.sort((a, b) {
-      final dt = segs[a].top.compareTo(segs[b].top);
-      if (dt != 0) return dt;
-      return segs[a].left.compareTo(segs[b].left);
-    });
 
-    final avgLine =
-        segs.map((s) => s.height).reduce((a, b) => a + b) / segs.length;
-    final lineGap = avgLine * 0.75; // 大于此值视为换段
-    final alignTol = avgLine * 2.0; // 横向对齐容差
+    // 直接沿 Builder 给出的阅读顺序遍历，不做任何重排。
+    final paragraphs = <_Paragraph>[];
+    var current = _Paragraph(segIndex: 0, segment: segs[0]);
+    for (var i = 1; i < segs.length; i++) {
+      final cur = segs[i];
+      final prev = current.segments.last;
 
-    final paragraphs = <_Paragraph>[
-      _Paragraph(segIndex: idxs[0], segment: segs[idxs[0]])
-    ];
-    for (var i = 1; i < idxs.length; i++) {
-      final k = idxs[i];
-      final cur = segs[k];
-      final last = paragraphs.last;
-      final prev = last.segments.last;
-      final sameCol = (cur.left - last.left).abs() < alignTol;
-      final sameLine = (cur.top - prev.bottom) < lineGap;
-      if (sameLine && sameCol) {
-        last.add(k, cur);
+      // 1) 版面类型变化（标题↔正文）单独成段
+      if (cur.isTitle != prev.isTitle) {
+        paragraphs.add(current);
+        current = _Paragraph(segIndex: i, segment: cur);
+        continue;
+      }
+
+      final lineH = math.max(cur.height, prev.height);
+
+      // 2) 纵向大间隔（段落间空行）
+      final gap = cur.top - prev.bottom;
+      if (gap > lineH * 0.8) {
+        paragraphs.add(current);
+        current = _Paragraph(segIndex: i, segment: cur);
+        continue;
+      }
+
+      // 3) 首行缩进 / 明显左移（同行、但横向偏离过大）→ 新段起始
+      final indent = cur.left - prev.left;
+      if (indent > lineH * 1.5 && (cur.top - prev.top).abs() < lineH * 0.5) {
+        paragraphs.add(current);
+        current = _Paragraph(segIndex: i, segment: cur);
+        continue;
+      }
+
+      // 4) 同行且横向未跨栏 → 合并；否则换段
+      final sameLine = (cur.top - prev.bottom) < lineH * 0.75;
+      final withinColumn = (cur.left - prev.left).abs() < lineH * 3.0;
+      if (sameLine && withinColumn) {
+        current.add(i, cur);
       } else {
-        paragraphs.add(_Paragraph(segIndex: k, segment: cur));
+        paragraphs.add(current);
+        current = _Paragraph(segIndex: i, segment: cur);
       }
     }
+    paragraphs.add(current);
     return paragraphs;
   }
 
-  /// 把段落与图片块合并为阅读流。
+  /// 把段落与图片块合并为阅读流（统一 XY-Cut 混排）。
   ///
-  /// 关键改进（避免「按绝对 top 插入把一句话切断」）：图片块不再与段落按同一
-  /// 纵坐标混排，而是检测其垂直空间，吸附到「紧邻它上方」的段落之下，作为尾随
-  /// 内联组件。这样图片永远落在两个段落之间，绝不会插进某一行文字中间。
+  /// 与早期「图片吸附到上一个段落之下」的做法不同，这里把段落与图片视为同级元素，
+  /// 一起做 XY-Cut 排序：纵向重叠 >30%（同一行/栏）按左边界排序，否则按上边界排序。
+  /// 这样图片会落在它真实出现的阅读流位置（右侧栏的图就插在右侧栏对应位置），
+  /// 而不是永远夹在两个段落之间，也不会插进某一行文字中间。
   List<_FlowItem> _mergeFlow(List<_Paragraph> paragraphs, List<PdfOcrImageBlock> images) {
-    // 每个图片块锚定到「底部最接近且不超过图片顶部的段落」，记录为「该段落后插入的图」。
-    final trailing = <int, List<_FlowItem>>{};
+    final items = <_FlowItem>[];
+    for (final p in paragraphs) {
+      items.add(_FlowItem.paragraph(p));
+    }
     for (var i = 0; i < images.length; i++) {
-      var anchor = -1; // -1 表示上方无段落（图片置顶）
-      var bestBottom = double.negativeInfinity;
-      for (var p = 0; p < paragraphs.length; p++) {
-        if (paragraphs[p].bottom <= images[i].top &&
-            paragraphs[p].bottom > bestBottom) {
-          bestBottom = paragraphs[p].bottom;
-          anchor = p;
-        }
-      }
-      (trailing[anchor] ??= []).add(_FlowItem.image(i, images[i]));
+      items.add(_FlowItem.image(i, images[i]));
     }
 
-    final items = <_FlowItem>[];
-    // 无锚定（上方无段落）的图片置顶。
-    final head = trailing.remove(-1);
-    if (head != null) {
-      head.sort((a, b) => a.top.compareTo(b.top));
-      items.addAll(head);
-    }
-    // 按阅读顺序输出段落，并在其后紧跟其尾随图片（同段落下的多张图片按 top 排序）。
-    for (var p = 0; p < paragraphs.length; p++) {
-      items.add(_FlowItem.paragraph(paragraphs[p]));
-      final tg = trailing[p];
-      if (tg != null) {
-        tg.sort((a, b) => a.top.compareTo(b.top));
-        items.addAll(tg);
+    // 段落与图片统一 XY-Cut：同栏（纵向重叠>30%）按左，否则按上。
+    items.sort((a, b) {
+      final yOverlap = math.min(a.bottom, b.bottom) - math.max(a.top, b.top);
+      final minH = math.min(a.bottom - a.top, b.bottom - b.top);
+      if (minH > 0 && yOverlap / minH > 0.3) {
+        return a.left.compareTo(b.left);
       }
-    }
+      return a.top.compareTo(b.top);
+    });
     return items;
   }
 
@@ -601,8 +612,10 @@ class _FlowItem {
   final _Paragraph? paragraph;
   final int imgIndex;
 
-  double get top => isImage ? paragraph!.top : paragraph!.top;
-  double get left => isImage ? paragraph!.left : paragraph!.left;
+  double get top => paragraph!.top;
+  double get left => paragraph!.left;
+  double get bottom => paragraph!.bottom;
+  double get right => paragraph!.right;
 
   _FlowItem.paragraph(this.paragraph)
       : isImage = false,

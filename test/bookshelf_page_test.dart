@@ -6,7 +6,9 @@ import 'package:bookreader/features/shell/controller/bookshelf_controller.dart';
 import 'package:bookreader/features/shell/model/book_model.dart';
 import 'package:bookreader/features/shell/model/scan_candidate_model.dart';
 import 'package:bookreader/features/shell/service/bookshelf_service.dart';
+import 'package:bookreader/features/shell/service/cover_store.dart';
 import 'package:bookreader/features/shell/ui/bookshelf_page.dart';
+import 'package:bookreader/features/shell/ui/widgets/book_cover_image.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -505,9 +507,13 @@ void main() {
         type: 'pdf',
         progress: 0.6,
         fileSizeBytes: 2048000,
-        coverBytes: Uint8List.fromList([1, 2, 3, 4]),
+        // 封面改为磁盘懒加载：标记 hasCover，并预写一张封面文件供 BookCoverImage 加载。
+        hasCover: true,
       ),
     ];
+
+    // 预写封面文件，模拟真实落盘封面（内容是否合法 PNG 不影响 BookCoverImage 组件存在性断言）。
+    await CoverStore.save('book-5', Uint8List.fromList([1, 2, 3, 4]));
 
     addTearDown(controller.dispose);
 
@@ -521,7 +527,8 @@ void main() {
     await tester.tap(find.byIcon(CupertinoIcons.slider_horizontal_3));
     await tester.pumpAndSettle();
 
-    expect(find.byType(Image), findsAtLeastNWidgets(1));
+    // 封面改为磁盘懒加载组件：验证 BookCoverImage 已渲染（含懒加载封面或回退占位）。
+    expect(find.byType(BookCoverImage), findsAtLeastNWidgets(1));
 
     await tester.tap(find.byKey(const ValueKey('bookshelf_list_more_button_book-5')));
     await tester.pumpAndSettle();

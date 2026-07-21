@@ -236,9 +236,10 @@ class PdfOcrDocumentBuilder {
   }
 
   /// 混合路由（版面模型分类 + 整页文本检测）：文本覆盖率由整页 DB 检测保证，
-  /// 图表 100% 信任 Layout 模型输出（不再混入旧版 detectImageBlocks 行带算法），
-  /// 页眉/页脚/页码（'Drop'）区文字丢弃，Title 区文字标记标题。
-  /// 模型缺失或推理异常时返回 null，交由 [_buildPage] 回退旧版行带流程。
+  /// 图表以 Layout 模型输出为主，并叠加行带算法作「互补图块探测器」补回 Layout
+  /// 漏检的图（整块、不切碎，IoU 去重后并入），页眉/页脚/页码（'Drop'）区文字
+  /// 丢弃，Title 区文字标记标题。模型缺失或推理异常时返回 null，交由 [_buildPage]
+  /// 回退旧版行带流程。
   static Future<
           ({
             List<PdfOcrTextSegment> segments,
@@ -255,6 +256,7 @@ class PdfOcrDocumentBuilder {
     final figureBoxes = <LayoutBox>[];
     final suppressBoxes = <LayoutBox>[];
     final titleBoxes = <LayoutBox>[];
+    final textBoxes = <LayoutBox>[]; // 正文文本块（XY-Cut 阅读顺序用）
 
     for (final b in boxes) {
       switch (b.label) {
@@ -268,13 +270,16 @@ class PdfOcrDocumentBuilder {
         case 'Title':
           titleBoxes.add(b);
           break;
+        case 'Text':
+          textBoxes.add(b);
+          break;
       }
     }
 
     // 依然跑全页检测，保证正文文字不漏检
     final (scores, newW, newH) = await PdfOcrService.detectPage(rgba, w, h);
 
-    // 彻底删除 legacyImg！图表区域全权由 Layout 模型接管
+    // 图表以 Layout 模型为主；下方再用 detectImageBlocks 互补补回漏检图（不切碎）
     final suppressAll = <({double left, double top, double right, double bottom})>[
       for (final b in figureBoxes)
         (left: b.left, top: b.top, right: b.right, bottom: b.bottom),
@@ -321,7 +326,49 @@ class PdfOcrDocumentBuilder {
       ));
     }
 
-    // 仅使用版面模型分析出的图表，告别碎截图
+    // 互补图块探测器：Layout 模型漏检的图表由行带算法补回（整块，不切碎）。
+    // Layout 图框为主，互补框仅填充漏检洞；与 Layout 图框/抑制区高重叠、或
+    // 被正文大量覆盖的伪图块跳过，避免把页眉 logo 或纯文字块当图。
+    final complement = PdfOcrService.detectImageBlocks(
+      scores,
+      newW,
+      newH,
+      rgba,
+      w,
+      h,
+    );
+    final extraImages = <PdfOcrImageBlock>[];
+    for (final c in complement) {
+      // 与 Layout 图框去重（保留 Layout 为主）
+      var dup = false;
+      for (final f in figureBoxes) {
+        if (_iouRect(c.left, c.top, c.right, c.bottom, f.left, f.top, f.right, f.bottom) > 0.5) {
+          dup = true;
+          break;
+        }
+      }
+      if (dup) continue;
+      // 与页眉/页脚/页码抑制区重叠的跳过（避免把页眉 logo 当图）
+      var inSuppress = false;
+      for (final s in suppressBoxes) {
+        if (_iouRect(c.left, c.top, c.right, c.bottom, s.left, s.top, s.right, s.bottom) > 0.5) {
+          inSuppress = true;
+          break;
+        }
+      }
+      if (inSuppress) continue;
+      // 被正文文本大量覆盖的视为伪图块（文字块），跳过
+      if (_textCoverageInRect(c.left, c.top, c.right, c.bottom, polys) > 0.5) continue;
+      extraImages.add(PdfOcrImageBlock(
+        kind: 'image',
+        left: c.left,
+        top: c.top,
+        right: c.right,
+        bottom: c.bottom,
+      ));
+    }
+
+    // Layout 图框为主（告别碎截图），互补框补回漏检图表。
     final images = <PdfOcrImageBlock>[
       for (final b in figureBoxes)
         PdfOcrImageBlock(
@@ -331,7 +378,81 @@ class PdfOcrDocumentBuilder {
           right: b.right,
           bottom: b.bottom,
         ),
+      ...extraImages,
     ];
+
+    // ── 块级阅读顺序（XY-Cut）────────────────────────────────────────────
+    // 把标题块与正文文本块一起做 XY-Cut 排序：纵向重叠 >30% 视为同一行（分栏），
+    // 按左边界排序；否则按上边界排序（上下布局）。随后把每个文本行归入最近的块，
+    // 按「块顺序 → 块内由上到下、由左到右」重排，彻底解决多栏论文全局 Y 轴排序错乱。
+    // 这一步产出的 segments 顺序即真实阅读顺序，下游 _paragraphsOf 不再做任何全局 Y 排序。
+    final textBlocks = [...titleBoxes, ...textBoxes];
+    textBlocks.sort((a, b) {
+      final yOverlap = math.min(a.bottom, b.bottom) - math.max(a.top, b.top);
+      final minHeight = math.min(a.height, b.height);
+      if (minHeight > 0 && yOverlap / minHeight > 0.3) {
+        return a.left.compareTo(b.left); // 同栏：左→右
+      }
+      return a.top.compareTo(b.top); // 上下：上→下
+    });
+
+    // 给定文本行，返回其所属文本块在 textBlocks 中的下标（XY-Cut 后的顺序即阅读块顺序）。
+    int getBlockIndex(PdfOcrTextSegment seg) {
+      final cx = (seg.left + seg.right) / 2;
+      final cy = (seg.top + seg.bottom) / 2;
+      for (var i = 0; i < textBlocks.length; i++) {
+        final b = textBlocks[i];
+        if (cx >= b.left && cx <= b.right && cy >= b.top && cy <= b.bottom) {
+          return i; // 中心点落在块内
+        }
+      }
+      // 未落在任何块内：归到中心点最近的块，避免游离行乱序。
+      var best = 0;
+      var bestD = double.infinity;
+      for (var i = 0; i < textBlocks.length; i++) {
+        final b = textBlocks[i];
+        final dx = (cx - (b.left + b.right) / 2).abs();
+        final dy = (cy - (b.top + b.bottom) / 2).abs();
+        final d = dx + dy;
+        if (d < bestD) {
+          bestD = d;
+          best = i;
+        }
+      }
+      return best;
+    }
+
+    segments.sort((a, b) {
+      final bi = getBlockIndex(a).compareTo(getBlockIndex(b));
+      if (bi != 0) return bi; // 先按所属块（阅读块顺序）
+      final dt = a.top.compareTo(b.top);
+      if (dt != 0) return dt; // 块内：上→下
+      return a.left.compareTo(b.left); // 同行：左→右
+    });
+
+    // --- 【新增】强制几何过滤：自动剔除页眉、页脚、孤立页码 ---
+    final double pageH = h.toDouble();
+    final topBand = pageH * 0.08; // 顶部 8% 区域
+    final botBand = pageH * 0.92; // 底部 8% 区域
+    final numLike = RegExp(r'^[\divxlcIVXLC.\-—\s]+$');
+
+    segments.removeWhere((seg) {
+      if (seg.isTitle) return false; // 标题绝对不能删
+      final text = seg.text.trim();
+      if (text.isEmpty) return true;
+
+      final isNum = numLike.hasMatch(text);
+      final isShort = text.length <= 6;
+      final inHeader = seg.top < topBand;
+      final inFooter = seg.bottom > botBand;
+
+      // 位于顶部且纯数字/罗马字母 -> 顶端页码
+      if (inHeader && isNum) return true;
+      // 位于底部且过短或是纯数字 -> 底部页码或无用注脚
+      if (inFooter && (isShort || isNum)) return true;
+
+      return false;
+    });
 
     return (segments: segments, images: images);
   }
@@ -384,6 +505,30 @@ class PdfOcrDocumentBuilder {
           ),
         )
         .toList();
+    // --- 【新增】强制几何过滤：自动剔除页眉、页脚、孤立页码 ---
+    final double pageH = h.toDouble();
+    final topBand = pageH * 0.08; // 顶部 8% 区域
+    final botBand = pageH * 0.92; // 底部 8% 区域
+    final numLike = RegExp(r'^[\divxlcIVXLC.\-—\s]+$');
+
+    segments.removeWhere((seg) {
+      if (seg.isTitle) return false; // 标题绝对不能删
+      final text = seg.text.trim();
+      if (text.isEmpty) return true;
+
+      final isNum = numLike.hasMatch(text);
+      final isShort = text.length <= 6;
+      final inHeader = seg.top < topBand;
+      final inFooter = seg.bottom > botBand;
+
+      // 位于顶部且纯数字/罗马字母 -> 顶端页码
+      if (inHeader && isNum) return true;
+      // 位于底部且过短或是纯数字 -> 底部页码或无用注脚
+      if (inFooter && (isShort || isNum)) return true;
+
+      return false;
+    });
+
     return (segments: segments, images: images);
   }
 
@@ -395,6 +540,56 @@ class PdfOcrDocumentBuilder {
       }
     }
     return false;
+  }
+
+  /// 两个轴对齐矩形框的 IoU（互补图块与 Layout 图框 / 抑制区去重用）。
+  static double _iouRect(
+    double l1,
+    double t1,
+    double r1,
+    double b1,
+    double l2,
+    double t2,
+    double r2,
+    double b2,
+  ) {
+    final ix0 = math.max(l1, l2);
+    final iy0 = math.max(t1, t2);
+    final ix1 = math.min(r1, r2);
+    final iy1 = math.min(b1, b2);
+    final iw = (ix1 - ix0).clamp(0.0, double.infinity);
+    final ih = (iy1 - iy0).clamp(0.0, double.infinity);
+    final inter = iw * ih;
+    if (inter <= 0) return 0;
+    final union = (r1 - l1) * (b1 - t1) + (r2 - l2) * (b2 - t2) - inter;
+    return union <= 0 ? 0 : inter / union;
+  }
+
+  /// 矩形框内被正文文本行覆盖的面积占比（>0.5 视为伪图块 / 文字块，剔除）。
+  static double _textCoverageInRect(
+    double l,
+    double t,
+    double r,
+    double b,
+    List<List<ui.Offset>> polys,
+  ) {
+    final rectArea = (r - l) * (b - t);
+    if (rectArea <= 0) return 0;
+    var covered = 0.0;
+    for (final poly in polys) {
+      final pl = poly[0].dx;
+      final pt = poly[0].dy;
+      final pr = poly[2].dx;
+      final pb = poly[2].dy;
+      final ix0 = math.max(l, pl);
+      final iy0 = math.max(t, pt);
+      final ix1 = math.min(r, pr);
+      final iy1 = math.min(b, pb);
+      final iw = (ix1 - ix0).clamp(0.0, double.infinity);
+      final ih = (iy1 - iy0).clamp(0.0, double.infinity);
+      covered += iw * ih;
+    }
+    return (covered / rectArea).clamp(0.0, 1.0);
   }
 
   /// 跨页页眉/页脚/页码剔除：用**位置桶**而非「完全相同文本」判定——

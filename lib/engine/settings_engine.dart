@@ -1,5 +1,7 @@
 import 'package:flutter/widgets.dart';
 
+import '../core/cloud_drive_store.dart';
+import '../core/scan_roots_store.dart';
 import 'config.dart';
 
 /// SettingsEngine provides app-level setting keys and helpers.
@@ -471,5 +473,99 @@ class SettingsEngine {
 
   static void setDailySentenceUseBuiltin(bool value) {
     Config.set(dailySentenceUseBuiltinKey, value);
+  }
+
+  // 扫描导入：用户通过 UI 追加的扫描根目录（跨启动持久化于磁盘，见 ScanRootsStore）。
+  static const String scanRootsKey = 'app.bookshelf.scanRoots';
+
+  /// 用户追加的扫描根目录列表。
+  ///
+  /// 读取来自 [ScanRootsStore] 的磁盘持久化（App 启动时已 [ScanRootsStore.load]，
+  /// 重启后不丢失）；内存镜像保证高频读取免盘。
+  static List<String> get scanRoots => ScanRootsStore.roots;
+
+  /// 写入用户追加的扫描根目录并落盘持久化（异步写盘，失败忽略、内存仍有效）。
+  static set scanRoots(List<String> roots) {
+    Config.set(scanRootsKey, List<String>.from(roots)); // 保留内存态便于即时响应。
+    ScanRootsStore.persist(roots);
+  }
+
+  // 数据管理：个人云盘/NAS 配置列表（跨启动持久化于磁盘，见 CloudDriveStore）。
+  static const String cloudDrivesKey = 'app.dataManager.cloudDrives';
+
+  /// 已配置的个人云盘/NAS 列表（字典形式，由 feature 层转为 [CloudDriveConfig]）。
+  ///
+  /// 读取来自 [CloudDriveStore] 的磁盘持久化（App 启动时已 [CloudDriveStore.load]，
+  /// 重启后不丢失）；内存镜像保证高频读取免盘。
+  static List<Map<String, dynamic>> get cloudDrives => CloudDriveStore.drives;
+
+  /// 写入云盘配置列表并落盘持久化（异步写盘，失败忽略、内存仍有效）。
+  static set cloudDrives(List<Map<String, dynamic>> drives) {
+    Config.set(cloudDrivesKey, List<Map<String, dynamic>>.from(drives));
+    CloudDriveStore.persist(drives);
+  }
+
+  /// 可被「导出阅读数据」携带的用户偏好键白名单。
+  ///
+  /// 排除 [readerBackgroundColorKey]（其值为 [Color]，无法直接 JSON 序列化，
+  /// 导出会抛异常）；其余均为基础类型（String/int/double/bool），可安全落盘。
+  static const List<String> exportableSettingKeys = [
+    languageKey,
+    appearanceKey,
+    themeColorKey,
+    fontFamilyKey,
+    readerPageModeKey,
+    readerPageAnimationKey,
+    readerLayoutModeKey,
+    pdfAutoCropKey,
+    pdfBgBrightnessKey,
+    pdfBgContrastKey,
+    pdfBgSaturationKey,
+    pdfBgRemoveColorKey,
+    pdfBgDenoiseKey,
+    pdfBgColorTempKey,
+    pdfBgSharpnessKey,
+    pdfBgOverlayKey,
+    pdfCropModeKey,
+    pdfManualCropLeftKey,
+    pdfManualCropRightKey,
+    pdfManualCropTopKey,
+    pdfManualCropBottomKey,
+    pdfDualScreenKey,
+    pdfDoubleTapZoomKey,
+    pdfFillScreenInScrollKey,
+    pdfCropOddEvenModeKey,
+    pdfReflowFontSizeKey,
+    pdfReflowLineSpacingKey,
+    pdfReflowLetterSpacingKey,
+    pdfReflowParaSpacingKey,
+    pdfOcrEnabledKey,
+    pdfOcrEagerPagesKey,
+    startupPageKey,
+    startupSplashTypeKey,
+    startupSplashTextKey,
+    startupSplashImagePathKey,
+    startupSplashDurationKey,
+    startupSplashEntryModeKey,
+    dailySentenceUseBuiltinKey,
+  ];
+
+  /// 导出用户偏好为可序列化字典（仅含 [exportableSettingKeys] 白名单）。
+  static Map<String, dynamic> exportSettings() {
+    final map = <String, dynamic>{};
+    for (final key in exportableSettingKeys) {
+      final value = Config.get(key);
+      if (value != null) map[key] = value;
+    }
+    return map;
+  }
+
+  /// 从导出字典恢复用户偏好（仅写入白名单内、且确实存在的键，避免脏数据污染）。
+  static void importSettings(Map<String, dynamic> map) {
+    for (final key in exportableSettingKeys) {
+      if (map.containsKey(key)) {
+        Config.set(key, map[key]);
+      }
+    }
   }
 }

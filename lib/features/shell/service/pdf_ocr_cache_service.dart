@@ -17,10 +17,11 @@ import '../model/pdf_ocr_document.dart';
 class PdfOcrCacheService {
   PdfOcrCacheService._();
 
-  // 版本号说明：v2 起图片块检测改为「行带（row-band）」整块裁剪算法（一图一截图，
-  // 正文页 0 图块）。旧 v1 缓存里存的是过度碎裂的图块，直接换文件名令其失效，
-  // 重排时按新算法重跑，避免沿用旧的「一堆截图」结果。
-  static const String _fileName = 'pdf_ocr_cache_v2.json';
+  // 版本号说明：
+  //  - v2 起图片块检测改为「行带（row-band）」整块裁剪算法（一图一截图，正文页 0 图块）。
+  //  - v3 因版面模型解析策略升级（智能自适应解析，兼容多种导出张量排布）而强制失效
+  //    旧缓存：此前错误纯文本结果曾写入 v2 缓存，换名令其整体作废、按新解析重跑。
+  static const String _fileName = 'pdf_ocr_cache_v3.json';
 
   /// 内存缓存：sourceKey → 反序列化文档（进程内二次读取免盘）。
   static final Map<String, PdfOcrDocument> _mem = {};

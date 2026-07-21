@@ -12,6 +12,7 @@ import 'comic_viewer_page.dart';
 import 'epub_viewer_page.dart';
 import 'memory_page.dart';
 import 'forgotten_books_page.dart';
+import 'widgets/book_cover_image.dart';
 import 'reading_timeline_page.dart';
 import 'all_bookmarks_page.dart';
 import 'timeline_entry.dart';
@@ -326,7 +327,6 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
 
   Widget _buildLastYearCard(CupertinoThemeData theme, List<BookModel> books) {
     final book = books.isNotEmpty ? books.first : null;
-    final cover = book?.coverBytes;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -377,16 +377,23 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
                   borderRadius: BorderRadius.circular(8),
                   color: CupertinoColors.systemGrey5,
                 ),
-                child: cover != null
-                    ? ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.memory(cover, fit: BoxFit.cover),
-                      )
-                    : const Icon(
-                        CupertinoIcons.book,
-                        size: 36,
-                        color: CupertinoColors.systemGrey,
+              child: book != null
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: BookCoverImage(
+                        book: book,
+                        fallback: (_) => const Icon(
+                          CupertinoIcons.book,
+                          size: 36,
+                          color: CupertinoColors.systemGrey,
+                        ),
                       ),
+                    )
+                  : const Icon(
+                      CupertinoIcons.book,
+                      size: 36,
+                      color: CupertinoColors.systemGrey,
+                    ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -1580,17 +1587,12 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
       } else {
         final top = byBook.entries.reduce((a, b) => a.value >= b.value ? a : b);
         final book = bookMap[top.key];
-        if (book?.coverBytes != null) {
-          content = Image.memory(
-            book!.coverBytes!,
-            fit: BoxFit.cover,
-            errorBuilder: (c, e, s) => Container(
-              color: _coverFallbackColor(book.title),
-            ),
-          );
-        } else {
-          content = Container(color: _coverFallbackColor(book?.title ?? ''));
-        }
+        content = book != null
+            ? BookCoverImage(
+                book: book,
+                fallback: (_) => Container(color: _coverFallbackColor(book.title)),
+              )
+            : Container(color: _coverFallbackColor(''));
       }
 
       return Container(
@@ -1768,7 +1770,6 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
     /// 单行书卡：左侧封面 + 中间标题/天数 + 右侧"立即查看"
     Widget _bookRow(BookModel book) {
       final days = _daysSinceOpened(book);
-      final cover = book.coverBytes;
       final daysText = days >= 99999
           ? LocalizationEngine.text('forgotten_never_opened')
           : LocalizationEngine.text('forgotten_days_label')
@@ -1785,16 +1786,17 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
                 borderRadius: BorderRadius.circular(6),
                 color: CupertinoColors.systemGrey5,
               ),
-              child: cover != null
-                  ? ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: Image.memory(cover, fit: BoxFit.cover),
-                    )
-                  : const Icon(
-                      CupertinoIcons.book,
-                      size: 22,
-                      color: CupertinoColors.systemGrey,
-                    ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: BookCoverImage(
+                  book: book,
+                  fallback: (_) => const Icon(
+                    CupertinoIcons.book,
+                    size: 22,
+                    color: CupertinoColors.systemGrey,
+                  ),
+                ),
+              ),
             ),
             const SizedBox(width: 12),
             // 中间：书名 + 未打开天数

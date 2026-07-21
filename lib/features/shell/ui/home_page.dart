@@ -13,6 +13,7 @@ import '../service/daily_sentence_service.dart';
 import 'book_viewer_page.dart';
 import 'epub_viewer_page.dart';
 import 'txt_viewer_page.dart';
+import 'widgets/book_cover_image.dart';
 import 'comic_viewer_page.dart';
 import 'package:open_filex/open_filex.dart';
 
@@ -240,9 +241,12 @@ class _HomePageState extends State<HomePage> {
                                     ),
                                   ),
                                 )
-                              : (book.coverBytes != null
-                                  ? Image.memory(book.coverBytes!, fit: BoxFit.cover)
-                                  : Container(color: CupertinoColors.systemGrey)),
+                              : BookCoverImage(
+                                  book: book,
+                                  fallback: (_) => Container(
+                                    color: CupertinoColors.systemGrey,
+                                  ),
+                                ),
                         ),
                       ),
                       const SizedBox(width: 10),

@@ -15,6 +15,7 @@ import 'comic_viewer_page.dart';
 import 'epub_viewer_page.dart';
 import 'reading_records_page.dart';
 import 'txt_viewer_page.dart';
+import 'widgets/book_cover_image.dart';
 
 /// MemoryPage —— 阅读统计详情页。
 /// 布局严格参照设计稿（周期选择器 → 区间切换 → 四项数据 → 时长趋势 → 热力图 → 时间分布 → 阅读记录），
@@ -2136,7 +2137,6 @@ class _RecordCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cover = book.coverBytes;
     final durText = _durationText();
     final dateStr = _dateText();
     final progText = _progressText();
@@ -2168,16 +2168,17 @@ class _RecordCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(6),
                 color: CupertinoColors.systemGrey5,
               ),
-              child: cover != null
-                  ? ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: Image.memory(cover, fit: BoxFit.cover),
-                    )
-                  : const Icon(
-                      CupertinoIcons.book,
-                      size: 20,
-                      color: CupertinoColors.systemGrey,
-                    ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: BookCoverImage(
+                  book: book,
+                  fallback: (_) => const Icon(
+                    CupertinoIcons.book,
+                    size: 20,
+                    color: CupertinoColors.systemGrey,
+                  ),
+                ),
+              ),
             ),
             const SizedBox(width: 10),
             // 书名 + 时长 + 日期
@@ -2232,7 +2233,6 @@ class _SessionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cover = book?.coverBytes;
     final title = book?.title ?? LocalizationEngine.text('unknown_book');
     // 副标题：开始时间 + 本次阅读时长（均走本地化）
     final timeText =
@@ -2252,10 +2252,17 @@ class _SessionRow extends StatelessWidget {
                 borderRadius: BorderRadius.circular(6),
                 color: CupertinoColors.systemGrey5,
               ),
-              child: cover != null
+              child: book != null
                   ? ClipRRect(
                       borderRadius: BorderRadius.circular(6),
-                      child: Image.memory(cover, fit: BoxFit.cover),
+                      child: BookCoverImage(
+                        book: book!,
+                        fallback: (_) => const Icon(
+                          CupertinoIcons.book,
+                          size: 20,
+                          color: CupertinoColors.systemGrey,
+                        ),
+                      ),
                     )
                   : const Icon(
                       CupertinoIcons.book,

@@ -3,6 +3,7 @@ import 'package:flutter/cupertino.dart';
 import '../../../engine/localization_engine.dart';
 import '../../../shared/ui/app_text_styles.dart';
 import '../../membership/ui/membership_page.dart';
+import '../../data_manager/ui/data_manager_page.dart';
 import 'about_page.dart';
 import 'appearance_page.dart';
 import 'daily_sentence_page.dart';
@@ -88,11 +89,6 @@ class ProfilePage extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 20),
-                    Text(
-                      LocalizationEngine.text('quick_access'),
-                      style: AppTextStyles.sectionTitle(context),
-                    ),
-                    const SizedBox(height: 12),
                   ],
                 ),
               ),
@@ -100,6 +96,11 @@ class ProfilePage extends StatelessWidget {
             SliverToBoxAdapter(
               child: Column(
                 children: [
+                  _ProfileSettingItem(
+                    label: LocalizationEngine.text('data_manager'),
+                    icon: CupertinoIcons.cloud_upload,
+                    targetPage: const DataManagerPage(),
+                  ),
                   _ProfileSettingItem(
                     label: LocalizationEngine.text('daily_sentence'),
                     icon: CupertinoIcons.quote_bubble,

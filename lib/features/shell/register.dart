@@ -1,3 +1,4 @@
+import '../data_manager/register.dart';
 import '../image_to_pdf/register.dart';
 import '../membership/register.dart';
 import '../payment/register.dart';
@@ -16,5 +17,6 @@ class ShellRegister {
     DocToPdfRegister.register();
     PptToPdfRegister.register();
     ExcelToPdfRegister.register();
+    DataManagerRegister.register();
   }
 }

@@ -129,6 +129,27 @@ class ReadingSessionService {
   ) =>
       _inRange(startInclusive, endExclusive);
 
+  /// 从备份恢复阅读会话：按 (bookId + startedAtMs) 去重合并（保留导入的会话），
+  /// 合并后按开始时间倒序并落盘。供「数据管理 - 导入阅读数据」调用。
+  static Future<void> importSessions(List<ReadingSession> incoming) async {
+    final existing = <String>{};
+    final merged = <ReadingSession>[];
+    for (final s in sessionsNotifier.value) {
+      existing.add('${s.bookId}@${s.startedAtMs}');
+      merged.add(s);
+    }
+    for (final s in incoming) {
+      final key = '${s.bookId}@${s.startedAtMs}';
+      if (!existing.contains(key)) {
+        existing.add(key);
+        merged.add(s);
+      }
+    }
+    merged.sort((a, b) => b.startedAtMs.compareTo(a.startedAtMs));
+    sessionsNotifier.value = merged;
+    await _persist(merged);
+  }
+
   static List<ReadingSession> _inRange(
     DateTime startInclusive,
     DateTime endExclusive,

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../engine/localization_engine.dart';
@@ -10,6 +11,34 @@ import '../controller/bookshelf_controller.dart';
 import '../controller/settings_controller.dart';
 import '../service/reading_session_service.dart';
 import 'reader_settings_sheet.dart';
+
+/// 后台 isolate 解码 TXT：读取字节并解码为字符串，避免大文件在主线程阻塞导致卡顿/ANR。
+///
+/// 必须为顶层函数（compute 要求），在独立 isolate 中执行，不占用 UI 线程。
+Future<String> _decodeTxtInIsolate(String filePath) async {
+  final bytes = await File(filePath).readAsBytes();
+  try {
+    return utf8.decode(bytes, allowMalformed: true);
+  } catch (_) {
+    // 极端情况下 utf8 解码失败，回退 latin1 保底（乱码也强于白屏）。
+    return latin1.decode(bytes);
+  }
+}
+
+/// 将整本文本切成按行归并的分块，供 [ListView.builder] 虚拟滚动逐块构建。
+///
+/// 单块约 [linesPerChunk] 行；全文按 `\n` 切行后归并，块与块之间天然连续，
+/// 既避免一次性布局整本导致的内存/耗时峰值，又保留连续阅读观感。
+List<String> _chunkText(String text, {int linesPerChunk = 80}) {
+  if (text.isEmpty) return const [''];
+  final lines = text.split('\n');
+  final chunks = <String>[];
+  for (var i = 0; i < lines.length; i += linesPerChunk) {
+    final end = (i + linesPerChunk < lines.length) ? i + linesPerChunk : lines.length;
+    chunks.add(lines.sublist(i, end).join('\n'));
+  }
+  return chunks;
+}
 
 class TxtViewerPage extends StatefulWidget {
   final String title;
@@ -31,7 +60,8 @@ class TxtViewerPage extends StatefulWidget {
 
 class _TxtViewerPageState extends State<TxtViewerPage>
     with WidgetsBindingObserver, TickerProviderStateMixin {
-  String? _content;
+  /// 分块后的文本（虚拟滚动逐块构建，避免整本布局峰值）。
+  List<String> _chunks = const <String>[];
   bool _isFullscreen = true;
   bool _showSettings = false;
   Timer? _tapDetectionTimer;
@@ -111,22 +141,16 @@ class _TxtViewerPageState extends State<TxtViewerPage>
 
   Future<void> _load() async {
     try {
-      final file = File(widget.filePath);
-      final bytes = await file.readAsBytes();
-      String text;
-      try {
-        text = utf8.decode(bytes, allowMalformed: true);
-      } catch (_) {
-        text = latin1.decode(bytes);
-      }
+      // 整本解码移到后台 isolate（compute），主线程不阻塞，大文件也不会卡 UI。
+      final text = await compute(_decodeTxtInIsolate, widget.filePath);
       if (!mounted) return;
       setState(() {
-        _content = text;
+        _chunks = _chunkText(text);
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _content = '无法读取文本文件：$e';
+        _chunks = ['无法读取文本文件：$e'];
       });
     }
   }
@@ -279,12 +303,15 @@ class _TxtViewerPageState extends State<TxtViewerPage>
                             ),
                           ),
                         Expanded(
-                          child: _content == null
+                          child: _chunks.isEmpty
                               ? const Center(child: CupertinoActivityIndicator())
-                              : SingleChildScrollView(
+                              : ListView.builder(
+                                  // 键盘/边距与旧 SingleChildScrollView 保持一致。
                                   padding: const EdgeInsets.fromLTRB(18, 8, 18, 100),
-                                  child: SelectableText(
-                                    _content!,
+                                  // 虚拟滚动：仅构建可见分块，大文件不再一次性布局整本。
+                                  itemCount: _chunks.length,
+                                  itemBuilder: (context, index) => SelectableText(
+                                    _chunks[index],
                                     style: TextStyle(
                                       fontSize: 16,
                                       height: 1.5,
