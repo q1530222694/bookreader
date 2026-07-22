@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../engine/localization_engine.dart';
 import '../model/pdf_ocr_document.dart';
@@ -230,7 +231,8 @@ class _ReflowPageTileState extends State<_ReflowPageTile> {
     ui.Image? base;
     if (page.pageImageBase64 != null) {
       try {
-        final bytes = base64Decode(page.pageImageBase64!);
+        // ★ 长字符串 base64 解码移到独立 isolate，主线程零阻塞。
+        final bytes = await compute(_base64DecodeIsolate, page.pageImageBase64!);
         base = await decodeImageFromList(bytes);
       } catch (_) {
         base = null;
@@ -636,6 +638,12 @@ class _FlowItem {
         );
 }
 
+/// 长字符串 base64 解码（在独立 isolate 执行，避免阻塞 UI 主线程）。
+///
+/// OCR 页面原图 base64 往往数百 KB~MB，主线程解码会造成段落/原图瓦片加载卡顿，
+/// 移出主线程后翻看 OCR 图文混排视图更顺滑。
+Uint8List _base64DecodeIsolate(String b64) => base64Decode(b64);
+
 /// 原图对照瓦片：直接整页渲染原扫描图（不做文字叠加），用于与重排模式对比 / 核对。
 class _OriginalPageTile extends StatelessWidget {
   final PdfOcrPageData page;
@@ -692,7 +700,8 @@ class _OriginalPageTile extends StatelessWidget {
   Future<ui.Image?> _decode(String? b64) async {
     if (b64 == null) return null;
     try {
-      final bytes = base64Decode(b64);
+      // ★ 长字符串 base64 解码移到独立 isolate，主线程零阻塞。
+      final bytes = await compute(_base64DecodeIsolate, b64);
       return await decodeImageFromList(bytes);
     } catch (_) {
       return null;

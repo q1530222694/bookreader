@@ -139,8 +139,7 @@ class _BookViewerPageState extends State<BookViewerPage>
     _settingsController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 320),
-    )..addListener(_handleSettingsAnimationChanged)
-      ..addStatusListener(_handleSettingsAnimationStatusChanged);
+    )..addStatusListener(_handleSettingsAnimationStatusChanged);
     _settingsAnimation = CurvedAnimation(
       parent: _settingsController,
       curve: Curves.easeOutBack,
@@ -388,11 +387,6 @@ class _BookViewerPageState extends State<BookViewerPage>
         state == AppLifecycleState.detached) {
       _pauseSessionAndPersist();
     }
-  }
-
-  void _handleSettingsAnimationChanged() {
-    if (!mounted) return;
-    setState(() {});
   }
 
   void _handleSettingsAnimationStatusChanged(AnimationStatus status) {
@@ -1073,16 +1067,18 @@ class _BookViewerPageState extends State<BookViewerPage>
           color: CupertinoColors.label.resolveFrom(context),
         );
 
-    return ValueListenableBuilder<Color>(
-      valueListenable: SettingsController.readerBackgroundColor,
-      builder: (context, readerBackgroundColor, child) {
-        return CupertinoPageScaffold(
-          backgroundColor: backgroundColor,
-          child: Stack(
-            children: [
-              Container(
-                color: readerBackgroundColor,
-                child: AnimatedBuilder(
+    return CupertinoPageScaffold(
+      backgroundColor: backgroundColor,
+      child: Stack(
+        children: [
+          // ★ 背景色订阅收窄到叶子节点：仅此 Container 随 readerBackgroundColor 重建，
+          // 切换背景不再触发整页（阅读视图 / 设置面板）重建，彻底消除打开设置时的卡顿。
+          ValueListenableBuilder<Color>(
+            valueListenable: SettingsController.readerBackgroundColor,
+            builder: (context, readerBackgroundColor, _) =>
+                Container(color: readerBackgroundColor),
+          ),
+          AnimatedBuilder(
                   animation: _settingsAnimation,
                   builder: (context, child) {
                     return Transform.scale(
@@ -1201,7 +1197,6 @@ class _BookViewerPageState extends State<BookViewerPage>
                     ),
                   ),
                 ),
-              ),
               Positioned.fill(
                 child: LayoutBuilder(
                   builder: (context, constraints) {
@@ -1382,7 +1377,7 @@ class _BookViewerPageState extends State<BookViewerPage>
                             brightness: _brightness,
                             selectedFontIndex: _selectedFontIndex,
                             selectedPageMode: _selectedPageMode,
-                            selectedBackgroundColor: readerBackgroundColor,
+                            selectedBackgroundColor: SettingsController.readerBackgroundColor.value,
                             isPdfReader: true,
                             showReflow: _isReflowing,
                             onThemeChanged: (index) =>
@@ -1562,8 +1557,6 @@ class _BookViewerPageState extends State<BookViewerPage>
             ],
           ),
         );
-      },
-    );
   }
 }
 

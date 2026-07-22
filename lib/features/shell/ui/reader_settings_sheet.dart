@@ -233,13 +233,24 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
   }
 
   Future<void> _loadNotes() async {
-    final list = await ReaderDataStore.loadNotes(widget.bookId);
-    if (mounted) setState(() => _notes = list);
+    try {
+      final list = await ReaderDataStore.loadNotes(widget.bookId);
+      if (mounted) setState(() => _notes = list);
+    } catch (e) {
+      // 笔记读取失败不应让设置面板崩溃（宁可显示空列表）。
+      debugPrint('加载笔记失败: $e');
+      if (mounted) setState(() => _notes = const []);
+    }
   }
 
   Future<void> _loadBookmarks() async {
-    final list = await ReaderDataStore.loadBookmarks(widget.bookId);
-    if (mounted) setState(() => _bookmarks = list);
+    try {
+      final list = await ReaderDataStore.loadBookmarks(widget.bookId);
+      if (mounted) setState(() => _bookmarks = list);
+    } catch (e) {
+      debugPrint('加载书签失败: $e');
+      if (mounted) setState(() => _bookmarks = const []);
+    }
   }
 
   /// 全文搜索：逐页 loadText 匹配关键字，收集命中的 1-based 页码。
@@ -1573,7 +1584,7 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
     return _StyledCard(
       title: LocalizationEngine.text('pdf_enhance'),
       children: [
-        // 清晰度（接入渲染管线：像素级 unsharp mask 锐化，见 PdfRenderService._sharpenImage）
+        // 清晰度（接入渲染管线：像素级 unsharp mask 锐化，见 PdfRenderService._enhanceImage）
         _FineTuneSliderRow(
           label: LocalizationEngine.text('pdf_enhance_sharpness'),
           value: widget.sharpness,

@@ -69,6 +69,16 @@ class PdfCustomViewState extends State<PdfCustomView> {
   double _pageH = 0.0;
   // 已预渲染的对开页索引（去重，避免每次 onPageChanged 重复预热）。
   int _lastPrefetchedSpread = -1;
+  // 预取代际号：可见页位置每次变化即自增，旧代际的后台预取在锁内二次校验时
+  // 判定失效并立即丢弃，避免为已滚走的页空转渲染（配合 PdfRenderService 的取消机制）。
+  int _prefetchGeneration = 0;
+  /// 静默增强代际号：滚动停止时自增并随 setState 重建可见页瓦片，驱动其重跑
+  /// Stage 2 智能清晰度增强（无转圈）。与 [_prefetchGeneration] 相互独立。
+  int _enhanceTick = 0;
+  // 后台预渲染窗口：向前（下一页方向）预渲染 10 页、向后（上一页方向）2 页，
+  // 使连续翻页/小幅跳转直接命中终缓存、无感切换（详见 [_prefetchAround]）。
+  static const int _kPrefetchAhead = 10;
+  static const int _kPrefetchBehind = 2;
   final List<GlobalKey> _spreadKeys = [];
   final GlobalKey _listKey = GlobalKey();
   // 双屏两栏各自的 State 句柄，用于把进度跳转同时作用到左右两栏。
@@ -91,6 +101,8 @@ class PdfCustomViewState extends State<PdfCustomView> {
   @override
   void initState() {
     super.initState();
+    // 复位全局滚动标记，避免上一视图残留的 isScrolling=true 导致本视图增强被永久降级。
+    PdfRenderService.isScrolling = false;
     _zoomController.addListener(_onZoomChanged);
     _buildSpreads();
     _initControllers();
@@ -162,14 +174,40 @@ class PdfCustomViewState extends State<PdfCustomView> {
   void _initControllers() {
     if (_usePageView) {
       _pageController = PageController();
+      // 监听翻页进度：过渡中（page 非整数）置 isScrolling=true 暂停 Stage2 增强，
+      // 落定（page 回到整数）恢复并触发当前可见页静默增强，避免每页增强抢光栅线程
+      // 导致下一页原生渲染被推迟、翻页出现转圈（连续滚动模式已有等价逻辑，此处补齐
+      // PageView 点击/滑动翻页模式，使其同样享受 120Hz 即时翻页）。
+      _pageController!.addListener(_onPageScroll);
     } else {
       _scrollController = ScrollController();
     }
   }
 
+  /// PageView 翻页进度回调：派生「是否处于翻页过渡中」，驱动 [PdfRenderService.isScrolling]
+  /// 与 [_enhanceTick]（与连续滚动的 ScrollEnd 逻辑对齐）。仅在状态发生翻转时 setState，
+  /// 不会因高频回调反复重建。
+  void _onPageScroll() {
+    if (!_usePageView || _pageController == null) return;
+    final p = _pageController!.page;
+    if (p == null) return;
+    final transitioning = (p - p.round()).abs() > 0.01;
+    if (transitioning) {
+      if (!PdfRenderService.isScrolling) PdfRenderService.isScrolling = true;
+    } else if (PdfRenderService.isScrolling) {
+      // 落定：恢复增强，并触发当前可见页静默升级为智能清晰度（无转圈）。
+      PdfRenderService.isScrolling = false;
+      _enhanceTick++;
+      if (mounted) setState(() {});
+    }
+  }
+
   void _disposeControllers() {
-    _pageController?.dispose();
-    _pageController = null;
+    if (_pageController != null) {
+      _pageController!.removeListener(_onPageScroll);
+      _pageController!.dispose();
+      _pageController = null;
+    }
     _scrollController?.dispose();
     _scrollController = null;
   }
@@ -179,58 +217,88 @@ class PdfCustomViewState extends State<PdfCustomView> {
     if (spreadIndex < 0 || spreadIndex >= _spreads.length) return;
     final firstPage = _spreads[spreadIndex].first + 1;
     widget.onPageChanged?.call(firstPage);
+    // 可见页位置变化：推进预取代际，令旧代际后台预取在锁内失效丢弃。
+    _prefetchGeneration++;
     _prefetchAround(spreadIndex);
   }
 
-  /// 相邻页预渲染：预热 [spreadIndex] 及其左右各一「对开页」的渲染缓存，
-  /// 使翻到新页时直接命中 [PdfRenderService._renderCache]，消除「每次翻页都重新渲染」
-  /// 的卡顿（自研视图不像 pdfrx 的 PdfViewer 默认预取，必须显式预热）。
+  /// 相邻页预渲染（后台、低优先级）：预热以 [spreadIndex] 为中心、向前
+  /// [_kPrefetchAhead] 页、向后 [_kPrefetchBehind] 页窗口内的「已裁切原生渲染」缓存，
+  /// 使连续翻页/小幅跳转直接命中 [PdfRenderService] 的基础缓存、翻开即见原生图（0 等待、
+  /// 不转圈）；智能清晰度增强由 [_PdfPageWidget._load] 的「阶段二」在可见页上后台完成、
+  /// 算完无感替换。此分工确保后台预取绝不批量触发主线程增强（toByteData + 解码），
+  /// 从根上杜绝「开智能清晰度后卡死」。
   ///
   /// 与 [_PdfPageWidget._load] 使用完全一致的渲染参数与缓存键（经
-  /// [PdfRenderService.estimateRenderWidth]），预热出的缓存即正式渲染要命中的同一份。
+  /// [PdfRenderService.estimateRenderWidth]），预热出的基础缓存即正式渲染要命中的同一份。
+  ///
+  /// 关键设计：
+  /// 1. 预取只暖「原生层」（`skipPostProcess: true`，含 autoCrop 裁切）——增强留给可见页，
+  ///    避免 10 页后台增强同时压满主线程（这是上一版「直接卡死」的回归根因）。
+  /// 2. 低优先级（`background: true`）——可见页渲染可抢占后台预取，翻页永远即时。
+  /// 3. 就近优先 + 代际取消——窗口内先算最近的页；可见页位置变化即令旧预取失效丢弃。
   void _prefetchAround(int spreadIndex) {
     if (!mounted || _pageW <= 0) return;
     if (spreadIndex == _lastPrefetchedSpread) return;
     _lastPrefetchedSpread = spreadIndex;
+    // 捕获本代际号：期间若用户翻页推进代际，旧预取在锁内二次校验判定失效即丢弃。
+    final myGen = _prefetchGeneration;
 
-    final start = (spreadIndex - 1).clamp(0, _spreads.length - 1);
-    final end = (spreadIndex + 1).clamp(0, _spreads.length - 1);
     final settings = widget.settings;
     final isTwoPage = settings.layoutMode == 1 || settings.layoutMode == 3;
     final perPageWidth = isTwoPage ? ((_pageW - _pageGap) / 2) : _pageW;
 
-    for (var s = start; s <= end; s++) {
+    // 收集窗口内所有页码（按对开页展开），再按距当前页「就近优先」排序，
+    // 保证离视线最近的页最先被渲染好，连续翻页瞬时命中。
+    final sStart = (spreadIndex - _kPrefetchBehind).clamp(0, _spreads.length - 1);
+    final sEnd = (spreadIndex + _kPrefetchAhead).clamp(0, _spreads.length - 1);
+    final curFirstPage = _spreads[spreadIndex].first;
+    final pageNums = <int>[];
+    for (var s = sStart; s <= sEnd; s++) {
       for (final pageIndex in _spreads[s]) {
-        final pageNum = pageIndex + 1;
-        final isOddPage = pageNum % 2 != 0;
-        final effectiveAutoCrop = switch (settings.cropOddEvenMode) {
-          0 => settings.autoCrop,
-          1 => settings.autoCrop && isOddPage,
-          2 => settings.autoCrop && !isOddPage,
-          _ => settings.autoCrop,
-        };
-        final useManual = settings.cropMode == 2 &&
-            (settings.manualCropLeft > 0 ||
-                settings.manualCropRight > 0 ||
-                settings.manualCropTop > 0 ||
-                settings.manualCropBottom > 0);
-        // 预热（命中缓存即瞬时返回，成本极低）；统一预热，保证任意翻页方向都即时。
-        // 关键：预取只暖「原生渲染」层（skipPostProcess），不触发去杂色/锐化的 compute
-        // 与主线程 GPU 上传，避免预取与正式翻页争抢 isolate 池、导致开了智能清晰度后转圈。
-        PdfRenderService.renderPageImage(
-          widget.document,
-          pageNum,
-          renderWidth: PdfRenderService.estimateRenderWidth(perPageWidth),
-          autoCrop: useManual ? false : effectiveAutoCrop,
-          denoise: settings.denoise,
-          sharpness: settings.sharpness,
-          skipPostProcess: true,
-          manualCropLeft: settings.manualCropLeft,
-          manualCropRight: settings.manualCropRight,
-          manualCropTop: settings.manualCropTop,
-          manualCropBottom: settings.manualCropBottom,
-        );
+        pageNums.add(pageIndex + 1);
       }
+    }
+    pageNums.sort((a, b) {
+      final da = (a - curFirstPage).abs();
+      final db = (b - curFirstPage).abs();
+      // 距离相同时优先「向前」（下一页方向），更符合顺读习惯。
+      if (da == db) return b.compareTo(a);
+      return da.compareTo(db);
+    });
+
+    for (final pageNum in pageNums) {
+      final isOddPage = pageNum % 2 != 0;
+      final effectiveAutoCrop = switch (settings.cropOddEvenMode) {
+        0 => settings.autoCrop,
+        1 => settings.autoCrop && isOddPage,
+        2 => settings.autoCrop && !isOddPage,
+        _ => settings.autoCrop,
+      };
+      final useManual = settings.cropMode == 2 &&
+          (settings.manualCropLeft > 0 ||
+              settings.manualCropRight > 0 ||
+              settings.manualCropTop > 0 ||
+              settings.manualCropBottom > 0);
+      // 后台预热（命中缓存即瞬时返回，几乎零成本）：只暖「已裁切原生渲染」层，
+      // 绝不做事后增强——增强（toByteData + 主线程解码）一律留给可见页阶段二，
+      // 绝不让 10 页后台预取同时压满主线程导致「开智能清晰度后卡死」。
+      PdfRenderService.renderPageImage(
+        widget.document,
+        pageNum,
+        renderWidth: PdfRenderService.estimateRenderWidth(perPageWidth),
+        autoCrop: useManual ? false : effectiveAutoCrop,
+        denoise: settings.denoise,
+        sharpness: settings.sharpness,
+        skipPostProcess: true, // ★ 关键：后台只暖原生层（含裁切），不碰主线程增强
+        background: true, // ★ 低优先级，让位可见页
+        manualCropLeft: settings.manualCropLeft,
+        manualCropRight: settings.manualCropRight,
+        manualCropTop: settings.manualCropTop,
+        manualCropBottom: settings.manualCropBottom,
+        // ★ 代际 + 卸载双重取消：视图卸载或已翻到别的页（代际变化）即丢弃。
+        isStillNeeded: () => mounted && _prefetchGeneration == myGen,
+      );
     }
   }
 
@@ -451,6 +519,9 @@ class PdfCustomViewState extends State<PdfCustomView> {
 
   @override
   void dispose() {
+    // 复位全局滚动标记：若本视图在翻页过渡中被销毁，避免 isScrolling 残留为 true
+    // 而让其它视图/文档的增强被永久降级（连续滚动与 PageView 两种情况都要清）。
+    PdfRenderService.isScrolling = false;
     _zoomController.removeListener(_onZoomChanged);
     _zoomController.dispose();
     _disposeControllers();
@@ -516,7 +587,16 @@ class PdfCustomViewState extends State<PdfCustomView> {
           //   boundaryMargin 提供无限平移余地，整列等比缩放，页面保持紧密相连。
           body = NotificationListener<ScrollNotification>(
             onNotification: (n) {
-              if (n is ScrollEndNotification) _reportVisiblePage();
+              if (n is ScrollStartNotification || n is ScrollUpdateNotification) {
+                // 标记当前处于滚动中，暂停 Stage 2 深度增强计算，保障 120Hz 帧率。
+                if (!PdfRenderService.isScrolling) PdfRenderService.isScrolling = true;
+              } else if (n is ScrollEndNotification) {
+                // 滚动静止：恢复增强，并触发当前可见页静默升级为智能清晰度。
+                PdfRenderService.isScrolling = false;
+                _reportVisiblePage();
+                _enhanceTick++;
+                setState(() {});
+              }
               return false;
             },
             child: InteractiveViewer(
@@ -623,17 +703,19 @@ class PdfCustomViewState extends State<PdfCustomView> {
                     settings: widget.settings,
                     targetWidth: perPageWidth,
                     fillScreen: fillScreen,
+                    enhanceTick: _enhanceTick,
                   ),
                 ),
                 SizedBox(width: _pageGap),
                 Expanded(
-                  child: _PdfPageWidget(
-                    document: widget.document,
-                    pageIndex: pages[1],
-                    settings: widget.settings,
-                    targetWidth: perPageWidth,
-                    fillScreen: fillScreen,
-                  ),
+                child: _PdfPageWidget(
+                  document: widget.document,
+                  pageIndex: pages[1],
+                  settings: widget.settings,
+                  targetWidth: perPageWidth,
+                  fillScreen: fillScreen,
+                  enhanceTick: _enhanceTick,
+                ),
                 ),
               ],
             ),
@@ -650,6 +732,7 @@ class PdfCustomViewState extends State<PdfCustomView> {
         settings: widget.settings,
         targetWidth: pageW,
         fillScreen: fillScreen,
+        enhanceTick: _enhanceTick,
       ),
     );
   }
@@ -800,6 +883,9 @@ class _PdfPageWidget extends StatefulWidget {
   /// 滚动模式由 [_buildSpread] 传入 true；其余模式（含左右翻页）为 false，走
   /// [BoxFit.contain] 显示完整一页。
   final bool fillScreen;
+  /// 静默增强代际号：滚动停止时父视图自增并随 setState 重建本瓦片，[didUpdateWidget]
+  /// 据此触发 Stage 2 增强（无转圈），把原生图升级为智能清晰度。
+  final int enhanceTick;
 
   const _PdfPageWidget({
     required this.document,
@@ -807,6 +893,7 @@ class _PdfPageWidget extends StatefulWidget {
     required this.settings,
     required this.targetWidth,
     this.fillScreen = false,
+    this.enhanceTick = 0,
   });
 
   @override
@@ -816,6 +903,8 @@ class _PdfPageWidget extends StatefulWidget {
 class _PdfPageWidgetState extends State<_PdfPageWidget> {
   ui.Image? _image;
   bool _loading = true;
+  int _loadToken = 0; // 每次 _load 自增，防止快速翻页时旧阶段二覆盖新页
+  int _enhanceToken = 0; // 滚动停止触发的静默增强专用令牌，与 _loadToken 互不干扰
 
   @override
   void initState() {
@@ -823,9 +912,51 @@ class _PdfPageWidgetState extends State<_PdfPageWidget> {
     _load();
   }
 
+  /// 安全替换当前显示的 [ui.Image]：登记/释放「正在显示」引用，使
+  /// [PdfRenderService] 在缓存淘汰/回收时不会 dispose 一个正被 [RawImage] 绘制的纹理
+  /// （否则会触发原生层崩溃）。相同实例不重复登记。
+  void _setImage(ui.Image? img) {
+    if (_image == img) return;
+    if (_image != null) PdfRenderService.markUnused(_image!);
+    _image = img;
+    if (img != null) PdfRenderService.markInUse(img);
+  }
+
+  @override
+  void dispose() {
+    if (_image != null) PdfRenderService.markUnused(_image!);
+    super.dispose();
+  }
+
   @override
   void didUpdateWidget(covariant _PdfPageWidget old) {
     super.didUpdateWidget(old);
+    // ★ 关键修复（生命周期）：连续滚动模式下 ListView 会回收 Element，使同一个
+    // [_PdfPageWidgetState] 被复用去显示不同 pageIndex 的页。若不在此检测 pageIndex
+    // 变化并重新加载，State 会沿用旧页的 _image / 令牌 / 增强状态，导致旧页在途的异步
+    // 增强结果覆盖新页、或旧 _image 在新页被 dispose 时遭误伤——这是翻页崩溃的高发温床。
+    // 检测到 pageIndex 变化立即重新 [_load]，旧页在途请求由令牌机制统一丢弃。
+    if (old.pageIndex != widget.pageIndex) {
+      _load();
+      return;
+    }
+    // 滚动停止信号（enhanceTick 变化）：静默重跑 Stage 2，把原生图升级为智能清晰度，
+    // 不重置 loading（无转圈）、不重渲阶段一（命中缓存即瞬时）。
+    if (old.enhanceTick != widget.enhanceTick) {
+      final needEnhance = widget.settings.denoise || widget.settings.sharpness != 1.0;
+      if (needEnhance && mounted) {
+        // ★ 使用独立 _enhanceToken 而非 _loadToken：避免因滚动停止信号的 token
+        // 自增杀掉 _load() 阶段二的令牌（导致阶段二完成后增强图被 evict、从零重算）。
+        // 两路 token 独立，互不取消：
+        //   · _load() 阶段二先完成 → 已写缓存、已显示，此处 enhance 命中缓存瞬间返回；
+        //   · _load() 阶段二仍在途 → 此处 enhance 并发跑（双份 _enhanceImage，但远优于
+        //     旧逻辑「杀旧启新」导致的总长等待+掉帧）。
+        final myToken = ++_enhanceToken;
+        final tokenValid = () => mounted && _enhanceToken == myToken;
+        _enhance(tokenValid, _image);
+      }
+      return;
+    }
     // 仅当自动裁切、去杂色、手动裁切、目标宽度或奇偶页模式变化时需要重新渲染；
     // 亮度/去色等仅由 build 重包滤镜。
     if (old.settings.autoCrop != widget.settings.autoCrop ||
@@ -844,6 +975,11 @@ class _PdfPageWidgetState extends State<_PdfPageWidget> {
 
   Future<void> _load() async {
     if (!mounted) return;
+    // 捕获本次加载令牌：快速翻页导致本 Widget 复用/重建时，旧阶段的异步结果若已过期
+    // （令牌不符或已卸载）直接丢弃，绝不把旧页/旧增强覆盖到当前页。
+    final myToken = ++_loadToken;
+    final bool Function() tokenValid =
+        () => mounted && _loadToken == myToken;
     setState(() => _loading = true);
 
     final settings = widget.settings;
@@ -863,27 +999,99 @@ class _PdfPageWidgetState extends State<_PdfPageWidget> {
             settings.manualCropRight > 0 ||
             settings.manualCropTop > 0 ||
             settings.manualCropBottom > 0);
+    final bool needEnhance = settings.denoise || settings.sharpness != 1.0;
 
     final dpr = ui.PlatformDispatcher.instance.views.first.devicePixelRatio;
     final double renderWidth = (widget.targetWidth * dpr)
         .clamp(200, PdfRenderService.maxRenderWidth.toDouble())
         .toDouble();
-    final img = await PdfRenderService.renderPageImage(
+
+    // —— 阶段一：仅原生渲染（命中预取缓存即瞬时），立即显示，翻页 0 等待、不转圈 ——
+    final base = await PdfRenderService.renderPageImage(
+      widget.document,
+      pageNum,
+      renderWidth: renderWidth,
+      autoCrop: useManual ? false : effectiveAutoCrop,
+      denoise: false,
+      sharpness: 1.0, // 阶段一不做增强，原生图最快呈现
+      manualCropLeft: settings.manualCropLeft,
+      manualCropRight: settings.manualCropRight,
+      manualCropTop: settings.manualCropTop,
+      manualCropBottom: settings.manualCropBottom,
+      // ★ 渲染中断关键钩子：本页 Widget 已卸载（快速翻页滑出视口）即丢弃，
+      // 进入文档锁后二次校验失败 → 立即释放锁，根治「队列雪崩」。
+      isStillNeeded: tokenValid,
+    );
+    // ★ 关键修复：令牌失效表示本页已滑出视口/被复用。base 由 PdfRenderService 内部
+    // 缓存持有（生命周期由 LRU 管理），此处不可直接 dispose（会破坏缓存、致它页黑屏），
+    // 直接返回即可——缓存会在容量超限时自行释放，不会泄漏。
+    if (!tokenValid()) return;
+    if (base == null) return;
+    setState(() {
+      _setImage(base);
+      _loading = false; // 立即消除转圈
+    });
+
+    // 无需增强（关闭智能清晰度/去杂色且清晰度=1）：阶段一即终态，结束。
+    if (!needEnhance) return;
+
+    // —— 阶段二：后台把智能清晰度/去杂色算完，无感替换上来（见 [_enhance]）——
+    await _enhance(tokenValid, base);
+  }
+
+  /// Stage 2 智能清晰度增强（去杂色 + 锐化），无转圈、可在滚动停止后静默调用。
+  ///
+  /// [base] 为当前已显示的原始裁切图（用于「增强未改变即等同 base」的判定）。
+  /// 增强仅在「当前可见页」进行，每次至多 1~2 页，不会批量压满主线程/显存；
+  /// 算完前用户已看到原生图，无等待感。令牌失效（快速翻走）时安全回收过期增强图，
+  /// 防止显存堆积导致 OOM。
+  Future<void> _enhance(bool Function() tokenValid, ui.Image? base) async {
+    final settings = widget.settings;
+    final int pageNum = widget.pageIndex + 1; // 1-based
+    final bool isOddPage = pageNum % 2 != 0;
+    final effectiveAutoCrop = switch (settings.cropOddEvenMode) {
+      0 => settings.autoCrop,
+      1 => settings.autoCrop && isOddPage,
+      2 => settings.autoCrop && !isOddPage,
+      _ => settings.autoCrop,
+    };
+    final bool useManual = settings.cropMode == 2 &&
+        (settings.manualCropLeft > 0 ||
+            settings.manualCropRight > 0 ||
+            settings.manualCropTop > 0 ||
+            settings.manualCropBottom > 0);
+    final dpr = ui.PlatformDispatcher.instance.views.first.devicePixelRatio;
+    final double renderWidth = (widget.targetWidth * dpr)
+        .clamp(200, PdfRenderService.maxRenderWidth.toDouble())
+        .toDouble();
+
+    // 滚动中（PdfRenderService.isScrolling）renderPageImage 被强制降级为原生图，
+    // 此时 enhanced==base，下方判定跳过，等价于「滚动期间不增强」。
+    final enhanced = await PdfRenderService.renderPageImage(
       widget.document,
       pageNum,
       renderWidth: renderWidth,
       autoCrop: useManual ? false : effectiveAutoCrop,
       denoise: settings.denoise,
+      sharpness: settings.sharpness,
       manualCropLeft: settings.manualCropLeft,
       manualCropRight: settings.manualCropRight,
       manualCropTop: settings.manualCropTop,
       manualCropBottom: settings.manualCropBottom,
+      // 与阶段一同一令牌：翻走/复用导致令牌失效或卸载即丢弃，避免增强结果覆盖到别的页。
+      isStillNeeded: tokenValid,
     );
-    if (!mounted) return;
-    setState(() {
-      _image = img;
-      _loading = false;
-    });
+    if (enhanced == null || !tokenValid()) {
+      // ★ 关键修复（OOM）：令牌失效 → 本页已滑出视口，必须把过期的增强结果回收。
+      // 注意：enhanced 是 PdfRenderService 缓存持有的实例，直接 dispose 会破坏仍在
+      // 缓存中、可能被其它页复用的同一份（黑屏/崩溃）。故走 evictImage 安全移除并释放；
+      // 同时排除当前正显示的 _image，避免误释放正在呈现的图。
+      if (enhanced != null && enhanced != base && enhanced != _image) {
+        PdfRenderService.evictImage(enhanced);
+      }
+      return;
+    }
+    setState(() => _setImage(enhanced));
   }
 
   @override
@@ -1014,10 +1222,15 @@ class DualScreenPaneState extends State<_DualScreenPane> {
   late final List<GlobalKey> _paneKeys;
   // 展平后的页码列表：双页布局下 [_spreads] 为成对页码，对比阅读需逐页展示，故展平。
   late final List<int> _flatPages;
+  /// 静默增强代际号：滚动停止时自增并随 setState 重建可见页瓦片，驱动其重跑
+  /// Stage 2 智能清晰度增强（无转圈）。与主视图 [_enhanceTick] 同源逻辑。
+  int _enhanceTick = 0;
 
   @override
   void initState() {
     super.initState();
+    // 复位全局滚动标记（与 PdfCustomViewState 同步），避免上一视图残留导致增强被降级。
+    PdfRenderService.isScrolling = false;
     _scrollController = ScrollController();
     _zoomController.addListener(_onZoomChanged);
     _flatPages = [for (final s in widget.spreads) ...s];
@@ -1026,6 +1239,8 @@ class DualScreenPaneState extends State<_DualScreenPane> {
 
   @override
   void dispose() {
+    // 复位全局滚动标记，避免本面板在滚动中途销毁后 isScrolling 残留为 true。
+    PdfRenderService.isScrolling = false;
     _zoomController.removeListener(_onZoomChanged);
     _zoomController.dispose();
     _scrollController.dispose();
@@ -1158,7 +1373,16 @@ class DualScreenPaneState extends State<_DualScreenPane> {
       height: widget.paneHeight,
       child: NotificationListener<ScrollNotification>(
         onNotification: (n) {
-          if (n is ScrollEndNotification) _reportVisiblePage();
+          if (n is ScrollStartNotification || n is ScrollUpdateNotification) {
+            // 标记当前处于滚动中，暂停 Stage 2 深度增强计算，保障 120Hz 帧率。
+            if (!PdfRenderService.isScrolling) PdfRenderService.isScrolling = true;
+          } else if (n is ScrollEndNotification) {
+            // 滚动静止：恢复增强，并触发当前可见页静默升级为智能清晰度。
+            PdfRenderService.isScrolling = false;
+            _reportVisiblePage();
+            _enhanceTick++;
+            setState(() {});
+          }
           return false;
         },
         child: GestureDetector(
@@ -1216,6 +1440,7 @@ class DualScreenPaneState extends State<_DualScreenPane> {
         settings: widget.settings,
         targetWidth: pageW,
         fillScreen: fillScreen,
+        enhanceTick: _enhanceTick,
       ),
     );
   }

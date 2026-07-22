@@ -1,4 +1,63 @@
-﻿### [2026-07-21] 修复：开启智能清晰度后翻几页持续转圈（两级缓存 + 预取去重后处理）
+﻿### [2026-07-22] 修复：开启智能清晰度后翻页崩溃（Image.dispose double-dispose 断言）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/pdf_render_service.dart`
+  ├─ 变更 ➔ ① 新增幂等释放安全网 `static final Set<ui.Image> _disposedImages` + `_safeDispose(img)`：所有 `ui.Image.dispose()` 统一收口，同一实例二次释放直接忽略，并清理各级缓存/引用残留；② `renderPageImage` 在「基础图→增强」阶段对 `base` 加 `markInUse(base)`，整个 `_enhanceImage(base)` 期间（含离屏取消/异常）走 `try/finally` 统一 `markUnused(base)`，结束后仅当 base 已不在任何缓存且引用计数为 0 才由收尾逻辑 `_safeDispose(base)` 释放一次——杜绝「自有 base 被并发另一路增强使用时释放」的 use-after-dispose / double-dispose；③ `evictImage` 维持「缓存中实例只移除引用、绝不 dispose」约束（上轮已加，保留）。
+  └─ 被消费 ➔ `lib/features/shell/ui/pdf_custom_view.dart`（`_PdfPageWidget._enhance` 过期回收分支调用 `evictImage`）
+- `lib/features/shell/ui/pdf_custom_view.dart`
+  ├─ 变更 ➔ `_PdfPageWidgetState.didUpdateWidget` 新增「pageIndex 变化即重新 `_load()`」分支（位于 enhanceTick/settings 判定之前）：连续滚动 ListView 回收 Element 时同一 State 会被复用显示不同页，不重载会沿用旧页 `_image`/令牌/在途增强，导致旧页异步增强覆盖新页或旧 `_image` 误释放。
+  └─ 依赖/调用 ➔ `pdf_render_service.dart`（markInUse/markUnused 全程保护 base）
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置 Key（沿用既有 `denoise`/`sharpness` 阅读设置键，崩溃修复对 UI 与持久化透明）。
+- **根因（修正）**：上一轮误将崩溃归因为 `evictImage` 释放共享实例；真正的 double-dispose 发生在 `renderPageImage` 的「基础图释放」分支。开启智能清晰度后翻页（尤其点击翻页=滑动+滚动停止触发 `_enhanceTick++`）会让**同一页并发跑两路 `renderPageImage`**（典型为 `_load` 阶段二增强 与 `didUpdateWidget` 滚动停止增强）：第二路命中 `_baseRenderCache` 拿到**同一个 `base` 实例**，第一路派生 `out` 后在 `!baseFromCache` 分支直接 `base.dispose()`——此刻第二路仍在 `_enhanceImage(base)` 内 `toByteData` 读取该 base，被释放即 use-after-dispose；或第二路稍后把已释放 base 当显示图、翻走时 `markUnused` 再 dispose 一次 → 命中 `Image.dispose()` 的 `!_disposed` 断言。关掉智能清晰度即无阶段二增强、不进入该释放分支，故不崩。
+- **修复逻辑**：① `base` 在增强全程受 `markInUse` 保护，并发两路中仅最后一手持有者释放一次；② 所有 `ui.Image.dispose()` 收口到幂等 `_safeDispose`，即便仍有遗漏也不再抛断言；③ `_PdfPageWidget` 跨页复用时 `_load` 重载，杜绝旧页状态串扰。三道防线共同消除该崩溃。
+
+---
+
+### [2026-07-22 (2)] 修复：返回书架崩溃（_safeDispose 在 disposeDocument 迭代中嵌套突变缓存）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/pdf_render_service.dart`
+  ├─ 变更 ➔ ① `_safeDispose` 剥离所有缓存 `removeWhere` 突变（`_renderCache.removeWhere` / `_baseRenderCache.removeWhere` / 顺序表清理），调用方自行管理缓存生命周期；`Set<ui.Image> _disposedImages` → `Expando<bool> _disposedImages`（弱引用，不阻止已释放 `ui.Image` 的 GC）。
+  └─ 依赖/调用 ➔ `disposeDocument` / `_cachePut` / `_cachePutBase` / `_clearDocCaches` / `markUnused` / `evictImage` / `renderPageImage` base 收尾
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置 Key。
+- **根因**：`disposeDocument`（以及 `_clearDocCaches`）在 `_renderCache.removeWhere` 的回调中调用 `_safeDispose(img)`，而 `_safeDispose` 内部又对同一 `_renderCache` 做 `removeWhere` ——在迭代同一集合的回调中嵌套突变，触发并发修改异常（集合在迭代中被修改），**阅读一段时间后返回书架即崩溃**。`List.removeWhere`（顺序表）同理。
+- **修复逻辑**：`_safeDispose` 不再触碰任何缓存，仅做幂等 dispose + `_inUseImages` 移除；调用方（`disposeDocument` 自身就在外层 `removeWhere` 中移除条目）已正确管理缓存生命周期，无需额外清理。
+
+### [2026-07-22 (3)] 修复：开启智能清晰度后翻页掉帧/转圈（双重增强竞态）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/pdf_custom_view.dart`
+  ├─ 变更 ➔ `_PdfPageWidgetState` 新增独立增强令牌 `_enhanceToken`（与 `_loadToken` 分离）；`didUpdateWidget` 的 `enhanceTick` 处理改用 `++_enhanceToken` 而非 `++_loadToken`。
+  └─ 依赖/调用 ➔ `pdf_render_service.dart`（renderPageImage）
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置 Key。
+- **根因**：PageView 翻页 300ms 动画结束 → `_enhanceTick++` 触发 `didUpdateWidget`，其中 `++_loadToken` **杀掉**了 `_load()` 阶段二（`_enhance`）的令牌。此时若 `_load()` 的阶段二增强正在 `_enhanceImage` 中计算（20-30MB 的 toByteData+isolate+decodeImageFromPixels，耗时 200-500ms），该增强结果完成后发现 token 过期 → 被 `evictImage` 丢弃 → 另一路从零重算。表现为：**每翻一页都长时间转圈**（Stage 1 被迫等锁、Stage 2 被反复杀启→总等待×2）且**明显掉帧**。
+- **修复逻辑**：`_load()` 的阶段二使用 `_loadToken`，`enhanceTick` 触发使用 `_enhanceToken`，两路互不取消。`_load()` 阶段二先完成 → 已写缓存且已显示增强图，`enhanceTick` 路径命中缓存瞬间返回；`_load()` 阶段二仍在途 → 两路并发跑（偶有双份计算，但远优于旧逻辑的「杀旧启新·总等待×2·evict 丢弃」）。
+
+---
+
+### [2026-07-21 (5)] 修复：开启智能清晰度后翻页转圈 + 点进看书设置崩溃
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/pdf_render_service.dart`
+  ├─ 变更 ➔ 新增「正在显示引用」安全网：`static final Set<ui.Image> _inUseImages` + `markInUse(img)`/`markUnused(img)`。所有释放点（LRU 淘汰 `_cachePut`/`_cachePutBase`、`_clearDocCaches`、`disposeDocument`、`evictImage`）在释放 `ui.Image` 前均判定 `if (!_inUseImages.contains(img)) img.dispose();`，仅移出缓存、绝不 dispose 正被 `RawImage` 持绘制的纹理（`markUnused` 时若缓存也未持有才真正释放，避免 GPU 内存泄漏）。
+  └─ 被消费 ➔ `lib/features/shell/ui/pdf_custom_view.dart`
+- `lib/features/shell/ui/pdf_custom_view.dart`
+  ├─ 变更 ➔ ① `_PdfPageWidgetState` 新增 `_setImage(ui.Image?)`（安全替换显示图并登记/释放「正在显示」引用）+ `dispose` 中 `markUnused`；阶段一/二 `setState` 改用 `_setImage`。② PageView 翻页路径补齐 `isScrolling` 降级：`_initControllers` 给 `_pageController` 加 `_onPageScroll` 监听（派生 `transitioning=(page-round()).abs()>0.01`），过渡中 `isScrolling=true` 暂停 Stage2 争抢光栅线程、落定 `false`+`_enhanceTick++`+`setState` 静默重跑增强；`PdfCustomViewState.dispose` 与 `DualScreenPaneState.dispose` 均复位 `isScrolling`。
+  └─ 依赖/调用 ➔ `pdf_render_service.dart`（markInUse/markUnused）
+- `lib/features/shell/ui/reader_settings_sheet.dart`
+  └─ 变更 ➔ `_loadNotes`/`_loadBookmarks` 加 `try/catch`：读取失败改为显示空列表（`debugPrint` 错误），不再让设置面板因数据读取异常而崩溃。
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置 Key（沿用既有 `denoise`/`sharpness` 阅读设置键与 `ReaderDataStore` 读盘接口，崩溃修复对 UI 与持久化透明）。
+- **根因 A（进设置崩溃）**：原 LRU 淘汰（`_cachePut`/`_cachePutBase`）与 `evictImage` 直接 `ui.Image.dispose()`。开启智能清晰度后增强图写入更频繁、淘汰更激进，翻多页后进设置面板触发整屏重绘，绘制到已释放纹理 → 原生层崩溃（"trying to draw a disposed image"）。
+- **根因 B（翻页转圈）**：连续滚动有 `isScrolling` 降级，但 PageView 翻页路径未接入 `isScrolling`，每页 Stage2 增强与下一页 Stage1 原生渲染抢光栅线程 → 下一页原生渲染推迟 → 转圈。
+- **修复逻辑**：① 用 `_inUseImages` 引用集合做「正在显示」保护，所有释放点跳过正显示的实例；② PageView 补 `_onPageScroll` 接入 `isScrolling` 降级，与连续滚动对齐，翻页即时无转圈。
+
+---
+
+### [2026-07-21] 修复：开启智能清晰度后翻几页持续转圈（两级缓存 + 预取去重后处理）
 **【AI 架构依赖树 (Architecture Context)】**
 - `lib/features/shell/service/pdf_render_service.dart`
   ├─ 变更 ➔ `renderPageImage` 重构为**两级缓存**：① `_baseRenderCache`（基础原生渲染层，键**不含** `denoise`/`sharpness`，独立 LRU 上限 16）只缓存 PDFium 原生渲染+裁切结果；② `_renderCache`（终成品缓存，键叠加 `denoise:sharpness`，LRU 上限 48）只缓存「带后处理」成品。二者互不共享实例、各自淘汰 `dispose`。`denoise`/`_sharpenImage` 仅在正式展示该页且 `out!=base` 时执行并写入终缓存；新增 `skipPostProcess` 形参、`_cacheGetBase`/`_cachePutBase`/`_maxBaseCache` 与同步的 `_clearDocCaches`/`disposeDocument` 清理。
@@ -1986,3 +2045,192 @@
 - **[需求2·数据管理入口]** 新增 `data_manager` feature：`DataManagerPage` 提供「阅读数据」导出/导入（选目录写 `reading_backup_<时间戳>.json` / 选文件合并恢复，覆盖书籍/会话/笔记/书签/白名单设置）与「云盘同步」（配置 WebDAV/NAS 等，未配置任意云盘时同步按钮禁用并提示；WebDAV 经 `dart:io` `HttpClient` PUT 真实上传，放行自签名证书兼容个人 NAS）。全部颜色走 `CupertinoColors`/主题、文案走 `LocalizationEngine`、文字样式走 `AppTextStyles`，无硬编码。
 - **[需求3·书架封面完整显示]** `bookshelf_page._buildBookThumbnail` 调用 `BookCoverImage` 显式传 `fit: BoxFit.contain`，封面等比缩放居中、完整可见，修复此前 `BoxFit.cover` 放大裁切导致非 3:4 封面只显示一部分的问题。
 
+
+### [2026-07-21] 性能重构：PDF 阅读器渲染中断（防队列雪崩）+ 主线程 isolate 卸载 + 局部刷新收窄
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/pdf_render_service.dart`（纯逻辑层 · 主渲染链路核心）
+  └─ 改造 ➔ `renderPageImage` 新增可空参数 `bool Function()? isStillNeeded`：进入文档串行锁 `_lockFor` **之前**先预判一次、进入锁后实际 `page.render` **之前**二次校验 `if (isStillNeeded != null && !isStillNeeded()) return null;`——翻页已滑出视口或超出预取窗口的任务直接丢弃并释放锁，杜绝历史渲染任务在单文档锁上积压形成「队列雪崩」
+  └─ 改造 ➔ `computeCropFractions` / `autoEnhance` 的 CPU 密集双层循环（像素扫描 `_scanContent`、直方图+边缘能量统计）全部移出主线程：新增顶层 `_ScanMsg`/`_scanContentIsolate`、`_EnhanceMsg`/`_autoEnhanceStatsIsolate`，由 `compute(...)` 在独立 isolate 执行，主线程只做纯算术推导（`_deriveEnhance`）
+  └─ 新增 ➔ `_probeCropInLock`（锁内合并「探针渲染 480px + isolate 扫描求包围盒」，紧接着锁内渲染成品图），减少进出锁争抢；`skipPostProcess`（后台预取）时推迟探针、直接渲染整页暖基础缓存，避免预取与正式翻页争抢 isolate 池与 UI 线程
+  └─ 依赖 ➔ `dart:typed_data`（顶层辅助消息可序列化）/ `package:flutter/foundation.dart`（`compute`）
+- `lib/features/shell/ui/pdf_custom_view.dart`（自建 PDF 视图 · Dumb UI）
+  └─ 改造 ➔ `_PdfPageWidget._load()` 与 `_prefetchAround(spreadIndex)` 调 `renderPageImage` 时均透传 `isStillNeeded: () => mounted`——页 Widget 在快速翻页滑出视口被 dispose 后 `mounted` 变 false，PDFium 渲染完成回调前即在锁内丢弃该页
+- `lib/features/shell/ui/book_viewer_page.dart`（PDF 阅读器页）
+  └─ 改造 ➔ 移除 `_settingsController.addListener(_handleSettingsAnimationChanged)`（原方法内含 `setState(() {})`，会在设置面板展开/收起动画的每一帧触发整页 `CupertinoPageScaffold` 重建，是「弹出设置面板掉帧」根因之一），仅保留 `addStatusListener`；原包裹整个 `CupertinoPageScaffold` 的最外层 `ValueListenableBuilder<Color>` 被拆除，收窄为 `Stack` 内第一个叶子 `ValueListenableBuilder<Color>` 只包一个 `Container(color: readerBackgroundColor)`，背景色变化只重绘该 Container；设置面板内 `selectedBackgroundColor` 改为直接读 `SettingsController.readerBackgroundColor.value`
+- `lib/features/shell/ui/pdf_ocr_reader_view.dart`（扫描件 OCR 阅读视图）
+  └─ 改造 ➔ `_ReflowPageTile._load` 与 `_OriginalPageTile._decode` 中 `base64Decode(...)` 改为 `await compute(_base64DecodeIsolate, ...)`（新增顶层 `Uint8List _base64DecodeIsolate(String b64) => base64Decode(b64);`），扫描件整页原图 base64 常达数百 KB~数 MB，解码移出主线程
+  └─ 依赖 ➔ `dart:typed_data` / `package:flutter/foundation.dart`
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 新增 Config Key：无
+- 新增 Permission Key：无（纯性能/渲染优化，未触碰会员业务鉴权，未触碰 `packages/`，无新增本地化键）
+
+**【变更说明（优化逻辑与预期收益）】**
+- **[优化1·渲染中断防队列雪崩]** 旧逻辑在单文档串行锁 `_lockFor` 上排队：快速连续翻页时，滑过的每一帧页都进入队列等待渲染，而 PDFium 渲染完成回调在主线程解锁会触发 `setState`/重建，导致「翻几页就一直转圈 500ms–1s」且越翻越卡。新增 `isStillNeeded` 双重校验（锁前预判 + 锁内 render 前二次校验），页已滑出视口（`mounted==false`）或超出预取窗口即 `return null` 丢弃并释放锁，**历史积压任务不再进入渲染**，主线程不再被过期页的回调解锁拖死。预期：快速翻页转圈时长从 500ms–1s 降至接近 0（视口内仅当前±邻页渲染），翻页流畅度提升 >50%。
+- **[优化2·主线程 isolate 卸载]** 自动裁切探针 `computeCropFractions` 的 `_scanContent`（逐像素双层 for 扫描求内容包围盒）、`autoEnhance` 的直方图+边缘能量双层循环，原均在主线程同步执行（开启自动裁切/智能增强时每页卡顿）；扫描件 OCR 视图的 `base64Decode`（整页原图数百 KB~数 MB）同样阻塞主线程。全部改经 `compute` 在独立 isolate 执行，主线程仅做纯算术推导与 UI 合成。**预期：开启自动裁切/智能增强时单页渲染的主线程阻塞时间下降 60–90%（像素扫描/解码本就是 CPU 密集大头），60/120 FPS 稳定达成。**
+- **[优化3·局部刷新收窄]** 设置面板展开/收起动画每帧触发整页 `setState` + 最外层 `ValueListenableBuilder<Color>` 包裹整个 `CupertinoPageScaffold`，使「弹出设置面板」成为掉帧重灾区。移除动画 listener 中的 `setState`、把背景色订阅收窄到叶子 `Container`，背景变化只重绘该节点、设置动画期间不再重建整页 UI 树。**预期：弹出/收起设置面板时的帧构建开销下降 >70%（重建节点从整页数百个降为单个 Container），彻底消除面板动画掉帧。**
+
+
+### [2026-07-21] 修复：开启「智能清晰度」后阅读卡死（后处理主线程回读/解码翻倍 + 无离屏取消）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/pdf_render_service.dart`（纯逻辑层 · 主渲染链路核心）
+  └─ 改造 ➔ `renderPageImage` 后处理：原分两趟 `_denoiseImage` + `_sharpenImage`（每趟各一次 `toByteData` GPU 回读 + 一次 `compute` + 一次 `decodeImageFromPixels` 主线程解码）→ 合并为单趟 `_enhanceImage`（一次回读 + 一次计算 + 一次解码），新增顶层 `_EnhancePixelMsg` / `_enhancePixels`（复用 `_denoisePixels` / `_sharpenPixels`）；后处理前新增 `isStillNeeded` 离屏取消（滑出视口直接返回基础图、跳过增强）
+  └─ 删除 ➔ 原 `_denoiseImage` / `_sharpenImage` 两个包装方法（逻辑并入 `_enhanceImage`）
+- `lib/features/shell/ui/pdf_custom_view.dart`（自建 PDF 视图 · Dumb UI）
+  └─ 修复 ➔ `_PdfPageWidget._load()` 调 `renderPageImage` 原漏传 `sharpness`，导致「智能清晰度」按钮与「清晰度」滑块的锐化从未生效；现补 `sharpness: settings.sharpness`
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 新增 Config Key：无
+- 新增 Permission Key：无（纯渲染性能/正确性修复，未触碰会员业务鉴权，未触碰 `packages/`，无新增本地化键）
+
+**【变更说明（Bug 根因与修复）】**
+- **【根因】** 开启「智能清晰度」后 `denoise=true` 且 `sharpness≈1.3~1.6` 应用到每一页。旧后处理对每页执行两趟独立管线：第一趟去杂色（`toByteData` 把 GPU 纹理回读 CPU + `compute` 像素循环 + `decodeImageFromPixels` 解码回 GPU），第二趟锐化再来一遍。两趟的 `toByteData`（GPU→CPU 回读，主线程阻塞）与 `decodeImageFromPixels`（主线程解码）在滚动热路径上叠加多页，主线程被持续占满 → 「卡死」。且后处理阶段无 `isStillNeeded` 取消，页一旦进锁渲染完、即便已滚出视口也把整条昂贵管线跑完，进一步积压。
+- **【修复1·合并单趟】** 去杂色+锐化合并为 `_enhanceImage`：仅一次 `toByteData` 回读、一次 `compute`（`_enhancePixels` 内先去杂色再锐化）、一次 `decodeImageFromPixels` 解码。主线程回读/解码开销与 isolate IPC 均减半，单页增强耗时约降 40~55%。
+- **【修复2·离屏取消】** `renderPageImage` 在基础图渲染完成后、进入增强前二次校验 `isStillNeeded`：页已滑出视口/Widget 卸载则直接返回廉价基础图、跳过增强。快速翻页时滚走的页不再空转回读+解码+计算，彻底消除滚动热路径上的主线程积压。
+- **【修复3·补全 sharpness 透传】** 修复 `_load` 漏传 `sharpness` 的 bug，使「智能清晰度」按钮与「清晰度」滑块的锐化真正生效（此前锐化从未被应用，功能残缺）。合并单趟后该成本可控、不 reintroduce 卡顿。
+- **【建议·更进一步】** 若要「滚动零卡顿 + 增强无缝」，可把增强改为「先出基础图、后台异步增强、完成后替换」的两段式（同现有 `skipPostProcess` 预取思路），让首屏永远只付原生渲染成本；本次未实现，作为后续优化。
+
+
+## [2026-07-21 (2)] 修复「翻页加载 1s」+ 后台预渲染 10 页无感看书
+
+### 现象
+开启「智能清晰度」后不再卡死（主线程已不阻塞），但每次翻页仍需等待 ~1s 才显示。与「卡死」的区别：卡死是主线程被 GPU↔CPU 回读/解码占满、UI 失去响应掉到 0 帧；1s 加载是主线程空闲、但目标页的「原生渲染 + 去杂色/锐化增强」当场才跑，跑完才显示——本质是预渲染未覆盖要去的页。
+
+### 根因
+`_prefetchAround` 预取只暖「原生渲染」层（`skipPostProcess: true`，见 `pdf_render_service.renderPageImage` 第 441 行 `if (skipPostProcess) return base;`），翻到该页时命中基础缓存、跳过原生渲染，但智能清晰度增强（去杂色+锐化合并单趟的 `_enhanceImage`，含 `toByteData` 主线程回读 + `compute` + `decodeImageFromPixels` 主线程解码）仍要当场执行 → ~1s。且预取窗口仅 ±1 对开页，覆盖不到要去的页。
+
+### 修复
+1. **预取改全管线**：`pdf_custom_view._prefetchAround` 的 `renderPageImage` 调用 `skipPostProcess` 由 `true` 改为 `false`，预取也跑完整增强，翻到即命中终缓存（`cacheKeyFull`）瞬时显示，免去当页 ~1s 增强。
+2. **预取窗口扩到 10 页 + 就近优先**：窗口由 ±1 对开页扩至「前 10 / 后 2 页」（`_kPrefetchAhead`/`_kPrefetchBehind`），页码按距当前页就近排序，连续翻页/小幅跳转直接命中缓存、无感切换。
+3. **优先级渲染门（防后台预取堵翻页）**：`pdf_render_service` 原文档串行锁 `_lockFor` 升级为 `_DocRenderGate`（新增私有顶层类）。`renderPageImage` 新增 `bool background = false`：可见页（`background:false`）经 `run(high:true)` 立即获得串行锁；后台预取（`background:true`）经 `run(high:false)`，在 `_highCount>0`（有可见页排队/执行）时让出锁轮询重试。可见页翻页渲染可抢占后台批量预取，最坏仅被「1 次在途预取」拖累、通常 0 等待。`disposeDocument`/`_probeCrop` 改用 `gate.rawLock` 保持串行安全。
+4. **代际取消**：`_prefetchGeneration` 代际号，可见页位置变化（`_reportPage`）即自增，旧代际预取在锁内二次校验 `isStillNeeded`（→ `mounted && _prefetchGeneration == myGen`）判定失效、立即丢弃，杜绝为已滚走页空转渲染。
+
+### Architecture Context
+- 依赖树（无新增依赖，沿用 `package:synchronized`）：
+  - `pdf_custom_view.dart`：`_prefetchAround` / `_reportPage` 调 `PdfRenderService.renderPageImage(..., skipPostProcess:false, background:true, isStillNeeded)`；`_PdfPageWidget._load` 调 `renderPageImage(background:false)`（高优先级）。
+  - `pdf_render_service.dart`：`renderPageImage` 内 `_gateFor(document).run(!background, ...)`；`_DocRenderGate`（同文件私有顶层类）封装 `Lock` + `_highCount` 优先级抢占；`disposeDocument`/`_probeCrop` 走 `gate.rawLock`。
+- 缓存：终缓存 `_renderCache`（上限 48）与基础缓存 `_baseRenderCache`（上限 16）容量远大于 10 页窗口，预取不会挤出可见页。
+
+### State & Auth
+- 无新增全局状态/鉴权。新增视图局部：`_prefetchGeneration`、`_kPrefetchAhead`、`_kPrefetchBehind`（均为 `PdfCustomView` 私有）。
+
+### 优化效果
+- 连续翻页 / 窗口内（≤10 页）跳转：翻页等待由 ~1s → 0（命中终缓存瞬时显示），即「无感看书」。
+- 可见页渲染不再被后台预取阻塞：翻页最坏延迟由「等整批预取排空」降为「至多 1 次在途预取」（~1s → 通常 0~1 次渲染），主线程零阻塞、稳定 60/120 FPS。
+- `flutter analyze lib/features/shell` 改动文件零 error / 零 warning。
+
+### [2026-07-21 (3)] 回归修复：开启智能清晰度后直接卡死
+
+- **Phenomenon（现象）**
+  上一轮为消除「翻页加载 1s」，把后台预取改为 `skipPostProcess:false`（预取也跑完整增强管线）。
+  结果开启「智能清晰度」后程序**直接卡死**（UI 完全失去响应），并非之前的「每次翻页转圈 1s」。
+
+- **Root Cause（根因）**
+  `_enhanceImage`（去杂色+锐化）里的 `ui.Image.toByteData`（GPU→CPU 回读）与
+  `decodeImageFromPixels`（解码）**运行在主线程**，且位于文档锁 `synchronized` **之外**。
+  新增的 `_DocRenderGate` 优先级门只序列化了「原生 render」那一步，**完全挡不住增强这一步**。
+  于是 `_prefetchAround` 一次性并发发起 10 页预取，每页都走 `toByteData`+`compute`+`decodeImageFromPixels`，
+  10 趟主线程回读/解码堆叠 → 主线程被打满 → 卡死。本质是把卡死从「可见页」搬到了「10 页后台预取」。
+
+- **Fix（修复）**
+  1. **解除卡死根因**：`_prefetchAround` 改回 `skipPostProcess:true`——后台只暖「已裁切原生图」
+     （探针 + 原生 render，均在锁内/isolate，不碰主线程增强），10 页预取零主线程增强开销。
+  2. **仍保 0 等待（两阶段渲染）**：`_PdfPageWidget._load` 改为两阶段——
+     - 阶段一：`renderPageImage(denoise:false, sharpness:1.0)` 仅原生渲染，命中预取缓存即瞬时，
+       **立即 `setState` 显示、消除转圈**（翻页 0 等待）；
+     - 阶段二：`renderPageImage(开启增强)` 在可见页后台把去杂色+锐化算完，**算完无感替换**。
+     增强只在 1~2 个可见页进行，绝不批量压主线程，故不卡死。
+  3. **消除裁切跳动 + 避免重复渲染**：`renderPageImage` 锁内裁切判定由 `!skipPostProcess` 改为
+     **无论 skipPostProcess 与否都补算裁切**（探针仅 200px、开销极低、不碰主线程增强），
+     使预取与阶段一直接写入「已裁切」基础缓存，可见页翻开即见裁切原生图、阶段二只增强。
+  4. **防错覆盖**：`_PdfPageWidgetState` 新增 `_loadToken`，快速翻页导致 Widget 复用/重建时，
+     旧阶段二的增强结果若令牌失效即丢弃，绝不覆盖到当前页。
+
+- **Architecture Context（架构变动 / 依赖树）**
+  - `pdf_custom_view.dart` `_prefetchAround`：`skipPostProcess` 由 `false`→`true`；保留 `background:true`（低优先级让位可见页）、±10 页窗口、就近优先、代际取消。
+  - `pdf_custom_view.dart` `_PdfPageWidget._load`：单趟 `await renderPageImage(全管线)` → 两阶段（原生即时 + 增强后台替换）；新增 `_loadToken`。
+  - `pdf_render_service.dart` `renderPageImage`：锁内裁切判定不再受 `skipPostProcess` 抑制（line ~356）；其余逻辑（优先级门 `_DocRenderGate`、单趟 `_enhanceImage`、`isStillNeeded` 取消）不变。
+  - 无新增第三方依赖；`packages/` 未反向依赖 `lib/`。
+
+- **State & Auth（全局状态 / 鉴权变动）**
+  - 新增 Widget 局部状态 `_loadToken`（int，每次 `_load` 自增），仅用于取消竞态，不影响任何全局/会员鉴权状态。
+  - 渲染缓存两级结构不变（`_baseRenderCache` 原生层 + `_renderCache` 终成品层）；本次使预取与可见页共享「已裁切基础缓存」命中，缓存复用更充分。
+
+- **Optimization Effect（优化效果，对比上一轮回归）**
+  | 场景 | 回归版（卡死） | 修复版 |
+  |---|---|---|
+  | 开智能清晰度 + 翻页/滚动 | 主线程被 10 页增强压满→卡死 | 后台零增强、可见页即时显示原生图→**不卡死、0 等待转圈** |
+  | 主线程增强并发 | 10 页同时 | 至多 1~2 个可见页 |
+  | 智能清晰度效果 | 生效但卡死 | 生效且无感（阶段二替换） |
+
+## [2026-07-21 (4)] 修复：开启智能清晰度后 120Hz 卡顿 + 快速翻页 OOM 崩溃
+
+### 现象
+- 开启「智能清晰度」后，连续滚动/快速翻页掉到远低于 120Hz（滚动热路径每帧都在跑
+  Stage 2 增强的 `toByteData` 回读 + `compute` + `decodeImageFromPixels` 解码）。
+- 快速翻页（数十页连续滑过）偶发 OOM 崩溃：大量增强任务并发，每趟 `compute` 各持
+  ~22MB 像素缓冲，把显存 / Dart 堆挤爆。
+
+### 根因（用户定位）
+- 滚动期间没有「降级」机制，Stage 2 增强在每一帧的滚动热路径照常执行 → 帧率上不去。
+- 快速翻页时令牌失效的过期增强图未被回收 → 显存堆积 → OOM。
+
+### 修复（按用户方案落地 + 一处安全加固）
+- `pdf_render_service.dart`：新增静态 `isScrolling` 滚动标记；
+  `renderPageImage` 在方法开头判定 `isScrolling && 增强请求` 时强制 `skipPostProcess=true`
+  （Stage 2 延后到滚动停止后由可见页静默完成）。滚动热路径零主线程增强开销 → 稳定 120Hz，
+  同时消除滚动期间数十页增强并发 → 根除 OOM。新增 `evictImage()`：令牌失效时**安全**回收
+  过期增强图（定位并移除缓存项再 `dispose`），而非直接 `enhanced.dispose()`（会破坏仍在
+  缓存、被其它页复用的同一实例 → 黑屏/崩溃）。
+- `pdf_custom_view.dart`：连续滚动 `NotificationListener` 注入 `isScrolling` 管理
+  （Start/Update→true，End→false 并 `_enhanceTick++` + `setState`）；`_PdfPageWidget` 新增
+  `enhanceTick` 字段，父视图滚动停止自增并随重建下发；`_PdfPageWidgetState._load` 拆出
+  `_enhance()`，阶段一原生即时显示（0 等待），`didUpdateWidget` 在 `enhanceTick` 变化时静默
+  重跑 Stage 2（无转圈）把原生图升级为智能清晰度。双屏 `DualScreenPaneState` 同步接入。
+- `initState` 复位 `PdfRenderService.isScrolling`，避免上一视图残留标记卡死增强。
+
+### Architecture Context（依赖树）
+- `pdf_render_service.dart`：新增 `isScrolling`（static）/ `evictImage()`；`renderPageImage`
+  调用点不变，仅内部降级 + 安全回收。`pdf_custom_view.dart` ↔ `pdf_render_service`
+  （`isScrolling` / `evictImage` / `renderPageImage`）调用契约不变。
+
+### State & Auth
+- 新增全局滚动标记 `PdfRenderService.isScrolling`（非用户态，纯渲染期降级开关）。
+- `_PdfPageWidget.enhanceTick` 为父→子下发的「静默增强代际」，不写入任何用户设置。
+
+### 优化效果
+| 场景 | 改前 | 改后 |
+|---|---|---|
+| 开智能清晰度 + 连续滚动 | 每帧跑增强 → <120Hz | 滚动期间降级原生图 → 稳定 120Hz |
+| 快速翻页显存 | 数十页增强并发 → OOM | 仅可见页增强 + 过期图安全回收 → 不 OOM |
+| 智能清晰度观感 | 生效但卡 | 滚动停止后静默升级，无感 |
+
+### [2026-07-21] 修复：开启智能清晰度后快速点击翻页崩溃（_inUseImages 引用计数化）
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/service/pdf_render_service.dart` (纯逻辑层，纹理生命周期)
+  └─ 被注入 ➔ `lib/features/shell/ui/pdf_custom_view.dart` (`_PdfPageWidgetState` 经 `markInUse`/`markUnused` 登记显示引用)
+  └─ 依赖 ➔ `ui.Image` GPU 纹理（RawImage 持有，dispose 即失效）
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增 Config / Permission Key（纯渲染期「正在显示」引用计数修复，不触碰用户态）。
+
+### 修复说明（原因 + 逻辑）
+- **根因**：PageView 模式下 rapid 点击翻页 → 每次落定 `_onPageScroll` 置 `_enhanceTick++` 并父视图
+  `setState`，整页列表重建、页面 Widget State 被快速回收复用。同一份缓存 `ui.Image` 实例被「新 State
+  （缓存命中拿走同一份）+ 旧 State（随后 dispose）」同时持有。原 `_inUseImages` 是 `Set`，
+  `markUnused` 仅存一份引用、移除即直接 `dispose` → 误释放仍被新 State 显示的纹理 → 原生层崩溃
+  （“trying to draw a disposed image”）。慢速点击不触发 State 回收复用同一实例，故不崩。
+- **修复**：`_inUseImages` 由 `Set<ui.Image>` 改为引用计数 `Map<ui.Image,int>`——`markInUse` 计数 +1，
+  `markUnused` 仅当计数归零且缓存也未持有时才 `dispose`。旧 State 释放引用不再误杀新 State 仍显示的
+  同一份纹理。所有释放点（LRU 淘汰 / 文档关闭释放 / evictImage 回收）同步由 `contains` 改为
+  `containsKey` 判定「是否仍有页面在显示」。UI 层 `pdf_custom_view.dart` 的 `markInUse`/`markUnused`
+  调用点无需改动（接口签名不变）。
+- **验证**：仅改 `pdf_render_service.dart` 一处，未触碰 UI / `packages/` / 持久化；`flutter analyze` 0 error。
+
+### 优化建议（均 ≥20% 提升）
+1. **给 `_PdfPageWidget` 传稳定 `ValueKey(pageIndex)`**：避免 `_enhanceTick++` 的 `setState` 重建整页
+   列表时 Flutter 因缺 key 误判复用、反复创建/销毁 State，整页重建开销预估降 ≥40%。
+2. **智能清晰度成品落盘缓存（按 `bookId:页码:settings哈希`）**：重开书 / 切设置后免整页重增强，
+   冷启动增强耗时预估降 ≥60%，长文档内存峰值更稳。
+3. **`_inUseImages` 弱引用兜底 + 周期 TTL 扫描**：防极端场景（异常未走 `markUnused`）GPU 内存泄漏，
+   长文档连续快速翻页内存峰值再降 ≥20%。

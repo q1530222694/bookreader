@@ -62,6 +62,16 @@ class VerticalBand {
 class PdfRenderService {
   PdfRenderService._();
 
+  /// 全局滚动标记：用于在连续滚动时降级渲染以保障 120FPS。
+  ///
+  /// 连续滚动/惯性滚动期间由阅读视图置 true，[renderPageImage] 会强制把智能清晰度
+  /// /去杂色的 Stage 2 增强降级为「仅原生裁切图」（`skipPostProcess = true`），把增强
+  /// 延后到滚动停止后由可见页静默完成。这样滚动热路径零主线程增强开销（不触发
+  /// [ui.Image.toByteData] 回读与 [decodeImageFromPixels] 解码），既保住 120Hz 帧率，
+  /// 又避免快速翻页时数十页增强任务并发（每趟 [compute] 各持 ~22MB 像素缓冲）把显存
+  /// /Dart 堆挤爆导致 OOM 崩溃。
+  static bool isScrolling = false;
+
   /// 自动裁切内容包围盒缓存（按 文档sourceName:页码 维度，跨页面复用，避免重复像素扫描）。
   static final Map<String, Rect> _cropCache = {};
 
@@ -80,6 +90,69 @@ class PdfRenderService {
   /// 移动端本为按需，预渲染仅暖相邻页，实际驻留远低于此值。
   static const int _maxRenderCache = 48;
 
+  /// 正在被页面 Widget 直接显示（RawImage 持有的）[ui.Image] 实例的「引用计数」表。
+  ///
+  /// 关键安全网：缓存淘汰（[_cachePut]/[_cachePutBase] LRU）、[evictImage] 回收、
+  /// 以及文档关闭时的批量释放，凡是发现某实例仍有页面在显示（计数 > 0），**绝不 dispose**——
+  /// 直接 dispose 一个正在被 GPU 绘制（RawImage 持有）的纹理会导致原生层崩溃
+  /// （“trying to draw a disposed image”）。
+  ///
+  /// 必须用「引用计数（Map<ui.Image,int>）」而非 Set：快速翻页时 PageView 会频繁重建页面
+  /// Widget——父视图 [_enhanceTick]++ 触发 setState 重建整页列表，同一份缓存 [ui.Image]
+  /// 实例会被多个 [State] 同时持有（新 State 从缓存命中拿到同一份、旧 State 随后 dispose）。
+  /// 若用 Set，旧 State 的 [markUnused] 会把它从集合移除并直接 dispose，而新 State 仍在显示
+  /// 这份纹理 → 原生层崩溃（这正是「快速点击翻页崩溃」的根因）。引用计数保证只有最后一个
+  /// 引用释放时才真正 dispose，修复该崩溃（详见 [markInUse]/[markUnused]）。
+  static final Map<ui.Image, int> _inUseImages = {};
+
+  /// 登记某 [ui.Image] 当前正被页面 Widget 显示，引用计数 +1，禁止缓存/回收层释放它。
+  static void markInUse(ui.Image img) =>
+      _inUseImages[img] = (_inUseImages[img] ?? 0) + 1;
+
+  /// 释放某 [ui.Image] 的「显示中」引用，引用计数 -1。
+  ///
+  /// 仅当计数归零时继续：若缓存也未持有该实例（已被 LRU 淘汰或从未入缓存），
+  /// 说明外界已无人引用，安全 dispose；若缓存仍持有则交回缓存管理，不重复释放。
+  /// 计数仍 > 0（同一实例被其它页面 Widget 同时显示）时绝不 dispose，避免误杀正在
+  /// 绘制的纹理（快速点击翻页崩溃修复的核心）。
+  static void markUnused(ui.Image img) {
+    final c = _inUseImages[img];
+    if (c == null) return;
+    if (c <= 1) {
+      _inUseImages.remove(img);
+      if (!_renderCache.containsValue(img) && !_baseRenderCache.containsValue(img)) {
+        _safeDispose(img);
+      }
+    } else {
+      _inUseImages[img] = c - 1;
+    }
+  }
+
+  /// 已释放标记（Expando 弱引用）：追踪已调用 [ui.Image.dispose] 的实例以幂等保护。
+  ///
+  /// 使用 [Expando] 而非 [Set]/[Map]：Expando 不持有对象的强引用，[ui.Image] 被 GC 时
+  /// 对应标记自动清除，不会因为跟踪已释放对象而永久阻止 GPU 纹理回收。
+  static final Expando<bool> _disposedImages = Expando<bool>();
+
+  /// 安全释放 [ui.Image]：幂等。已释放过的实例直接返回，避免二次 [ui.Image.dispose]。
+  ///
+  /// **重要约束：本方法不会对 [_renderCache] / [_baseRenderCache] 等缓存做任何突变。**
+  /// 调用方必须在调用本方法前或后自行管理缓存条目的移除，以避免在迭代缓存的回调中嵌套
+  /// 突变同一集合导致的并发修改崩溃（典型的场景：[disposeDocument] / [_clearDocCaches]）。
+  static void _safeDispose(ui.Image img) {
+    if (_disposedImages[img] == true) return;
+    _disposedImages[img] = true;
+    _inUseImages.remove(img);
+    img.dispose();
+  }
+
+  /// 判断 [img] 是否仍被某页面 Widget 显示中（引用计数 > 0）。独立方法体以便静态分析
+  /// 不把「markInUse 后 markUnused」误判为「必然仍在 [_inUseImages]」，从而避免下方
+  /// [renderPageImage] 收尾释放处的 dead_code 误报（运行期该判断是必要的，不能省略）。
+  static bool _isImageInUse(ui.Image img) {
+    return _inUseImages.containsKey(img);
+  }
+
   /// 取缓存：命中则把键移到队尾标记为最近使用。
   static ui.Image? _cacheGet(String key) {
     final img = _renderCache[key];
@@ -97,8 +170,10 @@ class PdfRenderService {
     _renderCacheOrder.add(key);
     while (_renderCacheOrder.length > _maxRenderCache) {
       final oldest = _renderCacheOrder.removeAt(0);
-      _renderCache[oldest]?.dispose();
-      _renderCache.remove(oldest);
+      final img = _renderCache.remove(oldest);
+      // 正在显示的图不可释放（会被 RawImage 持有绘制），仅移出缓存，
+      // 待其 Widget 卸载后由 markUnused 决定是否真正 dispose，避免原生层崩溃。
+      if (img != null && !_inUseImages.containsKey(img)) _safeDispose(img);
     }
   }
 
@@ -132,8 +207,9 @@ class PdfRenderService {
     _baseRenderCacheOrder.add(key);
     while (_baseRenderCacheOrder.length > _maxBaseCache) {
       final oldest = _baseRenderCacheOrder.removeAt(0);
-      _baseRenderCache[oldest]?.dispose();
-      _baseRenderCache.remove(oldest);
+      final img = _baseRenderCache.remove(oldest);
+      // 正在显示的图不可释放：仅移出缓存，待 Widget 卸载（markUnused）后释放。
+      if (img != null && !_inUseImages.containsKey(img)) _safeDispose(img);
     }
   }
 
@@ -158,7 +234,8 @@ class PdfRenderService {
     final id = document.sourceName;
     _renderCache.removeWhere((key, img) {
       if (key.startsWith('$id:')) {
-        img.dispose();
+        // 仍被某页面显示中的图不可释放：跳过 dispose，交由 Widget 卸载时 markUnused。
+        if (!_inUseImages.containsKey(img)) _safeDispose(img);
         return true;
       }
       return false;
@@ -166,7 +243,7 @@ class PdfRenderService {
     _renderCacheOrder.removeWhere((key) => key.startsWith('$id:'));
     _baseRenderCache.removeWhere((key, img) {
       if (key.startsWith('$id:')) {
-        img.dispose();
+        if (!_inUseImages.containsKey(img)) _safeDispose(img);
         return true;
       }
       return false;
@@ -240,12 +317,15 @@ class PdfRenderService {
   /// 关键修复：原先多个页面构建时会并发对同一文档发起 render，而 PDFium 在 Windows 下
   /// 对并发渲染同一文档的句柄竞争容易崩溃。按文档维度加锁，保证一个文档任意时刻
   /// 只有一处原生渲染在进行。（注意：本服务的公有方法之间不互相嵌套加锁，避免死锁。）
-  static final Map<String, Lock> _docLocks = {};
+  ///
+  /// 升级为「优先级渲染门」[_DocRenderGate]：可见页（高优先级）渲染可抢占后台预取
+  /// （低优先级），使翻页即时、不被后台批量预渲染堵住文档锁（详见 [_DocRenderGate]）。
+  static final Map<String, _DocRenderGate> _docGates = {};
 
-  /// 取得（或创建）某文档的串行锁。
-  static Lock _lockFor(PdfDocument document) {
+  /// 取得（或创建）某文档的优先级渲染门。
+  static _DocRenderGate _gateFor(PdfDocument document) {
     final id = document.sourceName;
-    return _docLocks.putIfAbsent(id, Lock.new);
+    return _docGates.putIfAbsent(id, _DocRenderGate.new);
   }
 
   /// 单页最大渲染像素宽度，兼顾清晰度与内存（移动端足够，桌面端也不会爆内存）。
@@ -279,7 +359,20 @@ class PdfRenderService {
     double manualCropRight = 0,
     double manualCropTop = 0,
     double manualCropBottom = 0,
+    bool Function()? isStillNeeded, // ★ 渲染中断判定：返回 false 即丢弃任务并释放锁
+    bool background = false, // 是否为后台预取：true=低优先级（让位可见页），false=可见页高优先级
   }) async {
+    // 进入锁前先快速预判一次：已确定不需要（如 Widget 已卸载）直接丢弃，避免无谓加锁。
+    if (isStillNeeded != null && !isStillNeeded()) return null;
+
+    // ★ 滚动感知降级：连续滚动期间（isScrolling=true）若有增强请求，强制降级为
+    // 仅渲染原生裁切图（skipPostProcess=true），Stage 2 增强被延后到滚动停止后由
+    // 可见页静默完成。这样滚动热路径零主线程增强开销，稳定 120Hz；同时避免快速翻页
+    // 时数十页增强任务并发（compute 各持 ~22MB 像素缓冲）把显存/堆挤爆导致 OOM。
+    if (PdfRenderService.isScrolling && !skipPostProcess && (denoise || sharpness != 1.0)) {
+      skipPostProcess = true;
+    }
+
     final fullW =
         math.min(renderWidth, maxRenderWidth.toDouble()).clamp(1.0, double.infinity);
 
@@ -298,60 +391,88 @@ class PdfRenderService {
           )
         : null;
 
-    // 先求裁切包围盒（手动优先，其次自动）。该包围盒同时用于决定「有效渲染宽度」：
-    // 裁切去除了左右边距（宽度占比 <1）时按比例放大渲染宽度，使裁切出的内容在显示时
-    // 仍能铺满原显示宽度，从而与相邻未裁切页面在宽度上对齐，避免大小不一。
-    final Rect? crop = manualRect ??
-        (autoCrop
-            // 借用裁切文档思路：对逐页内容框叠加「垂直基准带」对齐——落在基准带内的页
-            // 统一用基准带上下边界，消除竖向滚动时的页面跳动；超界页回退逐页垂直。
-            ? _applyVerticalBand(
-                document, await computeCropFractions(document, pageNumber))
-            : null);
+    // 若裁切已知（手动或已缓存），可提前推算 effW 与缓存键，走锁外快速命中路径；
+    // 否则（autoCrop 且裁切未缓存）留待锁内补齐，避免重复加锁。
+    final String src = document.sourceName;
+    final Rect? presetCrop =
+        manualRect ?? (autoCrop ? _cropCache['$src:$pageNumber'] : null);
 
     double effW = fullW;
-    if (crop != null) {
-      final frac = (crop.right - crop.left).clamp(0.01, 1.0);
+    String baseKey = '';
+    String cacheKeyFull = '';
+    if (presetCrop != null) {
+      final frac = (presetCrop.right - presetCrop.left).clamp(0.01, 1.0);
       effW = (fullW / frac).clamp(1.0, maxRenderWidth.toDouble());
+      final band = _bandCache[src];
+      final bandSig = band == null
+          ? 'nb'
+          : '${band.top.toStringAsFixed(4)}_${band.bottom.toStringAsFixed(4)}';
+      baseKey =
+          '$src:$pageNumber:${effW.round()}:$autoCrop:$bandSig:'
+          '${manualCropLeft.toStringAsFixed(3)}_${manualCropRight.toStringAsFixed(3)}_'
+          '${manualCropTop.toStringAsFixed(3)}_${manualCropBottom.toStringAsFixed(3)}';
+      cacheKeyFull = '$baseKey:$denoise:$sharpness';
+
+      // 终键命中（已带后处理的成品）：直接返回，成本最低。
+      final cached = _cacheGet(cacheKeyFull);
+      if (cached != null) return cached;
+      // 预取 / 无后处理：基础渲染命中即返回（基础图即最终图），避免重复原生渲染。
+      if (skipPostProcess || (!denoise && sharpness == 1.0)) {
+        final b = _cacheGetBase(baseKey);
+        if (b != null) return b;
+      }
     }
 
-    // 基准带签名：基准带存在时把其上下边界纳入缓存键，使校准前/后的渲染缓存互不命中；
-    // 基准带为 null（未校准）时记为 'nb'。与 calibrateVerticalBand 内的 _clearDocCaches 双保险。
-    final band = _bandCache[document.sourceName];
-    final bandSig = band == null
-        ? 'nb'
-        : '${band.top.toStringAsFixed(4)}_${band.bottom.toStringAsFixed(4)}';
-    // 基础键：仅含「原生渲染」维度（不含去杂色/锐化）。同一页无论是否开启智能清晰度，
-    // 其原生渲染结果都可复用，避免「开了清晰度就重复 PDFium 原生渲染」。
-    final baseKey =
-        '${document.sourceName}:$pageNumber:${effW.round()}:$autoCrop:'
-        '$bandSig:'
-        '${manualCropLeft.toStringAsFixed(3)}_${manualCropRight.toStringAsFixed(3)}_'
-        '${manualCropTop.toStringAsFixed(3)}_${manualCropBottom.toStringAsFixed(3)}';
-    // 终键：在基础键上叠加去杂色/锐化维度，仅「带后处理的成品」需要区分。
-    final cacheKeyFull = '$baseKey:$denoise:$sharpness';
-
-    // 终键命中（已带后处理的成品）：直接返回，成本最低。
-    final cached = _cacheGet(cacheKeyFull);
-    if (cached != null) return cached;
-
-    // 预取 / 无后处理：基础渲染命中即返回（基础图即最终图），避免重复原生渲染。
-    if (skipPostProcess || (!denoise && sharpness == 1.0)) {
-      final b = _cacheGetBase(baseKey);
-      if (b != null) return b;
-    }
-
-    // 取基础原生渲染：优先复用基础缓存（预取已暖好的原生图），否则原生渲染并写入基础缓存。
-    ui.Image? base = _cacheGetBase(baseKey);
+    ui.Image? base = presetCrop != null ? _cacheGetBase(baseKey) : null;
     final bool baseFromCache = base != null;
     if (base == null) {
       try {
-        base = await _lockFor(document).synchronized(() async {
+        base = await _gateFor(document).run(!background, () async {
+          // ★ 二次校验（进入锁后、实际 render 前）：页面已滑出视口 / Widget 已卸载，
+          // 立即 return null 释放锁并丢弃——绝不积压历史渲染任务，根治「队列雪崩」，
+          // 快速翻页时不再为已滚走的页空转 PDFium 原生渲染，可见页立即拿到锁。
+          if (isStillNeeded != null && !isStillNeeded()) return null;
+
+          // 锁内确定裁切（autoCrop 且未缓存）：探针渲染 + isolate 像素扫描合并在
+          // 同一次锁周期内完成，避免「先加锁渲染探针、再加锁渲染高清图」的二次进出锁争抢。
+          // 注意：无论是否 skipPostProcess 都补算裁切——探针渲染仅 200px 宽、开销极低，
+          // 且在文档锁内/独立 isolate 完成，绝不触碰主线程增强；这样预取与可见页阶段一
+          // 都能直接写入「已裁切」基础缓存，可见页翻开即见裁切原生图、阶段二只做增强，
+          // 既避免「未裁切→已裁切」跳动，也避免重复原生渲染。
+          Rect? crop = manualRect;
+          if (crop == null && autoCrop) {
+            crop = _applyVerticalBand(
+              document, await _probeCropInLock(document, pageNumber));
+          }
+          final eff = (crop != null)
+              ? (fullW / (crop.right - crop.left).clamp(0.01, 1.0))
+                  .clamp(1.0, maxRenderWidth.toDouble())
+              : fullW;
+
+          // 裁切未知分支：锁内补算缓存键并做命中判定，保证缓存键与裁切一致。
+          String? inLockKey;
+          if (presetCrop == null) {
+            final band = _bandCache[src];
+            final bandSig = band == null
+                ? 'nb'
+                : '${band.top.toStringAsFixed(4)}_${band.bottom.toStringAsFixed(4)}';
+            inLockKey =
+                '$src:$pageNumber:${eff.round()}:$autoCrop:$bandSig:'
+                '${manualCropLeft.toStringAsFixed(3)}_${manualCropRight.toStringAsFixed(3)}_'
+                '${manualCropTop.toStringAsFixed(3)}_${manualCropBottom.toStringAsFixed(3)}';
+            final hit = _cacheGet(inLockKey);
+            if (hit != null) return hit;
+            if (skipPostProcess || (!denoise && sharpness == 1.0)) {
+              final b = _cacheGetBase(inLockKey);
+              if (b != null) return b;
+            }
+          }
+
           final page = document.pages[pageNumber - 1];
           final pageW = page.width;
           final pageH = page.height;
           if (pageW <= 0 || pageH <= 0) return null;
-          final fullH = (effW * pageH / pageW).clamp(1.0, double.infinity);
+          final fullH = (eff * pageH / pageW).clamp(1.0, double.infinity);
 
           PdfImage? image;
           if (crop == null ||
@@ -361,20 +482,20 @@ class PdfRenderService {
                   crop.bottom >= 0.999)) {
             // 无裁切：整体渲染。
             image = await page.render(
-              fullWidth: effW,
+              fullWidth: eff,
               fullHeight: fullH,
               backgroundColor: Colors.white,
             );
           } else {
             // 有裁切：在有效渲染宽度下只渲染内容子区域（x/y/width/height 为像素子区域，
             // fullWidth/fullHeight 为整页虚拟尺寸，二者配合即可“抠”出内容包围盒）。
-            final x = (crop.left * effW).round();
+            final x = (crop.left * eff).round();
             final y = (crop.top * fullH).round();
-            final w = ((crop.right - crop.left) * effW).round();
+            final w = ((crop.right - crop.left) * eff).round();
             final h = ((crop.bottom - crop.top) * fullH).round();
             if (w <= 2 || h <= 2) {
               image = await page.render(
-                fullWidth: effW,
+                fullWidth: eff,
                 fullHeight: fullH,
                 backgroundColor: Colors.white,
               );
@@ -384,7 +505,7 @@ class PdfRenderService {
                 y: y,
                 width: w,
                 height: h,
-                fullWidth: effW,
+                fullWidth: eff,
                 fullHeight: fullH,
                 backgroundColor: Colors.white,
               );
@@ -393,6 +514,8 @@ class PdfRenderService {
           if (image == null) return null;
           final uiImg = await image.createImage();
           image.dispose();
+          // 锁内补算分支：把命中键回填，便于锁外正确写基础缓存。
+          if (inLockKey != null) baseKey = inLockKey;
           return uiImg;
         });
       } catch (_) {
@@ -403,36 +526,66 @@ class PdfRenderService {
       _cachePutBase(baseKey, base);
     }
 
-    // 预取模式：仅把原生渲染暖进基础缓存即返回，绝不做事后处理——
-    // 否则预取会批量触发去杂色/锐化的 compute 与主线程 GPU 上传，与正式翻页争抢
-    // isolate 池与 UI 线程，造成「开了智能清晰度后翻几页就一直转圈」。
-    if (skipPostProcess) return base;
-
-    // 无后处理：基础图即最终图，直接返回（不写入终缓存，避免与基础缓存共享同一实例）。
-    if (!denoise && sharpness == 1.0) return base;
-
-    // 有后处理：在基础图上做去杂色/锐化，产出全新 ui.Image 并仅写入终缓存
-    //（与基础缓存持有的实例绝不共享，淘汰时互不干扰）。
-    ui.Image out = base;
-    if (denoise) {
-      final denoised = await _denoiseImage(base);
-      if (denoised != base) out = denoised;
-    }
-    if (sharpness != 1.0) {
-      out = await _sharpenImage(out, sharpness);
-    }
-    // 仅当后处理真正改变了图像时才写入终缓存（否则基础缓存已可复用，无需双份）。
-    if (out != base) {
-      // 自有（本次新渲染）的基础图派生成品后从基础缓存移除并释放，避免与终缓存双份驻留显存；
-      // 来自基础缓存（被预取/其它调用共享）的基础图则保留，不释放。
-      if (!baseFromCache) {
-        _baseRenderCache.remove(baseKey);
-        _baseRenderCacheOrder.remove(baseKey);
-        base.dispose();
+    // ★ 关键安全修复（「开启智能清晰度点击翻页即崩溃」根因）：[base] 在增强期间必须被
+    // 「引用计数」保护。同一页在翻页时可能并发触发两路 [renderPageImage]（典型为 _load 的
+    // 阶段二增强 与 滚动停止触发的 didUpdateWidget 增强同时运行），二者都会拿到**同一个**
+    // [base] 实例（第二路命中基础缓存）——而第一路在「派生 out 后释放自有 base」的瞬间会
+    // 把第二路正在 _enhanceImage(base) 使用的纹理 dispose 掉，导致第二路 use-after-dispose /
+    // 二次 dispose 命中 `Image.dispose()` 的 `!_disposed` 断言崩溃。此处对 [base] 加 markInUse，
+    // 使其在整个增强期间不被 LRU 淘汰、也不被另一路释放；所有退出路径走 finally 统一
+    // markUnused，保证 [base] 仅由最后一个持有者安全释放一次（详见下方收尾释放）。
+    markInUse(base);
+    // result 承载本调用最终要返回的图像；try 块内**绝不 return**，统一在 try/finally 之后
+    // 返回，使下方的收尾安全释放逻辑对分析器可见（不再被判为不可达的 dead_code）。
+    ui.Image result;
+    try {
+      // 预取模式：仅把原生渲染暖进基础缓存即返回，绝不做事后处理——
+      // 否则预取会批量触发去杂色/锐化的 compute 与主线程 GPU 上传，与正式翻页争抢
+      // isolate 池与 UI 线程，造成「开了智能清晰度后翻几页就一直转圈」。
+      if (skipPostProcess) {
+        result = base;
       }
-      _cachePut(cacheKeyFull, out);
+      // 无后处理：基础图即最终图，直接返回（不写入终缓存，避免与基础缓存共享同一实例）。
+      else if (!denoise && sharpness == 1.0) {
+        result = base;
+      }
+      // ★ 离屏取消：基础图已渲染完成，若本页此时已滑出视口/Widget 已卸载，直接返回
+      // 廉价的基础图，跳过昂贵的增强管线，避免为已不可见的页空转回读+解码+计算。
+      else if (isStillNeeded != null && !isStillNeeded()) {
+        result = base;
+      } else {
+        final ui.Image out =
+            await _enhanceImage(base, denoise: denoise, sharpness: sharpness);
+        // 仅当后处理真正改变了图像时才写入终缓存（否则基础缓存已可复用，无需双份）。
+        if (out != base) {
+          // 自有（本次新渲染）的基础图派生成品后从基础缓存移除，避免与终缓存双份驻留显存；
+          // 来自基础缓存（被预取/其它调用共享）的基础图则保留在基础缓存中复用。
+          if (!baseFromCache) {
+            _baseRenderCache.remove(baseKey);
+            _baseRenderCacheOrder.remove(baseKey);
+          }
+          _cachePut(cacheKeyFull.isEmpty ? '$baseKey:$denoise:$sharpness' : cacheKeyFull, out);
+        }
+        result = out;
+      }
+    } finally {
+      // 无论正常返回、离屏取消还是异常，统一释放本调用对 [base] 的引用计数。
+      // 若尚有其它并发调用持有同一 [base]（count>0）则仅递减；否则若已不在任何缓存中
+      // （我们自有且已从基础缓存移除），由下方收尾逻辑安全释放。
+      markUnused(base);
     }
-    return out;
+    // ★ 收尾安全释放：finally 已 markUnused(base)，此时若本调用是 base 的最后持有者
+    // （引用计数为 0）、base 已不在任何缓存中、且本调用并非直接返回 base 本身（返回的是
+    // 派生的增强图），才真正 dispose——既避免「自有 base 被从基础缓存移除后成为孤儿却未释放」
+    // 的泄漏，也绝不会 dispose 仍被显示/其它调用持有、或即将被本调用返回的 base。
+    // 配合 markInUse 保护，彻底消除并发增强下的 double-dispose / use-after-dispose。
+    if (result != base &&
+        !_renderCache.containsValue(base) &&
+        !_baseRenderCache.containsValue(base) &&
+        !_isImageInUse(base)) {
+      _safeDispose(base);
+    }
+    return result;
   }
 
   /// 在文档锁内安全关闭文档，释放缓存的 [ui.Image] 与包围盒，并移除串行锁。
@@ -440,16 +593,16 @@ class PdfRenderService {
   /// 该方法返回 Future 但不强制 await（dispose 中调用即可）。
   static Future<void> disposeDocument(PdfDocument document) async {
     final id = document.sourceName;
-    final lock = _docLocks[id];
-    if (lock == null) {
+    final gate = _docGates[id];
+    if (gate == null) {
       await document.dispose();
       return;
     }
-    await lock.synchronized(() async {
+    await gate.rawLock.synchronized(() async {
       // 释放本服务持有的所有已渲染 [ui.Image]，避免 GPU 内存泄漏。
       _renderCache.removeWhere((key, img) {
         if (key.startsWith('$id:')) {
-          img.dispose();
+          if (!_inUseImages.containsKey(img)) _safeDispose(img);
           return true;
         }
         return false;
@@ -457,7 +610,7 @@ class PdfRenderService {
       _renderCacheOrder.removeWhere((key) => key.startsWith('$id:'));
       _baseRenderCache.removeWhere((key, img) {
         if (key.startsWith('$id:')) {
-          img.dispose();
+          if (!_inUseImages.containsKey(img)) _safeDispose(img);
           return true;
         }
         return false;
@@ -467,7 +620,7 @@ class PdfRenderService {
       _bandCache.remove(id); // 基准带仅按文档缓存，关闭时一并释放
       await document.dispose();
     });
-    _docLocks.remove(id);
+    _docGates.remove(id);
   }
 
   /// 使指定页面的渲染缓存失效（下次渲染时重新生成）。
@@ -480,6 +633,51 @@ class PdfRenderService {
     // 移除所有与该页相关的渲染缓存（不论渲染宽度或裁切状态）
     _renderCache.removeWhere((key, _) => key.startsWith(prefix));
     _cropCache.removeWhere((key, _) => key.startsWith(prefix));
+  }
+
+  /// 从两级缓存中定位、移除并释放指定的 [ui.Image]（若该实例确由本服务持有）。
+  ///
+  /// 供页面 Widget 在「令牌失效 / 已滑出视口」时回收废弃的增强结果：直接
+  /// [ui.Image.dispose] 会破坏仍在缓存、可能被其它页复用的同一实例（导致它页黑屏/
+  /// 崩溃），故改为「定位该缓存项 → 移除 → 释放」，仅释放当前页已无人引用的那份，
+  /// 不影响其它可见页。滚动停止前那段被中断的增强图由此被即时回收，是快速翻页
+  /// OOM 修复的关键一环（与 [isScrolling] 降级互补）。
+  ///
+  /// ★ 关键修复（「开启智能清晰度后翻十几页崩溃」根因）：本方法**绝不 dispose 仍位于
+  /// 任一层缓存中的实例**。增强图按「页 + denoise/sharpness」写入终缓存，是「可被并发的
+  /// 另一路增强调用复用」的共享实例：滚动停止触发 [_enhanceTick] 重建时，正在运行的
+  /// [_load] 阶段二与 [didUpdateWidget] 新触发的 [_enhance] 会并发执行、命中同一份终缓存、
+  /// 拿到**同一个** [enhanced] 实例；旧路（token 已失效）在 [setState] 回调（延后到下一帧）
+  /// 之前跑到回收分支，若此时 [_image] 仍是旧图，就会走到这里 dispose 掉这份共享实例，
+  /// 而新路随后把已被 dispose 的同一份设为显示图并 markInUse，等该页翻走 markUnused 时
+  /// 二次 dispose → 命中 `Image.dispose()` 的 `!_disposed` 断言崩溃。因此只要实例还在
+  /// 缓存中，就只移除引用、交由各自 LRU 管理（静默增强本就允许结果落缓存，不会泄漏），
+  /// 绝不在本方法内释放共享实例。
+  static void evictImage(ui.Image img) {
+    // 正在被某页面显示中的图不可回收：直接返回，交由该 Widget 的生命周期（markUnused）
+    // 在真正不再显示时释放，避免 dispose 正在绘制的纹理导致原生层崩溃。
+    if (_inUseImages.containsKey(img)) return;
+    // ★ 仍在任一层缓存中的共享实例不可在此释放（见上方方法注释的并发 double-dispose
+    // 竞态说明）：交给对应缓存的 LRU 管理，避免释放掉被另一路并发增强调用持有的同一份。
+    if (_renderCache.containsValue(img) || _baseRenderCache.containsValue(img)) return;
+    final renderKeys = <String>[];
+    _renderCache.forEach((key, v) {
+      if (v == img) renderKeys.add(key);
+    });
+    for (final k in renderKeys) {
+      _safeDispose(_renderCache[k]!);
+      _renderCache.remove(k);
+      _renderCacheOrder.remove(k);
+    }
+    final baseKeys = <String>[];
+    _baseRenderCache.forEach((key, v) {
+      if (v == img) baseKeys.add(key);
+    });
+    for (final k in baseKeys) {
+      _safeDispose(_baseRenderCache[k]!);
+      _baseRenderCache.remove(k);
+      _baseRenderCacheOrder.remove(k);
+    }
   }
 
   /// 计算自动裁切的内容包围盒（归一化 0~1 的 [Rect]）。
@@ -497,7 +695,7 @@ class PdfRenderService {
 
     PdfImage? probe;
     try {
-      probe = await _lockFor(document).synchronized(() async {
+      probe = await _gateFor(document).rawLock.synchronized(() async {
         final page = document.pages[pageNumber - 1];
         final pageW = page.width;
         final pageH = page.height;
@@ -518,10 +716,43 @@ class PdfRenderService {
       probe = null;
     }
 
+    // ★ 像素扫描移到独立 isolate（compute），主线程零阻塞，基准带校准不再卡翻页。
     final rect = probe == null
         ? const Rect.fromLTRB(0, 0, 1, 1)
-        : _scanContent(probe.pixels, probe.width, probe.height, probe.format);
+        : await compute(
+            _scanContentIsolate,
+            _ScanMsg(probe.pixels, probe.width, probe.height, probe.format),
+          );
     probe?.dispose();
+    _cropCache[cacheKey] = rect;
+    return rect;
+  }
+
+  /// 锁内探针裁切（已持有文档锁，避免二次加锁）：先渲染低分辨率探针图，再把像素扫描
+  /// 交给独立 isolate（[compute]），所得内容包围盒写回 [_cropCache] 复用。
+  /// 仅由 [renderPageImage] 的锁内裁切未知分支调用，使「探针 + 高清图」合并在同一次
+  /// 锁周期内完成，消除二次进出锁争抢（详见 [renderPageImage]）。
+  static Future<Rect> _probeCropInLock(PdfDocument document, int pageNumber) async {
+    final cacheKey = '${document.sourceName}:$pageNumber';
+    final cached = _cropCache[cacheKey];
+    if (cached != null) return cached;
+    final page = document.pages[pageNumber - 1];
+    final pageW = page.width;
+    final pageH = page.height;
+    if (pageW <= 0 || pageH <= 0) return const Rect.fromLTRB(0, 0, 1, 1);
+    final probeH = (cropScanWidth * pageH / pageW).clamp(1.0, double.infinity);
+    final probe = await page.render(
+      fullWidth: cropScanWidth.toDouble(),
+      fullHeight: probeH,
+      backgroundColor: Colors.white,
+    );
+    if (probe == null) return const Rect.fromLTRB(0, 0, 1, 1);
+    // ★ 像素扫描在 isolate 执行，主线程不阻塞。
+    final rect = await compute(
+      _scanContentIsolate,
+      _ScanMsg(probe.pixels, probe.width, probe.height, probe.format),
+    );
+    probe.dispose();
     _cropCache[cacheKey] = rect;
     return rect;
   }
@@ -601,47 +832,28 @@ class PdfRenderService {
     );
   }
 
-  /// 真正的智能去杂色：对渲染出的位图做 3x3 邻域判定，仅移除「孤立」的黑点/杂色，
-  /// 保留文字笔画（笔画像素拥有较多相邻墨点，不会被误删），从而既不降低清晰度、
-  /// 又能去除扫描件上的小黑点/杂点。返回处理后的新 [ui.Image]。
-  ///
-  /// 像素级 9 邻域循环为 CPU 密集操作，放在独立 isolate（[compute]）执行，
-  /// 避免开启「智能清晰度」时每页冻结主线程几百毫秒、造成翻页卡顿。
-  static Future<ui.Image> _denoiseImage(ui.Image src) async {
-    try {
-      final bytes = await src.toByteData(format: ui.ImageByteFormat.rawRgba);
-      if (bytes == null) return src;
-      final rgba = bytes.buffer.asUint8List();
-      // 像素级去杂色是 CPU 密集循环，放到独立 isolate 执行，避免阻塞阅读翻页主线程。
-      final out = await compute(
-        _denoisePixels,
-        _PixelMsg(rgba, src.width, src.height),
-      );
-      return _bytesToImage(out, src.width, src.height);
-    } catch (_) {
-      // 去杂色失败不应影响阅读，退回原图。
-      return src;
-    }
-  }
-
-  /// 真正的清晰度增强：对渲染出的位图做 unsharp mask（原图 + amount ×（原图 − 模糊图）），
-  /// 提升文字与线条的边缘对比，使扫描件更清晰。返回处理后的新 [ui.Image]。
-  ///
-  /// [amount] 为锐化强度：>1 锐化、<1 轻微柔化（1.0 调用方已跳过，不会进入本方法）。
-  /// 模糊层用 3×3 均值近似（轻量），与 [PdfReaderSettings.sharpness] 配合。
-  /// 像素级循环同样放在独立 isolate 执行，避免主线程卡顿。
-  static Future<ui.Image> _sharpenImage(ui.Image src, double amount) async {
+  /// 合并增强（智能清晰度核心后处理）：去杂色 + 锐化在「单次 GPU 回读 + 单次
+  /// isolate 计算 + 单次解码」内完成，替代旧实现分两趟（denoise / sharpen 各一趟）
+  /// 各做一次 toByteData 回读 + 一次 compute + 一次 decodeImageFromPixels 解码。
+  /// 旧的两趟实现让主线程回读/解码开销翻倍，快速滚动多页叠加即把 UI 线程压死
+  ///（「开智能清晰度后卡死」根因）；合并后主线程回读/解码与 isolate IPC 均减半。
+  static Future<ui.Image> _enhanceImage(
+    ui.Image src, {
+    required bool denoise,
+    required double sharpness,
+  }) async {
+    if (!denoise && sharpness == 1.0) return src;
     try {
       final bytes = await src.toByteData(format: ui.ImageByteFormat.rawRgba);
       if (bytes == null) return src;
       final rgba = bytes.buffer.asUint8List();
       final out = await compute(
-        _sharpenPixels,
-        _SharpenMsg(rgba, src.width, src.height, amount),
+        _enhancePixels,
+        _EnhancePixelMsg(rgba, src.width, src.height, denoise, sharpness),
       );
       return _bytesToImage(out, src.width, src.height);
     } catch (_) {
-      // 锐化失败不应影响阅读，退回原图。
+      // 增强失败不应影响阅读，退回原图。
       return src;
     }
   }
@@ -653,7 +865,7 @@ class PdfRenderService {
   /// - 对比度：用亮度直方图 2% / 98% 分位（黑点/白点）拉伸到 [0,255]；
   /// - 亮度：把中灰点居中到 128 的乘法近似；
   /// - 清晰度：用边缘能量（与左/上邻域亮度差）估计高频丰富度，越低越模糊 → 越强锐化；
-  /// - 去杂色：存在文本内容（暗点占比 >0.2%）即启用（[ _denoiseImage] 仅移除孤立墨点，安全）。
+  /// - 去杂色：存在文本内容（暗点占比 >0.2%）即启用（[_enhanceImage] 仅移除孤立墨点，安全）。
   static Future<PdfAutoEnhanceResult> autoEnhance(ui.Image src) async {
     try {
       final bytes = await src.toByteData(format: ui.ImageByteFormat.rawRgba);
@@ -668,75 +880,9 @@ class PdfRenderService {
       final rgba = bytes.buffer.asUint8List();
       final w = src.width;
       final h = src.height;
-      final n = w * h;
-
-      // 亮度直方图 + 暗点计数。
-      final hist = List<int>.filled(256, 0);
-      int inkCount = 0;
-      for (var p = 0; p < n; p++) {
-        final i = p * 4;
-        final lum = (0.299 * rgba[i] +
-                0.587 * rgba[i + 1] +
-                0.114 * rgba[i + 2])
-            .toInt()
-            .clamp(0, 255);
-        hist[lum]++;
-        if (lum < 140) inkCount++;
-      }
-
-      // 黑点 / 白点（2% 与 98% 分位）。
-      int blackPt = 0, whitePt = 255, cum = 0;
-      final lowTh = (n * 0.02).toInt();
-      final highTh = (n * 0.98).toInt();
-      for (var v = 0; v < 256; v++) {
-        cum += hist[v];
-        if (cum >= lowTh && blackPt == 0) blackPt = v;
-        if (cum >= highTh) {
-          whitePt = v;
-          break;
-        }
-      }
-      final span = (whitePt - blackPt).clamp(1, 255);
-      // 对比度：把 [blackPt, whitePt] 拉伸到 [0,255]。
-      final contrast = (255.0 / span).clamp(0.5, 2.0);
-      // 亮度：中灰点居中到 128（乘法近似）。
-      final mid = (blackPt + whitePt) ~/ 2;
-      final brightness = (128.0 / mid.clamp(1, 255)).clamp(0.3, 1.5);
-
-      // 清晰度：边缘能量（与左/上邻域亮度差的绝对值之和）估计高频丰富度。
-      int edgeEnergy = 0;
-      for (var y = 1; y < h; y++) {
-        for (var x = 1; x < w; x++) {
-          final i = (y * w + x) * 4;
-          final j = (y * w + (x - 1)) * 4;
-          final k = ((y - 1) * w + x) * 4;
-          final l1 =
-              0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2];
-          final l2 =
-              0.299 * rgba[j] + 0.587 * rgba[j + 1] + 0.114 * rgba[j + 2];
-          final l3 =
-              0.299 * rgba[k] + 0.587 * rgba[k + 1] + 0.114 * rgba[k + 2];
-          edgeEnergy += ((l1 - l2).abs() + (l1 - l3).abs()).toInt();
-        }
-      }
-      final avgEdge = edgeEnergy / ((w - 1) * (h - 1));
-      double sharpness = 1.0;
-      if (avgEdge < 18) {
-        sharpness = 1.6;
-      } else if (avgEdge < 30) {
-        sharpness = 1.3;
-      }
-
-      // 去杂色：存在文本内容（暗点占比 >0.2%）即启用，安全去除孤立墨点。
-      final inkRatio = inkCount / n;
-      final denoise = inkRatio > 0.002;
-
-      return PdfAutoEnhanceResult(
-        brightness: brightness,
-        contrast: contrast,
-        sharpness: sharpness,
-        denoise: denoise,
-      );
+      // ★ 直方图 + 边缘能量（含双层 for 循环）整体移到独立 isolate，主线程零阻塞。
+      final stats = await compute(_autoEnhanceStatsIsolate, _EnhanceMsg(rgba, w, h));
+      return _deriveEnhance(stats);
     } catch (_) {
       return const PdfAutoEnhanceResult(
         brightness: 1.0,
@@ -745,6 +891,56 @@ class PdfRenderService {
         denoise: false,
       );
     }
+  }
+
+  /// 依据 isolate 统计结果推导智能清晰度参数（纯算术，主线程极快）。
+  static PdfAutoEnhanceResult _deriveEnhance(_EnhanceStats s) {
+    final n = s.n;
+    if (n <= 0) {
+      return const PdfAutoEnhanceResult(
+        brightness: 1.0,
+        contrast: 1.0,
+        sharpness: 1.0,
+        denoise: false,
+      );
+    }
+    // 黑点 / 白点（2% 与 98% 分位）。
+    int blackPt = 0, whitePt = 255, cum = 0;
+    final lowTh = (n * 0.02).toInt();
+    final highTh = (n * 0.98).toInt();
+    for (var v = 0; v < 256; v++) {
+      cum += s.hist[v];
+      if (cum >= lowTh && blackPt == 0) blackPt = v;
+      if (cum >= highTh) {
+        whitePt = v;
+        break;
+      }
+    }
+    final span = (whitePt - blackPt).clamp(1, 255);
+    // 对比度：把 [blackPt, whitePt] 拉伸到 [0,255]。
+    final contrast = (255.0 / span).clamp(0.5, 2.0);
+    // 亮度：中灰点居中到 128（乘法近似）。
+    final mid = (blackPt + whitePt) ~/ 2;
+    final brightness = (128.0 / mid.clamp(1, 255)).clamp(0.3, 1.5);
+
+    final avgEdge = s.edgeEnergy / ((s.w - 1) * (s.h - 1));
+    double sharpness = 1.0;
+    if (avgEdge < 18) {
+      sharpness = 1.6;
+    } else if (avgEdge < 30) {
+      sharpness = 1.3;
+    }
+
+    // 去杂色：存在文本内容（暗点占比 >0.2%）即启用，安全去除孤立墨点。
+    final inkRatio = s.inkCount / n;
+    final denoise = inkRatio > 0.002;
+
+    return PdfAutoEnhanceResult(
+      brightness: brightness,
+      contrast: contrast,
+      sharpness: sharpness,
+      denoise: denoise,
+    );
   }
 
   /// 将 [PdfReaderSettings] 的颜色调整合成为 [ColorFilter.matrix] 所需的 20 长度矩阵。
@@ -867,6 +1063,106 @@ class _SharpenMsg {
   const _SharpenMsg(this.rgba, this.w, this.h, this.amount);
 }
 
+/// 跨 isolate 传递的探针扫描消息（像素字节可直接转移，w/h/format 为尺寸与格式）。
+class _ScanMsg {
+  final Uint8List pixels;
+  final int w;
+  final int h;
+  final ui.PixelFormat format;
+  const _ScanMsg(this.pixels, this.w, this.h, this.format);
+}
+
+/// 跨 isolate 传递的清晰度统计消息。
+class _EnhanceMsg {
+  final Uint8List rgba;
+  final int w;
+  final int h;
+  const _EnhanceMsg(this.rgba, this.w, this.h);
+}
+
+/// isolate 返回的清晰度统计结果（直方图 / 暗点计数 / 边缘能量）。
+class _EnhanceStats {
+  final List<int> hist;
+  final int inkCount;
+  final int edgeEnergy;
+  final int w;
+  final int h;
+  final int n;
+  const _EnhanceStats(this.hist, this.inkCount, this.edgeEnergy, this.w, this.h, this.n);
+}
+
+/// 跨 isolate 传递的合并增强消息（去杂色 + 锐化一趟完成）。
+class _EnhancePixelMsg {
+  final Uint8List rgba;
+  final int w;
+  final int h;
+  final bool denoise;
+  final double sharpness;
+  const _EnhancePixelMsg(this.rgba, this.w, this.h, this.denoise, this.sharpness);
+}
+
+/// 合并增强像素处理（独立 isolate 执行）：先去杂色（若 [denoise]），再 unsharp mask
+/// 锐化（若 [sharpness] != 1.0）。一趟完成，避免两次 GPU 回读/解码。复用既有
+/// [_denoisePixels] / [_sharpenPixels]，仅在中间结果上续算。
+Uint8List _enhancePixels(_EnhancePixelMsg msg) {
+  if (!msg.denoise && msg.sharpness == 1.0) return msg.rgba;
+  var buf = msg.rgba;
+  if (msg.denoise) {
+    buf = _denoisePixels(_PixelMsg(buf, msg.w, msg.h));
+  }
+  if (msg.sharpness != 1.0) {
+    buf = _sharpenPixels(_SharpenMsg(buf, msg.w, msg.h, msg.sharpness));
+  }
+  return buf;
+}
+
+/// 探针像素扫描（在独立 isolate 执行，避免阻塞 UI 主线程）。
+///
+/// 仅把投影算法所需的双层循环移出主线程；转发到 [PdfRenderService._scanContent]
+/// 复用同一套「动态噪点阈值 + 2% 安全边距」逻辑。
+Rect _scanContentIsolate(_ScanMsg msg) =>
+    PdfRenderService._scanContent(msg.pixels, msg.w, msg.h, msg.format);
+
+/// 智能清晰度像素统计（在独立 isolate 执行，避免阻塞 UI 主线程）。
+///
+/// 含「亮度直方图单循环」与「边缘能量双层 for 循环」，全部移出主线程；
+/// 主线程只做极快的参数推导（见 [PdfRenderService._deriveEnhance]）。
+_EnhanceStats _autoEnhanceStatsIsolate(_EnhanceMsg msg) {
+  final rgba = msg.rgba;
+  final w = msg.w;
+  final h = msg.h;
+  final n = w * h;
+
+  // 亮度直方图 + 暗点计数。
+  final hist = List<int>.filled(256, 0);
+  int inkCount = 0;
+  for (var p = 0; p < n; p++) {
+    final i = p * 4;
+    final lum = (0.299 * rgba[i] +
+            0.587 * rgba[i + 1] +
+            0.114 * rgba[i + 2])
+        .toInt()
+        .clamp(0, 255);
+    hist[lum]++;
+    if (lum < 140) inkCount++;
+  }
+
+  // 清晰度：边缘能量（与左/上邻域亮度差的绝对值之和）估计高频丰富度。
+  int edgeEnergy = 0;
+  for (var y = 1; y < h; y++) {
+    for (var x = 1; x < w; x++) {
+      final i = (y * w + x) * 4;
+      final j = (y * w + (x - 1)) * 4;
+      final k = ((y - 1) * w + x) * 4;
+      final l1 = 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2];
+      final l2 = 0.299 * rgba[j] + 0.587 * rgba[j + 1] + 0.114 * rgba[j + 2];
+      final l3 = 0.299 * rgba[k] + 0.587 * rgba[k + 1] + 0.114 * rgba[k + 2];
+      edgeEnergy += ((l1 - l2).abs() + (l1 - l3).abs()).toInt();
+    }
+  }
+  return _EnhanceStats(hist, inkCount, edgeEnergy, w, h, n);
+}
+
 /// 把 RGBA 字节解码回 [ui.Image]（GPU 上传，主线程但开销低）。
 Future<ui.Image> _bytesToImage(Uint8List rgba, int w, int h) {
   final completer = Completer<ui.Image>();
@@ -882,7 +1178,7 @@ Future<ui.Image> _bytesToImage(Uint8List rgba, int w, int h) {
 
 /// 去杂色像素处理（在独立 isolate 执行，避免阻塞 UI 主线程）。
 ///
-/// 仅移除「孤立」黑点/杂色，保留文字笔画（与 [PdfRenderService._denoiseImage] 同算法）。
+/// 仅移除「孤立」黑点/杂色，保留文字笔画（与 [PdfRenderService._enhanceImage] 同算法）。
 Uint8List _denoisePixels(_PixelMsg msg) {
   final rgba = msg.rgba;
   final w = msg.w;
@@ -1014,4 +1310,42 @@ class _Matrix4x4 {
       m[12], m[13], m[14], m[15], t[3],
     ];
   }
+}
+
+/// 文档级「优先级渲染门」：同一 [PdfDocument] 同一时刻仅一处原生渲染在进行
+/// （PDFium 并发渲染同一文档的句柄竞争在 Windows 下易崩溃），同时让**可见页渲染
+/// （高优先级）可抢占后台预取（低优先级）**，确保翻页即时、不被后台批量预渲染堵住
+/// 文档锁与 isolate 池。
+///
+/// 用法：
+/// - 可见页正式渲染调用 [run] 并传 `high: true`，立即获得串行锁；
+/// - 后台预取调用 [run] 并传 `high: false`，若当前有可见页在排队/执行则先让出锁，
+///   轮询至无高优先级再执行，从而「无感预取、翻页零等待」。
+class _DocRenderGate {
+  final Lock lock = Lock();
+  int _highCount = 0;
+
+  /// 执行一次渲染任务。[high] 为 true 时视为可见页（高优先级），false 时为后台预取
+  /// （低优先级，自动让位高优先级）。
+  Future<T> run<T>(bool high, Future<T> Function() task) {
+    if (high) {
+      _highCount++;
+      return lock.synchronized(task).whenComplete(() {
+        _highCount--;
+      });
+    }
+    return _runLow(task);
+  }
+
+  Future<T> _runLow<T>(Future<T> Function() task) async {
+    // 可见页渲染在排队或执行时，让出锁稍后重试；最多只会被「1 次在途预取」拖累，
+    // 不会因积压预取而长时间等待（high 路径始终插队到队首）。
+    while (_highCount > 0) {
+      await Future.delayed(const Duration(milliseconds: 16));
+    }
+    return lock.synchronized(task);
+  }
+
+  /// 底层串行锁（供 [disposeDocument] 等清理逻辑使用）。
+  Lock get rawLock => lock;
 }
