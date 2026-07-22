@@ -248,10 +248,14 @@ class PdfCustomViewState extends State<PdfCustomView> {
     final isTwoPage = settings.layoutMode == 1 || settings.layoutMode == 3;
     final perPageWidth = isTwoPage ? ((_pageW - _pageGap) / 2) : _pageW;
 
-    // 收集窗口内所有页码（按对开页展开），再按距当前页「就近优先」排序，
-    // 保证离视线最近的页最先被渲染好，连续翻页瞬时命中。
-    final sStart = (spreadIndex - _kPrefetchBehind).clamp(0, _spreads.length - 1);
-    final sEnd = (spreadIndex + _kPrefetchAhead).clamp(0, _spreads.length - 1);
+    // ★ 双页模式自适应预取窗口：双页每 spread 含 2 页，若沿用与单页相同的
+    // spread 预取数量（13 个 spread × 2 页 = 26 页），远超基础缓存容量（16），
+    // 导致刚预热的页被 LRU 淘汰 → 翻页时缓存落空 → 每页都走原生渲染 → 转圈掉帧。
+    // 双页模式下减半 spread 窗口，保持总预取页数 ≈13~14，与单页持平。
+    final prefetchAhead = isTwoPage ? (_kPrefetchAhead ~/ 2) : _kPrefetchAhead;
+    final prefetchBehind = isTwoPage ? (_kPrefetchBehind ~/ 2) : _kPrefetchBehind;
+    final sStart = (spreadIndex - prefetchBehind).clamp(0, _spreads.length - 1);
+    final sEnd = (spreadIndex + prefetchAhead).clamp(0, _spreads.length - 1);
     final curFirstPage = _spreads[spreadIndex].first;
     final pageNums = <int>[];
     for (var s = sStart; s <= sEnd; s++) {

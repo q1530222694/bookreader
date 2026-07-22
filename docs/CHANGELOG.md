@@ -38,6 +38,26 @@
 
 ---
 
+### [2026-07-22 (4)] 修复：双页模式掉帧/转圈 + 默认设置改为上下单击无动画
+**【AI 架构依赖树 (Architecture Context)】**
+- `lib/features/shell/ui/pdf_custom_view.dart`
+  ├─ 变更 ➔ `_prefetchAround` 双页模式下自适应减半预取 spread 窗口（`_kPrefetchAhead ~/2`、`_kPrefetchBehind ~/2`），保持预取总页数 ≈13~14 与单页持平，防止 26 页预取超出基础缓存容量（16）导致翻页缓存落空 → 原生渲染 → 转圈。
+  └─ 依赖/调用 ➔ `pdf_render_service.dart`（renderPageImage 基础缓存）
+- `lib/features/shell/service/pdf_render_service.dart`
+  ├─ 变更 ➔ `_enhanceImage` 新增 `static final Lock _enhanceLock`：双页模式下左右两页同时进入阶段二，两张图并发的 `toByteData`（GPU 回读）+ `decodeImageFromPixels`（GPU 上传）同在 UI 线程同步排队 → 单帧阻塞超 16ms → 掉帧。`_enhanceLock.synchronized` 确保一次仅一页走增强管线，另一页排队，GPU 回读/上传不叠加 → 不掉帧。
+  └─ 被消费 ➔ `pdf_custom_view.dart`（_PdfPageWidget._load 阶段二 → renderPageImage → _enhanceImage）
+- `lib/engine/settings_engine.dart`
+  ├─ 变更 ➔ ① `readerPageModeDefault` 由 0（左右滑动）改为 3（上下单击）；② `readerPageAnimationDefault` 由 1（仿真动画）改为 0（无动画）。
+  └─ 被消费 ➔ `book_viewer_page.dart`（读取 pageMode/pageAnimation 确定翻页逻辑）
+
+**【全局状态/鉴权变动 (State & Auth)】**
+- 无新增权限/配置 Key（仅修改了两个常量的默认值，已持久化的用户设置不受影响）。
+- **根因 A（双页掉帧/转圈）**：① 双页每 spread 含 2 页，旧预取窗口 13 个 spread = 26 页，远超 `_baseRenderCache` 容量（16），预热页被 LRU 淘汰 → 翻页时缓存落空走原生渲染 → 转圈；② 左右两页同时进入阶段二，`toByteData` + `decodeImageFromPixels` 并发叠加 UI 线程 → 掉帧。
+- **根因 B（默认设置）**：用户要求默认改为「上下单击 + 无动画」，无需解释。
+- **修复逻辑（A）**：双页预取窗口自适应减半（7 个 spread·2 页=14 页，< 16），预取不溢出、缓存命中率恢复；`_enhanceImage` 加互斥锁，一次仅一页做 GPU 回读/上传；**修复逻辑（B）**：改两个 const 默认值。
+
+---
+
 ### [2026-07-21 (5)] 修复：开启智能清晰度后翻页转圈 + 点进看书设置崩溃
 **【AI 架构依赖树 (Architecture Context)】**
 - `lib/features/shell/service/pdf_render_service.dart`

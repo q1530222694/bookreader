@@ -832,6 +832,12 @@ class PdfRenderService {
     );
   }
 
+  /// 增强管线互斥锁：双页模式下左右两页同时进入阶段二，会并发触发
+  /// [toByteData]（GPU 回读）+ [decodeImageFromPixels]（GPU 上传），两道操作
+  /// 均在 UI 线程同步排队 → 单帧阻塞超 16ms → 掉帧。串行化确保一次
+  /// 仅有一页走增强管线，另一页排队，GPU 回读/上传不叠加 → 不掉帧。
+  static final Lock _enhanceLock = Lock();
+
   /// 合并增强（智能清晰度核心后处理）：去杂色 + 锐化在「单次 GPU 回读 + 单次
   /// isolate 计算 + 单次解码」内完成，替代旧实现分两趟（denoise / sharpen 各一趟）
   /// 各做一次 toByteData 回读 + 一次 compute + 一次 decodeImageFromPixels 解码。
@@ -843,19 +849,21 @@ class PdfRenderService {
     required double sharpness,
   }) async {
     if (!denoise && sharpness == 1.0) return src;
-    try {
-      final bytes = await src.toByteData(format: ui.ImageByteFormat.rawRgba);
-      if (bytes == null) return src;
-      final rgba = bytes.buffer.asUint8List();
-      final out = await compute(
-        _enhancePixels,
-        _EnhancePixelMsg(rgba, src.width, src.height, denoise, sharpness),
-      );
-      return _bytesToImage(out, src.width, src.height);
-    } catch (_) {
-      // 增强失败不应影响阅读，退回原图。
-      return src;
-    }
+    return _enhanceLock.synchronized(() async {
+      try {
+        final bytes = await src.toByteData(format: ui.ImageByteFormat.rawRgba);
+        if (bytes == null) return src;
+        final rgba = bytes.buffer.asUint8List();
+        final out = await compute(
+          _enhancePixels,
+          _EnhancePixelMsg(rgba, src.width, src.height, denoise, sharpness),
+        );
+        return _bytesToImage(out, src.width, src.height);
+      } catch (_) {
+        // 增强失败不应影响阅读，退回原图。
+        return src;
+      }
+    });
   }
 
   /// 智能清晰度：基于页面像素统计，自动估算推荐的「亮度 / 对比度 / 清晰度 / 智能去杂色」，

@@ -42,12 +42,12 @@ class SettingsEngine {
   // PDF 阅读器专属视觉设置（翻页方式 / 翻页动画 / 布局 / 自动裁切 / 背景调节 / 重排排版）
   // 翻页方式（同一行）：0=左右滑动 1=上下滑动 2=左右单击 3=上下单击 4=单击滚动
   static const String readerPageModeKey = 'app.reader.pdf.pageMode';
-  static const int readerPageModeDefault = 0;
+  static const int readerPageModeDefault = 3; // 上下单击
   // 翻页动画（独立栏目「翻页动画」）：
   // 0=无动画（瞬时跳转） 1=仿真动画（平滑吸附）
   // 2=淡入淡出 3=叠加 4=跃动 5=旋转 6=旋转木马 7=模仿圆筒 8=反转
   static const String readerPageAnimationKey = 'app.reader.pdf.pageAnimation';
-  static const int readerPageAnimationDefault = 1;
+  static const int readerPageAnimationDefault = 0; // 无动画（瞬时跳转）
   // 布局模式：0=单页 1=双页 2=单页连续 3=双页连续
   static const String readerLayoutModeKey = 'app.reader.pdf.layoutMode';
   static const int readerLayoutModeDefault = 0;
