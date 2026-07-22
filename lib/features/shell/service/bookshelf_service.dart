@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart' show Colors;
 import 'package:flutter/widgets.dart';
+import 'package:image/image.dart' as img;
 import 'package:pdfrx/pdfrx.dart';
 
 import '../model/book_model.dart';
@@ -454,6 +455,9 @@ class BookshelfService {
   }
 
   /// 受支持导入的书籍扩展名集合（扫描书籍/文件夹共用）。
+  ///
+  /// 注意：**不含 `.zip`**——普通 zip 压缩包并非漫画/书籍，纳入会导致「扫到一堆非书籍文件」。
+  /// 漫画仅认真正的漫画归档（cbz/cbr/cb7/cbt）。
   static const Set<String> _supportedExtensions = {
     '.pdf',
     '.epub',
@@ -463,7 +467,6 @@ class BookshelfService {
     '.cbr',
     '.cb7',
     '.cbt',
-    '.zip',
   };
 
   List<Directory> _resolveScanDirectories() {
@@ -636,6 +639,71 @@ class BookshelfService {
 
     final updatedBook = _books[index].copyWith(tags: List<String>.unmodifiable(tags));
     _books[index] = updatedBook;
+    _notifyBooksChanged();
+  }
+
+  /// 替换某本书的封面：把原始图片字节（可能来自本地相册或网络）统一转码为 PNG 后
+  /// 落盘到 [CoverStore]，并置 `hasCover=true`。
+  ///
+  /// 统一转码的原因：选中的本地/网络图片可能是 jpg/heic 等格式，而 [CoverStore] 固定以
+  /// `.png` 扩展名存储；若不转码，部分平台会因「内容与实际扩展名不符」解码失败。
+  /// 转码失败则退化为直接保存原始字节（尽力展示）。落盘或解码异常仅忽略，不影响调用方。
+  Future<void> updateBookCover(String bookId, Uint8List rawBytes) async {
+    final index = _books.indexWhere((book) => book.id == bookId);
+    if (index < 0) return;
+
+    Uint8List bytes = rawBytes;
+    try {
+      final decoded = img.decodeImage(rawBytes);
+      if (decoded != null) {
+        bytes = Uint8List.fromList(img.encodePng(decoded));
+      }
+    } catch (_) {
+      bytes = rawBytes; // 转码失败：保留原始字节，交由 Image.file 按内容嗅探解码
+    }
+
+    try {
+      await CoverStore.save(bookId, bytes);
+    } catch (_) {
+      return; // 写盘失败：放弃标记，UI 回退到生成式占位封面
+    }
+    _books[index] = _books[index].copyWith(hasCover: true);
+    _notifyBooksChanged();
+  }
+
+  /// 批量收藏 / 取消收藏：对 [ids] 内书籍统一设置收藏状态。
+  void batchUpdateFavorite(List<String> ids, bool favorite) {
+    if (ids.isEmpty) return;
+    final idSet = ids.toSet();
+    for (var i = 0; i < _books.length; i++) {
+      if (idSet.contains(_books[i].id)) {
+        _books[i] = _books[i].copyWith(isFavorite: favorite);
+      }
+    }
+    _notifyBooksChanged();
+  }
+
+  /// 批量设置阅读进度：对 [ids] 内书籍统一设置为 [progress]（0=未读，1=已读）。
+  void batchSetReadingState(List<String> ids, double progress) {
+    if (ids.isEmpty) return;
+    final idSet = ids.toSet();
+    final next = progress.clamp(0.0, 1.0);
+    for (var i = 0; i < _books.length; i++) {
+      if (idSet.contains(_books[i].id)) {
+        _books[i] = _books[i].copyWith(progress: next);
+      }
+    }
+    _notifyBooksChanged();
+  }
+
+  /// 批量删除书籍：移除 [ids] 内书籍并同步清理各自的磁盘封面（避免孤儿文件）。
+  void batchRemove(List<String> ids) {
+    if (ids.isEmpty) return;
+    final idSet = ids.toSet();
+    _books.removeWhere((book) => idSet.contains(book.id));
+    for (final id in ids) {
+      CoverStore.delete(id);
+    }
     _notifyBooksChanged();
   }
 

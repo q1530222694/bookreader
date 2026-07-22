@@ -77,8 +77,31 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
   }
 
   /// 阅读会话变化 → 重绘阅读日历。
+  ///
+  /// ★ 必须用 [WidgetsBinding.addPostFrameCallback] 推迟到下一帧：当会话更新来自
+  /// 阅读器关闭时的「保存进度」流程时，回调可能正处于另一个 widget 的 build 阶段，
+  /// 此时 [setState] 会触发 "framework is locked" 崩溃（mounted=true 但 setState
+  /// 不被允许）。推迟到下一帧后 build 已完成，setState 安全。
   void _onSessionsChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {});
+    });
+  }
+
+  /// 安全的 setState 包装器：统一做 mounted 守卫 + 推迟到下一帧。
+  ///
+  /// 用于「listener 回调 / Future.then 异步回调」中调 setState：这些回调的触发时机
+  /// 不在 build 阶段内就立刻 setState 是安全的；但如果触发时正处于另一个 widget 的
+  /// build 中（"framework locked"），直接 setState 会崩溃。推迟到下一帧保证安全。
+  /// 统一封装避免每个 setState 站点都重复此模式。
+  void _safeSetState(VoidCallback fn) {
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(fn);
+    });
   }
 
   /// 加载跨书收藏笔记总数（真实数据）。
@@ -86,7 +109,7 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
     final ids = _controller.books.value.map((b) => b.id).toList();
     ReaderDataStore.countAllNotes(ids).then((count) {
       if (!mounted) return;
-      setState(() => _totalNotesCount = count);
+      _safeSetState(() => _totalNotesCount = count);
     });
   }
 
@@ -102,12 +125,12 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
     ).then((notes) {
       if (!mounted) return;
       if (notes.isEmpty) {
-        setState(() => _randomMemoryNote = null);
+        _safeSetState(() => _randomMemoryNote = null);
         return;
       }
       // 用微秒时间戳取模做轻量随机，避免额外 import dart:math。
       final r = DateTime.now().microsecondsSinceEpoch % notes.length;
-      setState(() => _randomMemoryNote = notes[r]);
+      _safeSetState(() => _randomMemoryNote = notes[r]);
     });
   }
 
@@ -122,7 +145,7 @@ class _MemoryMainPageState extends State<MemoryMainPage> {
       (id) => titleMap[id] ?? LocalizationEngine.text('unknown_book'),
     ).then((list) {
       if (!mounted) return;
-      setState(() => _recentBookmarks = list.take(3).toList());
+      _safeSetState(() => _recentBookmarks = list.take(3).toList());
     });
   }
 

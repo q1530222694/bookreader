@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:path_provider/path_provider.dart';
 
+import 'cover_cache.dart';
+
 /// 封面磁盘缓存：将每本书的封面 PNG 持久化到应用文档目录，避免把全分辨率封面字节
 /// 常驻内存（旧实现每个 [BookModel] 都持有一份 [Uint8List]，书架书籍多时内存占用显著）。
 ///
@@ -51,10 +53,11 @@ class CoverStore {
     return fileForSync(bookId);
   }
 
-  /// 写出封面字节到磁盘（覆盖式写入）。
+  /// 写出封面字节到磁盘（覆盖式写入），并同步写入内存 [CoverCache]。
   static Future<void> save(String bookId, Uint8List bytes) async {
     final file = await fileFor(bookId);
     await file.writeAsBytes(bytes, flush: true);
+    CoverCache.put(bookId, bytes);
   }
 
   /// 该书是否存在已落盘的封面文件。
@@ -65,6 +68,7 @@ class CoverStore {
 
   /// 删除该书封面（移除书籍时调用，避免孤儿文件）。
   static Future<void> delete(String bookId) async {
+    CoverCache.remove(bookId);
     try {
       final file = await fileFor(bookId);
       if (await file.exists()) await file.delete();

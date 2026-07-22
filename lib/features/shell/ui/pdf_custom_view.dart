@@ -116,6 +116,7 @@ class PdfCustomViewState extends State<PdfCustomView> {
   void _onZoomChanged() {
     final scale = _zoomController.value.getMaxScaleOnAxis();
     if ((scale - _zoomScale).abs() > 0.001) {
+      if (!mounted) return;
       setState(() => _zoomScale = scale);
     }
   }
@@ -599,6 +600,7 @@ class PdfCustomViewState extends State<PdfCustomView> {
                 PdfRenderService.isScrolling = false;
                 _reportVisiblePage();
                 _enhanceTick++;
+                if (!mounted) return false;
                 setState(() {});
               }
               return false;
@@ -1255,6 +1257,7 @@ class DualScreenPaneState extends State<_DualScreenPane> {
   void _onZoomChanged() {
     final scale = _zoomController.value.getMaxScaleOnAxis();
     if ((scale - _zoomScale).abs() > 0.001) {
+      if (!mounted) return;
       setState(() => _zoomScale = scale);
     }
   }
@@ -1385,6 +1388,7 @@ class DualScreenPaneState extends State<_DualScreenPane> {
             PdfRenderService.isScrolling = false;
             _reportVisiblePage();
             _enhanceTick++;
+            if (!mounted) return false;
             setState(() {});
           }
           return false;

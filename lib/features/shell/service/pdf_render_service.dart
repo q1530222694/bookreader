@@ -128,11 +128,15 @@ class PdfRenderService {
     }
   }
 
-  /// 已释放标记（Expando 弱引用）：追踪已调用 [ui.Image.dispose] 的实例以幂等保护。
+  /// 已释放标记：追踪已调用 [ui.Image.dispose] 的实例以幂等保护。
   ///
-  /// 使用 [Expando] 而非 [Set]/[Map]：Expando 不持有对象的强引用，[ui.Image] 被 GC 时
-  /// 对应标记自动清除，不会因为跟踪已释放对象而永久阻止 GPU 纹理回收。
+  /// **AOT 安全双轨设计**：[Expando] 在 JIT（调试/桌面）下零额外开销地按弱引用跟踪；
+  /// [HashSet] 在 AOT（Android/iOS 发布）下提供强引用兜底——[Expando] 在 AOT 模式的已知
+  /// 局限性会导致标记丢失，引发 double-dispose 崩溃。双轨叠加确保全平台幂等。
+  /// [HashSet] 持有已释放 [ui.Image] 的 Dart 包装对象引用（已释放 GPU 纹理不可复用、
+  /// 且单次阅读会话内已释放图像数通常 < 300，内存开销可忽略）。
   static final Expando<bool> _disposedImages = Expando<bool>();
+  static final Set<ui.Image> _disposedImagesFallback = <ui.Image>{};
 
   /// 安全释放 [ui.Image]：幂等。已释放过的实例直接返回，避免二次 [ui.Image.dispose]。
   ///
@@ -140,8 +144,9 @@ class PdfRenderService {
   /// 调用方必须在调用本方法前或后自行管理缓存条目的移除，以避免在迭代缓存的回调中嵌套
   /// 突变同一集合导致的并发修改崩溃（典型的场景：[disposeDocument] / [_clearDocCaches]）。
   static void _safeDispose(ui.Image img) {
-    if (_disposedImages[img] == true) return;
+    if (_disposedImages[img] == true || _disposedImagesFallback.contains(img)) return;
     _disposedImages[img] = true;
+    _disposedImagesFallback.add(img);
     _inUseImages.remove(img);
     img.dispose();
   }
@@ -719,7 +724,7 @@ class PdfRenderService {
     // ★ 像素扫描移到独立 isolate（compute），主线程零阻塞，基准带校准不再卡翻页。
     final rect = probe == null
         ? const Rect.fromLTRB(0, 0, 1, 1)
-        : await compute(
+        : await _throttledCompute(
             _scanContentIsolate,
             _ScanMsg(probe.pixels, probe.width, probe.height, probe.format),
           );
@@ -747,7 +752,10 @@ class PdfRenderService {
       backgroundColor: Colors.white,
     );
     if (probe == null) return const Rect.fromLTRB(0, 0, 1, 1);
-    // ★ 像素扫描在 isolate 执行，主线程不阻塞。
+    // ★ 像素扫描在 isolate 执行，直接 compute() 不节流：
+    // 探针仅 200px 宽（~60KB 像素），单次 compute 耗时 ~20ms，不抢占 isolate 池资源。
+    // 关键：本方法在文档锁内被调用（renderPageImage → _gateFor.run），若走 _throttledCompute
+    // 排队等待槽位，会导致文档锁被冻结 → 所有翻页渲染阻塞 → 500ms+ 卡顿。
     final rect = await compute(
       _scanContentIsolate,
       _ScanMsg(probe.pixels, probe.width, probe.height, probe.format),
@@ -838,6 +846,43 @@ class PdfRenderService {
   /// 仅有一页走增强管线，另一页排队，GPU 回读/上传不叠加 → 不掉帧。
   static final Lock _enhanceLock = Lock();
 
+  /// compute() 并发节流：全局 [compute] 使用共享 isolate 池，快速翻页时多个
+  /// [_enhanceImage] / [_probeCropInLock] / [autoEnhance] 同时调用 [compute]
+  /// 会把池耗尽 → 后续操作排队 → 翻页卡顿。限制同时在途 compute 数为 2，
+  /// 超出 2 的调用排队等待（满额后按 FIFO 唤醒）。2 的来源：留出 1 个槽给
+  /// 非核心 compute 调用（如自动裁切），另 1 个槽给正式渲染增强。
+  static int _activeComputeCount = 0;
+  static const int _maxConcurrentCompute = 2;
+  static final List<Completer<void>> _computeWaiters = <Completer<void>>[];
+
+  static Future<void> _acquireComputeSlot() {
+    if (_activeComputeCount < _maxConcurrentCompute) {
+      _activeComputeCount++;
+      return Future.value();
+    }
+    final c = Completer<void>();
+    _computeWaiters.add(c);
+    return c.future;
+  }
+
+  static void _releaseComputeSlot() {
+    if (_computeWaiters.isNotEmpty) {
+      _computeWaiters.removeAt(0).complete();
+    } else {
+      _activeComputeCount--;
+    }
+  }
+
+  /// 带并发节流的 [compute] 包装器：等待可用槽 → 执行 → 释放槽。
+  static Future<R> _throttledCompute<M, R>(R Function(M) fn, M msg) async {
+    await _acquireComputeSlot();
+    try {
+      return await compute(fn, msg);
+    } finally {
+      _releaseComputeSlot();
+    }
+  }
+
   /// 合并增强（智能清晰度核心后处理）：去杂色 + 锐化在「单次 GPU 回读 + 单次
   /// isolate 计算 + 单次解码」内完成，替代旧实现分两趟（denoise / sharpen 各一趟）
   /// 各做一次 toByteData 回读 + 一次 compute + 一次 decodeImageFromPixels 解码。
@@ -851,10 +896,14 @@ class PdfRenderService {
     if (!denoise && sharpness == 1.0) return src;
     return _enhanceLock.synchronized(() async {
       try {
+        // ★ P0 崩溃防护：src 可能在等待 _enhanceLock 期间被并发释放（use-after-dispose），
+        // 此时 toByteData 会在已 dispose 的 GPU 纹理上操作，触发原生层崩溃。
+        // 预先检查释放标记，已释放则直接返回未增强的原图（靠 _safeDispose 双轨保证全平台可靠）。
+        if (_disposedImages[src] == true || _disposedImagesFallback.contains(src)) return src;
         final bytes = await src.toByteData(format: ui.ImageByteFormat.rawRgba);
         if (bytes == null) return src;
         final rgba = bytes.buffer.asUint8List();
-        final out = await compute(
+        final out = await _throttledCompute(
           _enhancePixels,
           _EnhancePixelMsg(rgba, src.width, src.height, denoise, sharpness),
         );
@@ -889,7 +938,7 @@ class PdfRenderService {
       final w = src.width;
       final h = src.height;
       // ★ 直方图 + 边缘能量（含双层 for 循环）整体移到独立 isolate，主线程零阻塞。
-      final stats = await compute(_autoEnhanceStatsIsolate, _EnhanceMsg(rgba, w, h));
+      final stats = await _throttledCompute(_autoEnhanceStatsIsolate, _EnhanceMsg(rgba, w, h));
       return _deriveEnhance(stats);
     } catch (_) {
       return const PdfAutoEnhanceResult(

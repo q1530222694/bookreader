@@ -13,6 +13,7 @@ import '../controller/bookshelf_controller.dart';
 import '../model/book_model.dart';
 import '../model/folder_candidate_model.dart';
 import '../model/scan_candidate_model.dart';
+import '../service/baidu_image_search_service.dart';
 import '../service/storage_permission_service.dart';
 import 'package:file_picker/file_picker.dart';
 import 'book_viewer_page.dart';
@@ -109,6 +110,30 @@ List<ScanCandidateModel> _filterScanCandidates(
   }).toList();
 }
 
+/// 过滤扫描候选（搜索 + 分类）：在 [_filterScanCandidates] 基础上叠加类别筛选。
+///
+/// [category] 为 'all' 时不做类别限制；其余按候选 [ScanCandidateModel.type]
+/// （pdf/epub/txt/mobi/comic）精确匹配，用于扫描导入弹层顶部的类别胶囊筛选。
+List<ScanCandidateModel> _filterScanCandidatesBy(
+  List<ScanCandidateModel> candidates,
+  String query,
+  String category,
+) {
+  final byKeyword = _filterScanCandidates(candidates, query);
+  if (category.isEmpty || category == 'all') return byKeyword;
+  return byKeyword.where((c) => c.type.toLowerCase() == category.toLowerCase()).toList();
+}
+
+/// 扫描导入弹层支持的类别胶囊定义（键 + 本地化 key），顺序即展示顺序。
+const List<Map<String, String>> _scanCategoryChips = [
+  {'k': 'all', 't': 'bookshelf_scan_filter_all'},
+  {'k': 'pdf', 't': 'file_type_pdf'},
+  {'k': 'epub', 't': 'file_type_epub'},
+  {'k': 'txt', 't': 'file_type_txt'},
+  {'k': 'mobi', 't': 'bookshelf_scan_filter_mobi'},
+  {'k': 'comic', 't': 'bookshelf_scan_filter_comic'},
+];
+
 /// BookshelfPage provides the bookshelf UI and import actions.
 class BookshelfPage extends StatefulWidget {
   const BookshelfPage({super.key, this.controller});
@@ -126,10 +151,44 @@ class _BookshelfPageState extends State<BookshelfPage> {
   String _searchText = '';
   bool _showCoverMode = true; // true=封面网格；false=书籍列表
   String _selectedCategory = 'all';
+  // 批量管理模式标记：开启后书架进入「勾选」态，点击卡片=切换选择而非打开书籍。
+  bool _selectionMode = false;
+  // 批量管理已选中的书籍 id 集合（Set 保证去重与 O(1) 切换）。
+  final Set<String> _selectedIds = {};
   // 过滤后的展示列表（单一数据源）：数据/分类变化即时同步重算，搜索输入走防抖+compute 隔离更新。
   List<BookModel> _displayBooks = const [];
   // 搜索输入防抖定时器：避免每次击键都重算过滤，集中到停顿 200ms 后在隔离线程执行。
   Timer? _filterDebounceTimer;
+
+  /// 切换某本书的批量选中状态。
+  void _toggleSelect(String id) {
+    setState(() {
+      if (_selectedIds.contains(id)) {
+        _selectedIds.remove(id);
+      } else {
+        _selectedIds.add(id);
+      }
+    });
+  }
+
+  /// 全选 / 取消全选当前过滤后的可见书籍。
+  void _toggleSelectAll() {
+    setState(() {
+      if (_selectedIds.length == _displayBooks.length) {
+        _selectedIds.clear();
+      } else {
+        _selectedIds.addAll(_displayBooks.map((book) => book.id));
+      }
+    });
+  }
+
+  /// 退出批量管理模式并清空选择。
+  void _exitSelectionMode() {
+    setState(() {
+      _selectionMode = false;
+      _selectedIds.clear();
+    });
+  }
 
   @override
   void initState() {
@@ -221,6 +280,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
           LocalizationEngine.text('bookshelf_import_multiple'),
           LocalizationEngine.text('bookshelf_scan_import'),
           LocalizationEngine.text('bookshelf_scan_folder'),
+          LocalizationEngine.text('bookshelf_batch_manage'),
           LocalizationEngine.text('bookshelf_random_read'),
         ];
         final menuWidth = _calculateMenuWidth(
@@ -314,6 +374,20 @@ class _BookshelfPageState extends State<BookshelfPage> {
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                         onPressed: () {
                           overlayEntry.remove();
+                          setState(() {
+                            _selectionMode = true;
+                          });
+                        },
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(LocalizationEngine.text('bookshelf_batch_manage')),
+                        ),
+                      ),
+                      Container(height: 1, color: CupertinoColors.systemGrey4.resolveFrom(overlayContext)),
+                      CupertinoButton(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        onPressed: () {
+                          overlayEntry.remove();
                           final randomBook = _controller.pickRandomBook();
                           if (randomBook == null) {
                             _controller.setError(LocalizationEngine.text('bookshelf_empty_error'));
@@ -357,9 +431,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
   /// 扫描完成（或命中缓存秒开）后激活底部「添加扫描目录 / 已选 / 导入」。
   Future<void> _showLiveScanImportDialog(BuildContext context) async {
     final selectedPaths = <String>{};
-    // 扫描弹层内的搜索框状态：控制器 + 是否展开（用于过滤扫描到的书籍）。
+    // 扫描弹层内的搜索框状态（常驻显示）与类别筛选状态。
     final scanSearchController = TextEditingController();
-    var scanSearchVisible = false;
+    var scanCategory = 'all';
     // 触发后台扫描（实时推送候选到 [BookshelfController.scanCandidates]）。
     _controller.runScanForImport();
     var closed = false;
@@ -426,7 +500,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                   scanning,
                                   selectedPaths,
                                   scanSearchController,
-                                  scanSearchVisible,
+                                  scanCategory,
                                 ),
                               );
                             },
@@ -452,8 +526,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
     scanSearchController.dispose();
   }
 
-  /// 构建「扫描导入」实时弹层卡片（头部进度/已找到数量 + 虚拟候选列表 + 底部操作）。
-  /// [scanSearchController] / [scanSearchVisible] 控制弹层内搜索框，用于过滤扫描到的书籍。
+  /// 构建「扫描导入」实时弹层卡片（头部进度/已找到数量 + 类别筛选 + 搜索 + 虚拟候选列表 + 底部操作）。
+  /// [scanSearchController] / [scanCategory] 控制弹层内的搜索关键词与类别筛选，用于过滤扫描到的书籍。
   Widget _buildLiveScanCard(
     BuildContext context,
     BuildContext modalCtx,
@@ -462,10 +536,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
     bool scanning,
     Set<String> selectedPaths,
     TextEditingController scanSearchController,
-    bool scanSearchVisible,
+    String scanCategory,
   ) {
-    // 按搜索关键词过滤候选（标题或路径命中）。无关键词时返回原列表。
-    final visibleCandidates = _filterScanCandidates(candidates, scanSearchController.text);
+    // 按搜索关键词 + 类别筛选候选（标题或路径命中关键词，类别精确匹配）。
+    final visibleCandidates = _filterScanCandidatesBy(candidates, scanSearchController.text, scanCategory);
     return Container(
       height: MediaQuery.of(context).size.height * 0.75,
       margin: const EdgeInsets.only(left: 12, right: 12, bottom: 12),
@@ -507,26 +581,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
                     ],
                   ),
                 ),
-                // 搜索图标（点击切换搜索框，用于过滤扫描到的书籍）。
-                GestureDetector(
-                  onTap: () => setModalState(() {
-                    scanSearchVisible = !scanSearchVisible;
-                  }),
-                  child: Container(
-                    width: 36,
-                    height: 36,
-                    margin: const EdgeInsets.only(right: 8),
-                    decoration: BoxDecoration(
-                      color: CupertinoColors.systemGrey5.resolveFrom(context),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      scanSearchVisible ? Icons.search_off : Icons.search,
-                      size: 18,
-                      color: CupertinoColors.label.resolveFrom(context),
-                    ),
-                  ),
-                ),
                 // 关闭按钮（扫描中点击 = 取消扫描并保留已收集候选）。
                 GestureDetector(
                   onTap: () {
@@ -550,16 +604,56 @@ class _BookshelfPageState extends State<BookshelfPage> {
           const SizedBox(height: 8),
           const Divider(height: 1),
 
-          // 搜索框（点击头部搜索图标展开）：实时过滤扫描到的书籍。
-          if (scanSearchVisible)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              child: CupertinoSearchTextField(
-                controller: scanSearchController,
-                placeholder: LocalizationEngine.text('bookshelf_scan_search_placeholder'),
-                onChanged: (_) => setModalState(() {}),
+          // 类别筛选胶囊：全部 / PDF / EPUB / TXT / MOBI / 漫画，点击即时过滤候选列表。
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: _scanCategoryChips.map((chip) {
+                  final key = chip['k']!;
+                  final selected = scanCategory == key;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: GestureDetector(
+                      onTap: () => setModalState(() {
+                        scanCategory = key;
+                      }),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? CupertinoTheme.of(context).primaryColor
+                              : CupertinoColors.systemGrey6.resolveFrom(context),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Text(
+                          LocalizationEngine.text(chip['t']!),
+                          style: CupertinoTheme.of(context).textTheme.textStyle.copyWith(
+                                fontSize: 13,
+                                fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                                color: selected
+                                    ? CupertinoColors.white
+                                    : CupertinoColors.secondaryLabel.resolveFrom(context),
+                              ),
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
               ),
             ),
+          ),
+
+          // 搜索框（常驻）：实时过滤扫描到的书籍。
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: CupertinoSearchTextField(
+              controller: scanSearchController,
+              placeholder: LocalizationEngine.text('bookshelf_scan_search_placeholder'),
+              onChanged: (_) => setModalState(() {}),
+            ),
+          ),
 
           // 候选列表：虚拟列表（ListView.builder）边扫边插，仅构建可视项，千本也不卡。
           Expanded(
@@ -1019,6 +1113,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
 
   /// 展示「扫描文件夹」的文件夹选择底部弹层（UI 与扫描书籍一致，但列表项为文件夹）。
   Future<void> _presentFolderSheet(BuildContext context, List<FolderCandidateModel> folders) async {
+    // 多选状态：用户勾选的文件夹路径集合（勾选后直接扫描并导入其中全部书籍）。
+    final selectedFolderPaths = <String>{};
     await showGeneralDialog<void>(
       context: context,
       barrierDismissible: true,
@@ -1071,7 +1167,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                             ),
                                             const SizedBox(height: 4),
                                             Text(
-                                              LocalizationEngine.text('bookshelf_scan_folder_pick'),
+                                              LocalizationEngine.text('bookshelf_scan_folder_multi_hint'),
                                               style: TextStyle(fontSize: 12, color: CupertinoColors.secondaryLabel.resolveFrom(context)),
                                             ),
                                           ],
@@ -1101,23 +1197,26 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                       separatorBuilder: (_, __) => const SizedBox(height: 4),
                                       itemBuilder: (ctx2, index) {
                                         final folder = folders[index];
+                                        final isSelected = selectedFolderPaths.contains(folder.path);
                                         return Material(
                                           color: Colors.transparent,
                                           child: InkWell(
                                             borderRadius: BorderRadius.circular(10),
-                                            onTap: () async {
-                                              Navigator.of(ctx).pop();
-                                              final books = await _controller.scanBooksInFolder(folder.path);
-                                              if (!mounted) return;
-                                              if (books.isEmpty) {
-                                                _controller.setError(LocalizationEngine.text('bookshelf_scan_folder_empty'));
-                                                return;
+                                            onTap: () => setModalState(() {
+                                              if (isSelected) {
+                                                selectedFolderPaths.remove(folder.path);
+                                              } else {
+                                                selectedFolderPaths.add(folder.path);
                                               }
-                                              // 复用扫描书籍的确认导入弹层。
-                                              await _showScanImportPicker(context, books);
-                                            },
+                                            }),
                                             child: Container(
                                               padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 6),
+                                              decoration: BoxDecoration(
+                                                border: isSelected
+                                                    ? Border.all(color: CupertinoColors.systemBlue.resolveFrom(context), width: 1.5)
+                                                    : null,
+                                                borderRadius: BorderRadius.circular(10),
+                                              ),
                                               child: Row(
                                                 children: [
                                                   Container(
@@ -1147,7 +1246,23 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                                       ],
                                                     ),
                                                   ),
-                                                  Icon(Icons.chevron_right, color: CupertinoColors.tertiaryLabel.resolveFrom(context), size: 18),
+                                                  // 勾选态复选框（替代原来的右箭头）。
+                                                  Container(
+                                                    width: 24,
+                                                    height: 24,
+                                                    decoration: BoxDecoration(
+                                                      color: isSelected ? CupertinoColors.systemBlue.resolveFrom(context) : Colors.transparent,
+                                                      border: Border.all(
+                                                        color: isSelected
+                                                            ? CupertinoColors.systemBlue.resolveFrom(context)
+                                                            : CupertinoColors.systemGrey.resolveFrom(context),
+                                                      ),
+                                                      shape: BoxShape.circle,
+                                                    ),
+                                                    child: isSelected
+                                                        ? const Icon(Icons.check, color: CupertinoColors.white, size: 14)
+                                                        : null,
+                                                  ),
                                                 ],
                                               ),
                                             ),
@@ -1155,6 +1270,49 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                         );
                                       },
                                     ),
+                                  ),
+                                ),
+                                const Divider(height: 1),
+                                // 底部操作：全选 / 导入选中文件夹的全部书籍（直接导入，不再逐本选择）。
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                  child: Row(
+                                    children: [
+                                      CupertinoButton(
+                                        padding: EdgeInsets.zero,
+                                        onPressed: () => setModalState(() {
+                                          if (selectedFolderPaths.length == folders.length) {
+                                            selectedFolderPaths.clear();
+                                          } else {
+                                            selectedFolderPaths.addAll(folders.map((f) => f.path));
+                                          }
+                                        }),
+                                        child: Text(
+                                          LocalizationEngine.text('bookshelf_batch_select_all'),
+                                          style: TextStyle(fontSize: 14, color: CupertinoColors.systemBlue.resolveFrom(context)),
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      ElevatedButton(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: CupertinoColors.systemBlue.resolveFrom(context),
+                                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                        ),
+                                        onPressed: selectedFolderPaths.isEmpty
+                                            ? null
+                                            : () async {
+                                                final selected = selectedFolderPaths.toList();
+                                                Navigator.of(ctx).pop();
+                                                _showImportProgressOverlay(context);
+                                                await _controller.scanAndImportFolders(selected);
+                                              },
+                                        child: Text(
+                                          LocalizationEngine.text('bookshelf_scan_folder_import_count').replaceAll('%d', selectedFolderPaths.length.toString()),
+                                          style: const TextStyle(color: CupertinoColors.white, fontWeight: FontWeight.w600),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ],
@@ -1378,6 +1536,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
         final screenHeight = mediaQuery.size.height;
         final actions = <Map<String, dynamic>>[
           {
+            'label': LocalizationEngine.text('bookshelf_change_cover'),
+            'isDestructive': false,
+            'onTap': () => _showCoverSourceSheet(context, book),
+          },
+          {
             'label': book.isFavorite
                 ? LocalizationEngine.text('bookshelf_remove_favorite')
                 : LocalizationEngine.text('bookshelf_add_favorite'),
@@ -1483,6 +1646,403 @@ class _BookshelfPageState extends State<BookshelfPage> {
     overlayState.insert(overlayEntry);
   }
 
+  /// 从下向上滑出的「封面来源」抽屉：提供「百度图片搜索」与「从本地相册选择」两种方式。
+  ///
+  /// 选择本地图片：用 [FilePicker] 选图后读取字节，经 [BookshelfController.updateBookCover]
+  /// 统一转码落盘；选择百度图片：打开 [ _showBaiduCoverSearch ] 搜索结果网格。
+  Future<void> _showCoverSourceSheet(BuildContext context, BookModel book) async {
+    await showCupertinoModalPopup<void>(
+      context: context,
+      builder: (popupContext) {
+        return CupertinoPopupSurface(
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12, left: 4),
+                  child: Text(
+                    LocalizationEngine.text('bookshelf_cover_source_title'),
+                    style: CupertinoTheme.of(popupContext).textTheme.textStyle.copyWith(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          color: CupertinoColors.label.resolveFrom(popupContext),
+                        ),
+                  ),
+                ),
+                _buildCoverSourceRow(
+                  popupContext,
+                  icon: CupertinoIcons.search,
+                  label: LocalizationEngine.text('bookshelf_cover_from_baidu'),
+                  onTap: () {
+                    Navigator.of(popupContext).pop();
+                    _showBaiduCoverSearch(context, book);
+                  },
+                ),
+                const SizedBox(height: 8),
+                _buildCoverSourceRow(
+                  popupContext,
+                  icon: CupertinoIcons.photo,
+                  label: LocalizationEngine.text('bookshelf_cover_from_local'),
+                  onTap: () async {
+                    Navigator.of(popupContext).pop();
+                    final result = await FilePicker.pickFiles(
+                      type: FileType.image,
+                      allowMultiple: false,
+                    );
+                    if (!mounted) return;
+                    if (result == null || result.files.isEmpty) return;
+                    final filePath = result.files.first.path;
+                    if (filePath == null) return;
+                    final bytes = await File(filePath).readAsBytes();
+                    if (!mounted) return;
+                    await _controller.updateBookCover(book.id, bytes);
+                    _controller.showInfoToast(LocalizationEngine.text('bookshelf_cover_set_success'));
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// 构建抽屉内的单行来源项（图标 + 文案 + 右箭头）。
+  Widget _buildCoverSourceRow(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return CupertinoButton(
+      padding: EdgeInsets.zero,
+      onPressed: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        decoration: BoxDecoration(
+          color: CupertinoColors.systemGrey6.resolveFrom(context),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: CupertinoTheme.of(context).primaryColor.withOpacity(0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: CupertinoTheme.of(context).primaryColor, size: 20),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                label,
+                style: CupertinoTheme.of(context).textTheme.textStyle.copyWith(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: CupertinoColors.label.resolveFrom(context),
+                    ),
+              ),
+            ),
+            Icon(
+              CupertinoIcons.chevron_forward,
+              size: 18,
+              color: CupertinoColors.tertiaryLabel.resolveFrom(context),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 百度图片搜索选封面：底部上滑抽屉，含「引擎选择器 + 搜索框 + 结果网格」，
+  /// 点选即下载并替换封面。
+  ///
+  /// - 引擎：百度移动端接口（中文书籍匹配度最高）/ Bing 兜底 / Google 不可用提示。
+  /// - 搜索：调用 [BaiduImageSearchService.search] 拉取缩略图地址（后缀处理由服务按引擎自动适配）；
+  /// - 选图：调用 [BaiduImageSearchService.downloadImage] 下载字节，经
+  ///   [BookshelfController.updateBookCover] 落盘；失败给出友好提示，不崩溃。
+  Future<void> _showBaiduCoverSearch(BuildContext context, BookModel book) async {
+    // 抽屉内独立状态（引擎 / 关键词 / 结果 / 加载中 / 正在下载某张）。
+    var currentEngine = ImageSearchEngine.baidu;
+    final searchController = TextEditingController(text: _bookTitle(book));
+    var query = _bookTitle(book);
+    var results = <String>[];
+    var loading = false;
+    var downloadingUrl = '';
+    var searchedOnce = false;
+
+    // 按当前引擎搜索一次。
+    Future<void> runSearch(StateSetter setInner) async {
+      final kw = query.trim();
+      if (kw.isEmpty) return;
+      setInner(() {
+        loading = true;
+        searchedOnce = true;
+      });
+      final list = await BaiduImageSearchService.search(kw, engine: currentEngine);
+      if (!mounted) return;
+      setInner(() {
+        results = list;
+        loading = false;
+      });
+    }
+
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: LocalizationEngine.text('bookshelf_cover_from_baidu'),
+      barrierColor: Colors.black.withOpacity(0.4),
+      transitionDuration: const Duration(milliseconds: 260),
+      pageBuilder: (dialogCtx, anim1, anim2) {
+        return SafeArea(
+          child: GestureDetector(
+            onTap: () => Navigator.of(dialogCtx).pop(),
+            behavior: HitTestBehavior.opaque,
+            child: Material(
+              color: Colors.transparent,
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                child: GestureDetector(
+                  onTap: () {},
+                  child: StatefulBuilder(
+                    builder: (modalCtx, setInner) {
+                      // 进入时预搜一次（仅一次）。
+                      if (!searchedOnce && !loading) {
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          runSearch(setInner);
+                        });
+                      }
+                      return Container(
+                        height: MediaQuery.of(context).size.height * 0.82,
+                        margin: const EdgeInsets.only(left: 12, right: 12, bottom: 12),
+                        decoration: BoxDecoration(
+                          color: CupertinoColors.systemBackground.resolveFrom(context),
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 16, offset: const Offset(0, 6)),
+                          ],
+                        ),
+                        child: Column(
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      LocalizationEngine.text('bookshelf_cover_from_baidu'),
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w600,
+                                        color: CupertinoColors.label.resolveFrom(context),
+                                      ),
+                                    ),
+                                  ),
+                                  GestureDetector(
+                                    onTap: () => Navigator.of(dialogCtx).pop(),
+                                    child: Container(
+                                      width: 36,
+                                      height: 36,
+                                      decoration: BoxDecoration(
+                                        color: CupertinoColors.systemGrey5.resolveFrom(context),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: Icon(Icons.close, size: 18, color: CupertinoColors.label.resolveFrom(context)),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Divider(height: 1),
+                            // 搜索引擎选择器：百度匹配度最高（默认），Bing 兜底，Google 不可用。
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                              child: SizedBox(
+                                width: double.infinity,
+                                child: CupertinoSlidingSegmentedControl<ImageSearchEngine>(
+                                  groupValue: currentEngine,
+                                  onValueChanged: (v) {
+                                    if (v == null) return;
+                                    if (v == ImageSearchEngine.google) {
+                                      // Google 不可用：弹轻提示，不切换。
+                                      _controller.setError(LocalizationEngine.text('bookshelf_cover_engine_google_unavailable'));
+                                      return;
+                                    }
+                                    setInner(() => currentEngine = v);
+                                    // 切引擎后自动重搜一次。
+                                    runSearch(setInner);
+                                  },
+                                  children: {
+                                    ImageSearchEngine.baidu: Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 6),
+                                      child: Text(LocalizationEngine.text('bookshelf_cover_engine_baidu'),
+                                          style: const TextStyle(fontSize: 13)),
+                                    ),
+                                    ImageSearchEngine.bing: Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 6),
+                                      child: Text(LocalizationEngine.text('bookshelf_cover_engine_bing'),
+                                          style: const TextStyle(fontSize: 13)),
+                                    ),
+                                    ImageSearchEngine.google: Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 6),
+                                      child: Text(LocalizationEngine.text('bookshelf_cover_engine_google'),
+                                          style: const TextStyle(fontSize: 13)),
+                                    ),
+                                  },
+                                ),
+                              ),
+                            ),
+                            // 搜索框 + 搜索按钮。
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: CupertinoSearchTextField(
+                                      controller: searchController,
+                                      placeholder: LocalizationEngine.text('bookshelf_cover_baidu_search_hint'),
+                                      onChanged: (value) => query = value,
+                                      onSubmitted: (_) => runSearch(setInner),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  CupertinoButton(
+                                    padding: EdgeInsets.zero,
+                                    onPressed: loading ? null : () => runSearch(setInner),
+                                    child: Text(
+                                      LocalizationEngine.text('search'),
+                                      style: TextStyle(
+                                        fontSize: 15,
+                                        color: CupertinoColors.systemBlue.resolveFrom(context),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Divider(height: 1),
+                            // 结果网格。
+                            Expanded(
+                              child: _buildBaiduResultGrid(
+                                context,
+                                loading: loading,
+                                results: results,
+                                searchedOnce: searchedOnce,
+                                downloadingUrl: downloadingUrl,
+                                onTapImage: (url) async {
+                                  if (downloadingUrl.isNotEmpty) return;
+                                  setInner(() => downloadingUrl = url);
+                                  final bytes = await BaiduImageSearchService.downloadImage(url);
+                                  if (!mounted) return;
+                                  if (bytes == null) {
+                                    setInner(() => downloadingUrl = '');
+                                    _controller.setError(LocalizationEngine.text('bookshelf_cover_pick_failed'));
+                                    return;
+                                  }
+                                  await _controller.updateBookCover(book.id, bytes);
+                                  if (!mounted) return;
+                                  setInner(() => downloadingUrl = '');
+                                  Navigator.of(dialogCtx).pop();
+                                  _controller.showInfoToast(LocalizationEngine.text('bookshelf_cover_set_success'));
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (ctx, a1, a2, child) {
+        return SlideTransition(
+          position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero).animate(CurvedAnimation(parent: a1, curve: Curves.easeOutCubic)),
+          child: FadeTransition(opacity: a1, child: child),
+        );
+      },
+    );
+    searchController.dispose();
+  }
+
+  /// 构建百度图片搜索结果网格（加载中 / 空 / 失败 / 网格四态）。
+  Widget _buildBaiduResultGrid(
+    BuildContext context, {
+    required bool loading,
+    required List<String> results,
+    required bool searchedOnce,
+    required String downloadingUrl,
+    required void Function(String url) onTapImage,
+  }) {
+    if (loading) {
+      return const Center(child: CupertinoActivityIndicator(radius: 16));
+    }
+    if (searchedOnce && results.isEmpty) {
+      return Center(
+        child: Text(
+          LocalizationEngine.text('bookshelf_cover_baidu_empty'),
+          style: TextStyle(fontSize: 13, color: CupertinoColors.secondaryLabel.resolveFrom(context)),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.all(10),
+      child: GridView.builder(
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          crossAxisSpacing: 8,
+          mainAxisSpacing: 8,
+          childAspectRatio: 0.72,
+        ),
+        itemCount: results.length,
+        itemBuilder: (ctx, index) {
+          final url = results[index];
+          final isDownloading = downloadingUrl == url;
+          return GestureDetector(
+            onTap: () => onTapImage(url),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Image.network(
+                    url,
+                    fit: BoxFit.cover,
+                    loadingBuilder: (c, child, progress) {
+                      if (progress == null) return child;
+                      return Container(
+                        color: CupertinoColors.systemGrey6.resolveFrom(context),
+                        child: const Center(child: CupertinoActivityIndicator(radius: 10)),
+                      );
+                    },
+                    errorBuilder: (c, error, stack) => Container(
+                      color: CupertinoColors.systemGrey6.resolveFrom(context),
+                      child: Icon(CupertinoIcons.photo, color: CupertinoColors.systemGrey.resolveFrom(context)),
+                    ),
+                  ),
+                  if (isDownloading)
+                    Container(
+                      color: CupertinoColors.black.withOpacity(0.45),
+                      child: const Center(child: CupertinoActivityIndicator(radius: 12)),
+                    ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildGeneratedCover(BookModel book) {
     final seed = book.title.hashCode % 7;
     final colors = <Color>[
@@ -1495,9 +2055,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
       CupertinoColors.systemTeal,
     ];
 
+    // ★ 不设 width/height，靠父布局（SizedBox(w:70)+AspectRatio(3:4)）的约束自动撑满。
+    // 显式 double.infinity 在某些约束链中（如 AspectRatio→Container→fallback 无
+    // RepaintBoundary 包裹）可能导致尺寸计算偏差，表现为「只显示一部分」。
     return Container(
-      width: double.infinity,
-      height: double.infinity,
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -1538,23 +2099,34 @@ class _BookshelfPageState extends State<BookshelfPage> {
     return '${size.toStringAsFixed(precision)} ${units[index]}';
   }
 
-  Widget _buildBookListItem(BookModel book) {
+  Widget _buildBookListItem(
+    BookModel book, {
+    bool selectionMode = false,
+    bool isSelected = false,
+    VoidCallback? onToggle,
+  }) {
+    // 选择态：整行点击=切换选中；普通态：点击打开、长按出操作菜单。
+    final VoidCallback? rowOnTap = selectionMode ? onToggle : () => _openBook(book);
+    final void Function(LongPressStartDetails)? rowOnLongPress = selectionMode
+        ? null
+        : (details) => _showBookActions(context, book, anchorPosition: details.globalPosition);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () => _openBook(book),
-        onLongPressStart: (details) => _showBookActions(
-          context,
-          book,
-          anchorPosition: details.globalPosition,
-        ),
+        onTap: rowOnTap,
+        onLongPressStart: rowOnLongPress,
         child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: CupertinoColors.systemBackground,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: CupertinoColors.systemGrey5),
+            border: Border.all(
+              color: isSelected
+                  ? CupertinoTheme.of(context).primaryColor
+                  : CupertinoColors.systemGrey5,
+              width: isSelected ? 2 : 1,
+            ),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
@@ -1601,6 +2173,29 @@ class _BookshelfPageState extends State<BookshelfPage> {
               ),
               Builder(
                 builder: (buttonContext) {
+                  if (selectionMode) {
+                    return GestureDetector(
+                      onTap: onToggle,
+                      child: Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? CupertinoColors.systemBlue.resolveFrom(context)
+                              : CupertinoColors.systemBackground.resolveFrom(context),
+                          border: Border.all(
+                            color: isSelected
+                                ? CupertinoColors.systemBlue.resolveFrom(context)
+                                : CupertinoColors.systemGrey.resolveFrom(context),
+                          ),
+                          shape: BoxShape.circle,
+                        ),
+                        child: isSelected
+                            ? const Icon(CupertinoIcons.check_mark, size: 16, color: CupertinoColors.white)
+                            : null,
+                      ),
+                    );
+                  }
                   return CupertinoButton(
                     padding: const EdgeInsets.all(6),
                     minSize: 0,
@@ -1630,6 +2225,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
     );
 
     return Container(
+      // ★ 强制填满父布局（AspectRatio 提供的 70×93 紧约束），保证 Web 图片和
+      // 生成封面都完整填充封面预留位，不会缩到 Icon(44pt) 大小。
+      width: double.infinity,
+      height: double.infinity,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
@@ -1642,7 +2241,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
     );
   }
 
-  Widget _buildGridCard(BookModel book) {
+  Widget _buildGridCard(
+    BookModel book, {
+    bool selectionMode = false,
+    bool isSelected = false,
+    VoidCallback? onToggle,
+  }) {
     // calculate thumbnail and card heights so card is thumbnail height + 2px
     const double thumbWidth = 70.0;
     const double thumbAspect = 3.0 / 4.0;
@@ -1650,20 +2254,24 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final double cardHeight = thumbHeight + 2.0;
 
     final theme = CupertinoTheme.of(context);
+    // 选择态：点击=切换选中，禁用打开/长按菜单；普通态：点击打开、长按出操作菜单。
+    final VoidCallback? cardOnTap = selectionMode ? onToggle : () => _openBook(book);
+    final void Function(LongPressStartDetails)? cardOnLongPress = selectionMode
+        ? null
+        : (details) => _showBookActions(context, book, anchorPosition: details.globalPosition);
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () => _openBook(book),
-      onLongPressStart: (details) => _showBookActions(
-        context,
-        book,
-        anchorPosition: details.globalPosition,
-      ),
+      onTap: cardOnTap,
+      onLongPressStart: cardOnLongPress,
       child: Container(
         height: cardHeight,
         padding: const EdgeInsets.fromLTRB(6, 3, 6, 3),
         decoration: BoxDecoration(
           color: theme.scaffoldBackgroundColor,
           borderRadius: BorderRadius.circular(18),
+          border: isSelected
+              ? Border.all(color: CupertinoTheme.of(context).primaryColor, width: 2)
+              : null,
           boxShadow: [
             BoxShadow(
               color: CupertinoColors.systemGrey.withOpacity(0.08),
@@ -1675,19 +2283,41 @@ class _BookshelfPageState extends State<BookshelfPage> {
         child: Stack(
           children: [
             Positioned(
-              top: 0,
-              right: 0,
-              child: Builder(
-                builder: (buttonContext) {
-                  return GestureDetector(
-                    onTap: () => _showBookActions(buttonContext, book),
-                    child: const Padding(
-                      padding: EdgeInsets.only(top: 0, right: 0),
-                      child: Icon(CupertinoIcons.ellipsis, size: 16, color: CupertinoColors.inactiveGray),
+              top: 4,
+              right: 4,
+              child: selectionMode
+                  ? GestureDetector(
+                      onTap: onToggle,
+                      child: Container(
+                        width: 22,
+                        height: 22,
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? CupertinoColors.systemBlue.resolveFrom(context)
+                              : CupertinoColors.systemBackground.resolveFrom(context).withOpacity(0.9),
+                          border: Border.all(
+                            color: isSelected
+                                ? CupertinoColors.systemBlue.resolveFrom(context)
+                                : CupertinoColors.systemGrey.resolveFrom(context),
+                          ),
+                          shape: BoxShape.circle,
+                        ),
+                        child: isSelected
+                            ? const Icon(CupertinoIcons.check_mark, size: 14, color: CupertinoColors.white)
+                            : null,
+                      ),
+                    )
+                  : Builder(
+                      builder: (buttonContext) {
+                        return GestureDetector(
+                          onTap: () => _showBookActions(buttonContext, book),
+                          child: const Padding(
+                            padding: EdgeInsets.only(top: 0, right: 0),
+                            child: Icon(CupertinoIcons.ellipsis, size: 16, color: CupertinoColors.inactiveGray),
+                          ),
+                        );
+                      },
                     ),
-                  );
-                },
-              ),
             ),
             Padding(
               padding: const EdgeInsets.only(right: 18),
@@ -1769,7 +2399,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   Widget _buildStatsCards(BuildContext context, List<BookModel> books) {
-    final theme = CupertinoTheme.of(context);
     final allCount = books.length;
     final favCount = books.where((book) => book.isFavorite).length;
     final readingCount = books.where((book) => book.progress > 0 && book.progress < 1).length;
@@ -1895,235 +2524,146 @@ class _BookshelfPageState extends State<BookshelfPage> {
     );
   }
 
-  Widget _buildRecentReading(BuildContext context, List<BookModel> books) {
-    final sortedBooks = List<BookModel>.from(books)
-      ..sort((a, b) {
-        final aTime = a.lastReadAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-        final bTime = b.lastReadAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-        return bTime.compareTo(aTime);
-      });
-    final displayBooks = sortedBooks.isEmpty ? <BookModel>[] : sortedBooks.take(6).toList();
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        final isDesktop = width >= 900;
-        final isTablet = width >= 600 && width < 900;
-        final cardWidth = isDesktop
-            ? width * 0.12
-            : isTablet
-                ? width * 0.2
-                : width * 0.24;
-        final normalizedWidth = cardWidth.clamp(90.0, isDesktop ? 130.0 : isTablet ? 120.0 : 110.0);
-        final cardHeight = normalizedWidth * 1.45;
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(left: 6, right: 12),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Text(
-                    LocalizationEngine.text('recently_reading'),
-                    style: CupertinoTheme.of(context).textTheme.textStyle.copyWith(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: CupertinoColors.label.resolveFrom(context),
-                        ),
-                  ),
-                  const Spacer(),
-                  Text(
-                    LocalizationEngine.text('view_all'),
-                    style: CupertinoTheme.of(context).textTheme.textStyle.copyWith(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: CupertinoTheme.of(context).primaryColor,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              height: cardHeight,
-              child: displayBooks.isEmpty
-                  ? Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: _buildEmptyRecentPlaceholder(context, width - 24, cardHeight),
-                    )
-                  : ListView.builder(
-                      itemCount: displayBooks.length,
-                      scrollDirection: Axis.horizontal,
-                      padding: EdgeInsets.zero,
-                      itemBuilder: (context, index) {
-                        final book = displayBooks[index];
-                        return Padding(
-                          padding: EdgeInsets.only(right: index == displayBooks.length - 1 ? 0 : 12),
-                          child: _buildRecentReadingCard(context, book, normalizedWidth, cardHeight),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildRecentReadingCard(BuildContext context, BookModel book, double width, double height) {
-    final coverHeight = height * 0.78;
-    final progressHeight = 4.0;
-    return GestureDetector(
-      onTap: () => _openBook(book),
-      child: Container(
-        width: width,
-        height: height,
-        decoration: BoxDecoration(
-          color: CupertinoTheme.of(context).scaffoldBackgroundColor,
-          borderRadius: BorderRadius.circular(14),
-          boxShadow: [
-            BoxShadow(
-              color: CupertinoColors.systemGrey.withOpacity(0.06),
-              blurRadius: 10,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            SizedBox(
-              height: coverHeight,
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: AspectRatio(
-                  aspectRatio: 0.75,
-                  child: _buildBookThumbnail(book),
-                ),
-              ),
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      child: _buildProgressBar(context, book.progress, height: progressHeight),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      '${(book.progress * 100).toStringAsFixed(0)}%',
-                      style: const TextStyle(
-                        color: CupertinoColors.inactiveGray,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEmptyRecentPlaceholder(BuildContext context, double width, double height) {
-    final theme = CupertinoTheme.of(context);
+  /// 批量管理底部操作栏（现代设计：毛玻璃卡片 + 图标按钮）。
+  ///
+  /// 左侧显示已选数量，右侧 4 个动作：批量收藏 / 批量已读 / 批量未读 / 批量删除。
+  /// 删除需二次确认；其余动作处理后清空当前选择但保持选择模式，方便连续操作。
+  Widget _buildBatchActionBar() {
+    final count = _selectedIds.length;
+    final disabled = count == 0;
     return Container(
-      width: width,
-      height: height,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [theme.primaryColor.withOpacity(0.08), theme.scaffoldBackgroundColor],
-        ),
-        borderRadius: BorderRadius.circular(14),
+        color: CupertinoColors.systemBackground.resolveFrom(context).withOpacity(0.92),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: CupertinoColors.systemGrey4.resolveFrom(context)),
         boxShadow: [
-          BoxShadow(color: CupertinoColors.systemGrey.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 6)),
+          BoxShadow(color: CupertinoColors.black.withOpacity(0.12), blurRadius: 16, offset: const Offset(0, 6)),
         ],
       ),
-      padding: const EdgeInsets.all(12),
       child: Row(
         children: [
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  LocalizationEngine.text('bookshelf_empty_title'),
-                  style: theme.textTheme.textStyle.copyWith(
+            child: Text(
+              LocalizationEngine.text('bookshelf_batch_selected_count').replaceAll('%d', count.toString()),
+              style: CupertinoTheme.of(context).textTheme.textStyle.copyWith(
                     fontSize: 14,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w600,
                     color: CupertinoColors.label.resolveFrom(context),
                   ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  LocalizationEngine.text('bookshelf_empty_subtitle'),
-                  style: theme.textTheme.textStyle.copyWith(
-                    fontSize: 12,
-                    color: CupertinoColors.secondaryLabel.resolveFrom(context),
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const Spacer(),
-                SizedBox(
-                  width: 120,
-                  child: CupertinoButton.filled(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    onPressed: _controller.importPdf,
-                    child: Text(
-                      LocalizationEngine.text('bookshelf_import_button'),
-                      style: theme.textTheme.textStyle.copyWith(fontSize: 13, fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                ),
-              ],
             ),
           ),
-          const SizedBox(width: 12),
-          SizedBox(
-            width: height * 0.6,
-            height: height,
-            child: Center(
-              child: Icon(
-                CupertinoIcons.book,
-                color: theme.primaryColor,
-                size: height * 0.45,
-              ),
-            ),
+          _buildBatchAction(
+            CupertinoIcons.star_fill,
+            LocalizationEngine.text('bookshelf_batch_favorite'),
+            CupertinoColors.systemOrange.resolveFrom(context),
+            disabled: disabled,
+            onPressed: disabled
+                ? null
+                : () {
+                    _controller.batchUpdateFavorite(_selectedIds.toList(), true);
+                    _controller.showInfoToast(
+                      LocalizationEngine.text('bookshelf_batch_done').replaceAll('%d', count.toString()),
+                    );
+                    setState(() => _selectedIds.clear());
+                  },
+          ),
+          _buildBatchAction(
+            CupertinoIcons.check_mark_circled_solid,
+            LocalizationEngine.text('bookshelf_batch_mark_read'),
+            CupertinoColors.systemGreen.resolveFrom(context),
+            disabled: disabled,
+            onPressed: disabled
+                ? null
+                : () {
+                    _controller.batchSetReadingState(_selectedIds.toList(), 1.0);
+                    _controller.showInfoToast(
+                      LocalizationEngine.text('bookshelf_batch_done').replaceAll('%d', count.toString()),
+                    );
+                    setState(() => _selectedIds.clear());
+                  },
+          ),
+          _buildBatchAction(
+            CupertinoIcons.circle,
+            LocalizationEngine.text('bookshelf_batch_mark_unread'),
+            CupertinoColors.systemGrey.resolveFrom(context),
+            disabled: disabled,
+            onPressed: disabled
+                ? null
+                : () {
+                    _controller.batchSetReadingState(_selectedIds.toList(), 0.0);
+                    _controller.showInfoToast(
+                      LocalizationEngine.text('bookshelf_batch_done').replaceAll('%d', count.toString()),
+                    );
+                    setState(() => _selectedIds.clear());
+                  },
+          ),
+          _buildBatchAction(
+            CupertinoIcons.delete_solid,
+            LocalizationEngine.text('bookshelf_batch_delete'),
+            CupertinoColors.destructiveRed,
+            disabled: disabled,
+            onPressed: disabled
+                ? null
+                : () async {
+                    final confirmed = await showCupertinoDialog<bool>(
+                      context: context,
+                      builder: (_) => CupertinoAlertDialog(
+                        title: Text(LocalizationEngine.text('bookshelf_batch_delete')),
+                        content: Text(
+                          LocalizationEngine.text('bookshelf_batch_delete_confirm').replaceAll('%d', count.toString()),
+                        ),
+                        actions: [
+                          CupertinoDialogAction(
+                            child: Text(LocalizationEngine.text('cancel')),
+                            onPressed: () => Navigator.of(context).pop(false),
+                          ),
+                          CupertinoDialogAction(
+                            isDestructiveAction: true,
+                            child: Text(LocalizationEngine.text('confirm')),
+                            onPressed: () => Navigator.of(context).pop(true),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirmed == true) {
+                      _controller.batchRemove(_selectedIds.toList());
+                      setState(() => _selectedIds.clear());
+                    }
+                  },
           ),
         ],
       ),
     );
   }
 
-  Widget _buildProgressBar(BuildContext context, double progress, {double height = 6}) {
-    final bg = CupertinoColors.systemGrey5.resolveFrom(context);
-    final fg = CupertinoTheme.of(context).primaryColor;
-    return SizedBox(
-      width: 140,
-      child: Container(
-        height: height,
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(height / 2),
-        ),
-        child: FractionallySizedBox(
-          alignment: Alignment.centerLeft,
-          widthFactor: progress.clamp(0.0, 1.0),
-          child: Container(
-            decoration: BoxDecoration(
-              color: fg,
-              borderRadius: BorderRadius.circular(height / 2),
-            ),
+  /// 构建操作栏中的单个图标动作（图标在上、文案在下），禁用时置灰。
+  Widget _buildBatchAction(
+    IconData icon,
+    String label,
+    Color color, {
+    required VoidCallback? onPressed,
+    bool disabled = false,
+  }) {
+    final activeColor = disabled ? CupertinoColors.systemGrey3.resolveFrom(context) : color;
+    return CupertinoButton(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      minSize: 0,
+      onPressed: onPressed,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 22, color: activeColor),
+          const SizedBox(height: 3),
+          Text(
+            label,
+            style: CupertinoTheme.of(context).textTheme.textStyle.copyWith(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: activeColor,
+                ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -2144,71 +2684,98 @@ class _BookshelfPageState extends State<BookshelfPage> {
           ),
         ),
         middle: const SizedBox.shrink(),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            GestureDetector(
-              onTap: () {
-                showCupertinoModalPopup<void>(
-                  context: context,
-                  builder: (context) {
-                    return CupertinoPopupSurface(
-                      child: Container(
-                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: CupertinoTextField(
-                                    controller: _searchController,
-                                    placeholder: LocalizationEngine.text('bookshelf_search_placeholder'),
-                                    prefix: const Padding(
-                                      padding: EdgeInsets.only(left: 8),
-                                      child: Icon(CupertinoIcons.search),
-                                    ),
-                                    onChanged: (value) {
-                                      setState(() {
-                                        _searchText = value;
-                                      });
-                                      // 搜索输入高频变化：交由防抖+compute 隔离线程过滤，主线程不被逐字拖慢。
-                                      _scheduleFilter(_controller.books.value);
-                                    },
-                                    clearButtonMode: OverlayVisibilityMode.editing,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                CupertinoButton(
-                                  padding: EdgeInsets.zero,
-                                  onPressed: () {
-                                    Navigator.of(context).pop();
-                                  },
-                                  child: Text(LocalizationEngine.text('done')),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
+        trailing: _selectionMode
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: _toggleSelectAll,
+                    child: Text(
+                      LocalizationEngine.text('bookshelf_batch_select_all'),
+                      style: theme.textTheme.textStyle.copyWith(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: theme.primaryColor,
                       ),
-                    );
-                  },
-                );
-              },
-              child: Icon(CupertinoIcons.search, size: 20, color: headerColor),
-            ),
-            const SizedBox(width: 16),
-            Builder(
-              builder: (buttonContext) {
-                return GestureDetector(
-                  onTap: () => _showMoreOptions(buttonContext),
-                  child: Icon(CupertinoIcons.ellipsis, size: 20, color: headerColor),
-                );
-              },
-            ),
-          ],
-        ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: _exitSelectionMode,
+                    child: Text(
+                      LocalizationEngine.text('bookshelf_batch_cancel'),
+                      style: theme.textTheme.textStyle.copyWith(fontSize: 15, color: headerColor),
+                    ),
+                  ),
+                ],
+              )
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  GestureDetector(
+                    onTap: () {
+                      showCupertinoModalPopup<void>(
+                        context: context,
+                        builder: (context) {
+                          return CupertinoPopupSurface(
+                            child: Container(
+                              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: CupertinoTextField(
+                                          controller: _searchController,
+                                          placeholder: LocalizationEngine.text('bookshelf_search_placeholder'),
+                                          prefix: const Padding(
+                                            padding: EdgeInsets.only(left: 8),
+                                            child: Icon(CupertinoIcons.search),
+                                          ),
+                                          onChanged: (value) {
+                                            setState(() {
+                                              _searchText = value;
+                                            });
+                                            // 搜索输入高频变化：交由防抖+compute 隔离线程过滤，主线程不被逐字拖慢。
+                                            _scheduleFilter(_controller.books.value);
+                                          },
+                                          clearButtonMode: OverlayVisibilityMode.editing,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      CupertinoButton(
+                                        padding: EdgeInsets.zero,
+                                        onPressed: () {
+                                          Navigator.of(context).pop();
+                                        },
+                                        child: Text(LocalizationEngine.text('done')),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    },
+                    child: Icon(CupertinoIcons.search, size: 20, color: headerColor),
+                  ),
+                  const SizedBox(width: 16),
+                  Builder(
+                    builder: (buttonContext) {
+                      return GestureDetector(
+                        onTap: () => _showMoreOptions(buttonContext),
+                        child: Icon(CupertinoIcons.ellipsis, size: 20, color: headerColor),
+                      );
+                    },
+                  ),
+                ],
+              ),
       ),
       child: SafeArea(
         child: Stack(
@@ -2323,35 +2890,72 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                         ),
                                       )
                                     : _showCoverMode
-                                        ? GridView.builder(
-                                            shrinkWrap: true,
-                                            physics: const NeverScrollableScrollPhysics(),
-                                            // 显式开启重绘边界隔离：滚动时仅可视卡片参与重绘，降低整页重绘开销。
-                                            addRepaintBoundaries: true,
-                                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                              crossAxisCount: 2,
-                                              childAspectRatio: 1.72,
-                                              crossAxisSpacing: 12,
-                                              mainAxisSpacing: 12,
-                                            ),
-                                            itemCount: filteredBooks.length,
-                                            itemBuilder: (context, index) {
-                                              // 每张卡片独立 RepaintBoundary，避免单卡变化触发整页重绘。
-                                              return RepaintBoundary(
-                                                child: _buildGridCard(filteredBooks[index]),
+                                        ? LayoutBuilder(
+                                            builder: (context, constraints) {
+                                              const crossAxisCount = 2;
+                                              const crossAxisSpacing = 12.0;
+                                              const mainAxisSpacing = 12.0;
+                                              const hPadding = 12.0;
+                                              final cardW = (constraints.maxWidth - hPadding * 2 - crossAxisSpacing * (crossAxisCount - 1)) / crossAxisCount;
+                                              // childAspectRatio 1.72 + 文本区域约 56pt
+                                              final cardH = cardW / 1.72 + 56;
+                                              final rowCount = (filteredBooks.length / crossAxisCount).ceil();
+                                              final gridH = hPadding * 2 + rowCount * (cardH + mainAxisSpacing) - mainAxisSpacing;
+                                              return SizedBox(
+                                                height: gridH.clamp(0.0, double.infinity),
+                                                child: GridView.builder(
+                                                  // ★ 懒加载：用计算高度替代 shrinkWrap，不再一次性布局全部卡片
+                                                  shrinkWrap: false,
+                                                  padding: const EdgeInsets.symmetric(horizontal: hPadding, vertical: 6),
+                                                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                                    crossAxisCount: crossAxisCount,
+                                                    childAspectRatio: 1.72,
+                                                    crossAxisSpacing: crossAxisSpacing,
+                                                    mainAxisSpacing: mainAxisSpacing,
+                                                  ),
+                                                  addRepaintBoundaries: true,
+                                                  itemCount: filteredBooks.length,
+                                                  itemBuilder: (context, index) {
+                                                    final book = filteredBooks[index];
+                                                    return RepaintBoundary(
+                                                      child: _buildGridCard(
+                                                        book,
+                                                        selectionMode: _selectionMode,
+                                                        isSelected: _selectedIds.contains(book.id),
+                                                        onToggle: () => _toggleSelect(book.id),
+                                                      ),
+                                                    );
+                                                  },
+                                                ),
                                               );
                                             },
                                           )
-                                        : ListView.builder(
-                                            shrinkWrap: true,
-                                            physics: const NeverScrollableScrollPhysics(),
-                                            addRepaintBoundaries: true,
-                                            padding: const EdgeInsets.symmetric(vertical: 4),
-                                            itemCount: filteredBooks.length,
-                                            itemBuilder: (context, index) {
-                                              return RepaintBoundary(
-                                                child: _buildBookListItem(filteredBooks[index]),
+                                        : LayoutBuilder(
+                                            builder: (context, constraints) {
+                                              // 列表每项约 100pt（封面~70 + 内边距~20 + 文字~10），
+                                              // 稍高估保证不截断，误差仅底部留少许空白。
+                                              const double estimatedItemH = 100.0;
+                                              final listH = filteredBooks.length * estimatedItemH + 8;
+                                              return SizedBox(
+                                                height: listH.clamp(0.0, double.infinity),
+                                                child: ListView.builder(
+                                                  shrinkWrap: false,
+                                                  physics: const NeverScrollableScrollPhysics(),
+                                                  addRepaintBoundaries: true,
+                                                  padding: const EdgeInsets.symmetric(vertical: 4),
+                                                  itemCount: filteredBooks.length,
+                                                  itemBuilder: (context, index) {
+                                                    final book = filteredBooks[index];
+                                                    return RepaintBoundary(
+                                                      child: _buildBookListItem(
+                                                        book,
+                                                        selectionMode: _selectionMode,
+                                                        isSelected: _selectedIds.contains(book.id),
+                                                        onToggle: () => _toggleSelect(book.id),
+                                                      ),
+                                                    );
+                                                  },
+                                                ),
                                               );
                                             },
                                           ),
@@ -2424,6 +3028,13 @@ class _BookshelfPageState extends State<BookshelfPage> {
                   ),
                 );
               },
+            ),
+          if (_selectionMode)
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: 14,
+              child: _buildBatchActionBar(),
             ),
           ],
         ),

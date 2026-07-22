@@ -616,6 +616,7 @@ class LocalizationEngine {
     'light_mode': {'zh': '亮色模式', 'en': 'Light Mode'},
     'dark_mode': {'zh': '暗色模式', 'en': 'Dark Mode'},
     'save': {'zh': '保存', 'en': 'Save'},
+    'search': {'zh': '搜索', 'en': 'Search'},
     'edit': {'zh': '编辑', 'en': 'Edit'},
     'cancel': {'zh': '取消', 'en': 'Cancel'},
     'confirm': {'zh': '确认', 'en': 'Confirm'},
@@ -700,6 +701,50 @@ class LocalizationEngine {
     'bookshelf_mark_reading': {'zh': '设为在读', 'en': 'Mark as Reading'},
     'bookshelf_mark_finished': {'zh': '设为已读', 'en': 'Mark as Finished'},
     'bookshelf_mark_unread': {'zh': '设为未读', 'en': 'Mark as Unread'},
+    // —— 2026-07-22 新增：单本封面修改 + 封面来源抽屉 ——
+    'bookshelf_change_cover': {'zh': '修改封面', 'en': 'Change Cover'},
+    'bookshelf_cover_source_title': {'zh': '选择封面来源', 'en': 'Choose Cover Source'},
+    'bookshelf_cover_from_baidu': {'zh': '网络图片搜索', 'en': 'Web Image Search'},
+    'bookshelf_cover_from_local': {'zh': '从本地相册选择', 'en': 'Pick from Local Album'},
+    'bookshelf_cover_baidu_search_hint': {'zh': '输入书名或关键词搜索封面', 'en': 'Type a book title or keyword'},
+    'bookshelf_cover_baidu_searching': {'zh': '正在搜索封面…', 'en': 'Searching covers…'},
+    'bookshelf_cover_baidu_empty': {'zh': '没有找到相关图片', 'en': 'No matching images found'},
+    'bookshelf_cover_baidu_failed': {'zh': '搜索失败，请稍后重试', 'en': 'Search failed, please retry'},
+    'bookshelf_cover_set_success': {'zh': '封面已更新', 'en': 'Cover updated'},
+    'bookshelf_cover_pick_failed': {'zh': '获取图片失败', 'en': 'Failed to get image'},
+    // —— 2026-07-22 新增：多引擎选择器 ——
+    'bookshelf_cover_engine_baidu': {'zh': '百度', 'en': 'Baidu'},
+    'bookshelf_cover_engine_bing': {'zh': 'Bing', 'en': 'Bing'},
+    'bookshelf_cover_engine_google': {'zh': 'Google', 'en': 'Google'},
+    'bookshelf_cover_engine_google_unavailable': {
+      'zh': 'Google 暂不可用（需 WebView 或 API Key）',
+      'en': 'Google unavailable (needs WebView or API Key)'
+    },
+    // —— 2026-07-22 新增：批量管理 ——
+    'bookshelf_batch_manage': {'zh': '批量管理', 'en': 'Batch Manage'},
+    'bookshelf_batch_select_all': {'zh': '全选', 'en': 'Select All'},
+    'bookshelf_batch_cancel': {'zh': '完成', 'en': 'Done'},
+    'bookshelf_batch_favorite': {'zh': '批量收藏', 'en': 'Favorite'},
+    'bookshelf_batch_mark_read': {'zh': '批量已读', 'en': 'Mark Read'},
+    'bookshelf_batch_mark_unread': {'zh': '批量未读', 'en': 'Mark Unread'},
+    'bookshelf_batch_delete': {'zh': '批量删除', 'en': 'Delete'},
+    'bookshelf_batch_selected_count': {'zh': '已选 %d 本', 'en': 'Selected %d'},
+    'bookshelf_batch_delete_confirm': {
+      'zh': '确认删除选中的 %d 本书？此操作不可撤销',
+      'en': 'Delete the %d selected books? This cannot be undone'
+    },
+    'bookshelf_batch_done': {'zh': '已处理 %d 本', 'en': 'Processed %d books'},
+    // —— 2026-07-22 新增：扫描导入分类筛选 ——
+    'bookshelf_scan_filter_all': {'zh': '全部', 'en': 'All'},
+    'bookshelf_scan_filter_comic': {'zh': '漫画', 'en': 'Comic'},
+    'bookshelf_scan_filter_mobi': {'zh': 'MOBI', 'en': 'MOBI'},
+    // —— 2026-07-22 新增：文件夹直接导入 ——
+    'bookshelf_scan_folder_import': {'zh': '导入选中文件夹的书籍', 'en': 'Import Books in Selected Folders'},
+    'bookshelf_scan_folder_import_count': {'zh': '导入选中文件夹（%d）', 'en': 'Import Selected (%d)'},
+    'bookshelf_scan_folder_multi_hint': {
+      'zh': '勾选文件夹后直接导入其中的全部书籍，无需逐本选择',
+      'en': 'Check folders to import all their books directly, no per-book picking'
+    },
     'memory_reading_duration_hint': {
       'zh': '阅读时长统计将显示在此处',
       'en': 'Reading duration statistics will appear here',

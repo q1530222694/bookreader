@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 import 'package:flutter/widgets.dart';
 import 'package:file_picker/file_picker.dart';
 
@@ -343,6 +344,49 @@ class BookshelfController {
 
   void removeBook(String bookId) {
     _service.removeBook(bookId);
+  }
+
+  /// 替换某本书的封面（原始图片字节，可来自本地相册或网络搜索结果）。
+  ///
+  /// 转发给 [BookshelfService.updateBookCover]：统一转码为 PNG 后落盘 [CoverStore]
+  /// 并置 `hasCover=true`，UI 经 `BookCoverImage` 自动刷新为自定义封面。
+  Future<void> updateBookCover(String bookId, Uint8List rawBytes) async {
+    await _service.updateBookCover(bookId, rawBytes);
+  }
+
+  /// 批量收藏 / 取消收藏指定书籍。
+  void batchUpdateFavorite(List<String> ids, bool favorite) {
+    _service.batchUpdateFavorite(ids, favorite);
+  }
+
+  /// 批量设置阅读进度（0=未读，1=已读）。
+  void batchSetReadingState(List<String> ids, double progress) {
+    _service.batchSetReadingState(ids, progress);
+  }
+
+  /// 批量删除指定书籍（含封面清理）。
+  void batchRemove(List<String> ids) {
+    _service.batchRemove(ids);
+  }
+
+  /// 扫描并直接导入多个文件夹里的全部受支持书籍（不再二次逐本选择）。
+  ///
+  /// 用于「扫描文件夹」新流程：用户勾选若干文件夹后，递归扫描每个文件夹，
+  /// 汇总候选后走统一进度链路 [importScanCandidates] 导入，导入进度由 UI 的进度浮层监听。
+  /// 若全部文件夹均无书籍，给出空结果提示。
+  Future<void> scanAndImportFolders(List<String> folderPaths) async {
+    if (folderPaths.isEmpty) return;
+    final candidates = <ScanCandidateModel>[];
+    for (final path in folderPaths) {
+      final list = await _service.scanDirectoryForBooks(path);
+      candidates.addAll(list);
+    }
+    if (candidates.isEmpty) {
+      _showToast(LocalizationEngine.text('bookshelf_scan_folder_empty'));
+      return;
+    }
+    // importScanCandidates 内部复用统一进度上报，UI 进度浮层会自动展示「正在导入第 X/Y 本」。
+    await importScanCandidates(candidates);
   }
 
   void dispose() {

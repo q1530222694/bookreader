@@ -259,11 +259,19 @@ class _BookViewerPageState extends State<BookViewerPage>
     // 停止可能的后台 OCR（令牌自增，运行中闭包据此中止）。
     _ocrRunToken++;
     _ocrRunning = false;
-    if (_pdfDocument != null) {
-      // 关闭文档并释放本服务持有的渲染缓存（含已渲染的 ui.Image），避免 GPU 内存泄漏。
-      PdfRenderService.disposeDocument(_pdfDocument!);
-    }
+    // ★ 先 super.dispose() 将 mounted 置 false，使所有预取/增强渲染的 isStillNeeded()
+    // 立即失败并丢弃——杜绝「返回前已过检查、返回后完成并访问已清理缓存」的竞态崩溃。
     super.dispose();
+    if (_pdfDocument != null) {
+      final doc = _pdfDocument!;
+      _pdfDocument = null;
+      // 异步清理文档句柄与 GPU 缓存：调度到下一个微任务，给已入锁的渲染一个
+      // 完成窗口（它们会在下一帧前检测到 isStillNeeded 失败并退出）；catchError 兜底
+      // 避免清理过程本身的异常（如文档已被第三方关闭）导致未捕获错误。
+      scheduleMicrotask(() {
+        PdfRenderService.disposeDocument(doc).catchError((_) {});
+      });
+    }
   }
 
   void _syncProgress(int page) {
